@@ -1,0 +1,77 @@
+0: PBFTwell_formed_log.log_is_well_formed_on_event
+   PBFTwf_view_change_state.wf_view_change_state_preserved_on_event
+   PBFTwf_checkpoint_state.wf_checkpoint_state_state_preserved_on_event
+   PBFTordering.PBFTsequence_number_increases_local_pred
+   PBFTordering.PBFTlow_water_mark_increases_local_pred
+   PBFTordering.PBFTcurrent_view_increases_local_pred
+   PBFTwf_view_change_state_no_repeats.wf_view_change_state_no_repeats_on_events
+   PBFTordering.PBFTnever_stops_on_event --- slightly different
+1: PBFThas_new_view.PBFThas_new_view_is_preserves_step iv?
+2: PBFT_A_1_2_5.PBFT_A_1_2_5
+   PBFTview_changes_from_good2.sent_new_views_are_in_log
+   PBFTnew_view_are_received2.new_views_are_received2
+   PBFTnew_view_learns_or_knows.new_views_learns_or_knows
+   PBFTknows_own_new_view.knows_own_new_view
+3: PBFTview_changes_from_good3.view_of_own_view_changes
+   PBFTview_changes_from_good4.own_view_changes_are_own
+   PBFT_A_1_9_misc3.low_water_mark_increases_with_new_views
+   PBFT_A_1_2_6.PBFT_A_1_2_6
+4: PBFTreceived_prepare_like5.prepare_like_of_send_view_change_are_in_log
+   PBFTview_changes_from_good6.view_changes_are_received_or_created2
+   PBFTreceived_prepare_like7.view_changes_are_received_or_created
+   PBFTview_changes_are_received.view_changes_are_received
+5: PBFT_A_1_2_1.PBFT_A_1_2_1
+   PBFTsent_commits_are_in_log.commits_are_received_or_generated
+6: PBFT_A_1_2_1.PBFT_A_1_2_1_direct_pred
+   PBFTexecute2.next_to_execute_is_greater_than_one
+   PBFTexecute2.state_if_initial_next_to_execute
+   PBFTexecute.next_to_execute_from
+   PBFTgarbage_collect_prepare.prepares_get_garbage_collected_direct_pred0_v2
+   PBFTreceived_prepare_like2.prepare_like_messages_are_received_or_generated
+   PBFTreceived_prepare_like3.send_prepares_are_in_log
+   PBFT_A_1_2_2.PBFT_A_1_2_2
+   PBFTsent_commits_are_in_log.sent_commits_are_in_log
+7: PBFT_A_1_2_3.PBFT_A_1_2_3
+   PBFT_A_1_2_7.PBFT_A_1_2_7
+   PBFT_A_1_2_9.PBFT_A_1_2_9
+   PBFT_A_1_6.PBFT_A_1_6
+   PBFT_A_1_9_misc4.prepared_log_from_matching_view_and_seq
+   PBFTcheckpoints_from_good.trace_back_checkpoint_in_log
+   PBFTcheckpoints_from_good.sent_checkpoint_contains_state
+   PBFTcheckpoints_from_good.trace_back_checkpoint_in_certificate
+   PBFTexecute4.replies_from
+   PBFTgarbage_collect_pre_prepare.pre_prepares_get_garbage_collected_direct_pred0_v2
+   PBFTpre_prepares_are_received.pre_prepares_are_received
+   PBFTreceived_prepare_like6.prepare_like_of_send_new_view_are_in_log
+   PBFTview_changes_from_good5.sent_view_change_is_in_log
+   PBFTview_changes_from_good7.sent_view_change_is_in_log2
+   PBFTgarbage_collect_prepare.prepares_are_between_water_marks_if_in_log
+   PBFT_A_1_2_8.PBFT_A_1_2_8
+   PBFTreceived_prepare_like4.send_pre_prepares_are_in_log
+8: PBFT_A_1_2_2_direct_pred.PBFT_A_1_2_2_direct_pred
+   PBFTnew_view_are_received3.new_views_are_received3
+   PBFTgarbage_collect_pre_prepare.pre_prepares_are_between_water_marks_if_in_log
+
+
+0: 8
+1: 1
+2: 5
+3: 4
+4: 4
+5: 2
+6: 9
+7: 17
+8: 3
+
+
+
+    prove_by_ind ind h eqst sop p trig smash_handlers4
+    smash_pbft_ind3.
+
+    prove_by_ind ind h eqst sop p trig smash_handlers4
+    smash_pbft_ind6_6.
+
+
+    prove_by_ind ind h eqst sop p trig smash_handlers4
+    smash_pbft_ind6_10.
+

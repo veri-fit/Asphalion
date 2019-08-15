@@ -1,0 +1,38 @@
+loader.preload = file:$(SHIMPATH)
+loader.env.LD_LIBRARY_PATH = /lib
+loader.debug_type = inline
+loader.syscall_symbol = syscalldb
+
+fs.mount.lib.type = chroot
+fs.mount.lib.path = /lib
+fs.mount.lib.uri = file:$(LIBCDIR)
+
+fs.mount.bin.type = chroot
+fs.mount.bin.path = /bin
+fs.mount.bin.uri = file:/bin
+
+sys.brk.size = 32M
+sys.stack.size = 4M
+
+# allow to bind on port 8000
+net.allow_bind.1 = 127.0.0.1:8000
+# allow to connect to port 8000
+net.allow_peer.1 = 127.0.0.1:8000
+
+# sgx-related
+sgx.trusted_files.ld = file:$(LIBCDIR)/ld-linux-x86-64.so.2
+sgx.trusted_files.libc = file:$(LIBCDIR)/libc.so.6
+sgx.trusted_files.libtinfo = file:$(LIBCDIR)/libtinfo.so.5
+sgx.trusted_files.libgmp = file:$(LIBCDIR)/libgmp.so.10
+sgx.trusted_files.libdl = file:$(LIBCDIR)/libdl.so.2
+sgx.trusted_files.libm = file:$(LIBCDIR)/libm.so.6
+sgx.trusted_files.libpthread = file:$(LIBCDIR)/libpthread.so.0
+sgx.trusted_files.victim = file:exec_victim
+sgx.trusted_children.victim = file:exec_victim.sig
+
+sgx.trusted_files.unix_pipe = file:unix.c
+sgx.trusted_files.config = file:config
+
+
+# symmetric keys
+

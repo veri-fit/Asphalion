@@ -1,0 +1,26 @@
+wrap.o: wrapper.c
+	ocamlc -c $<
+
+dllwrap_stubs.so: wrapper.o
+	ocamlmklib  -o  wrapper_stubs  $<
+
+MinBFTtest2.mli: MinBFTtest2.ml
+	camlc -i $< > $@
+
+MinBFTtest2.cmi: MinBFTtest2.mli
+	ocamlc -c $<
+
+MinBFTtest2.cmo: MinBFTtest2.ml MinBFTtest2.cmi
+	ocamlc -c $<
+
+MinBFTtest2.cma:  MinBFTtest2.cmo  dllwrap_stubs.so
+	ocamlc -a  -o $@  $<  -dllib -lwrap_stubs
+
+MinBFTtest2.cmx: MinBFTtest2.ml MinBFTtest2.cmi
+	ocamlopt -c $<
+
+MinBFTtest2.cmxa:  MinBFTtest2.cmx  dllwrap_stubs.so
+	ocamlopt -a  -o $@  $<  -cclib -lwrap_stubs
+
+clean:
+	rm -f *.[oa] *.so *.cm[ixoa] *.cmxa

@@ -1,0 +1,24 @@
+default: tcp_client.o  wrapper.o MinBFTtest2.o client  wrapper
+
+tcp_client.o: tcp_client.c
+	ocamlc -c tcp_client.c
+
+wrapper.o: wrapper.c
+	ocamlc -c wrapper.c
+
+MinBFTtest2.o: MinBFTtest2.ml
+	ocamlc -output-obj -o MinBFTtest2.o MinBFTtest2.ml
+
+client: tcp_client.o MinBFTtest2.o
+	cc tcp_client.o MinBFTtest2.o  -o client -L`ocamlc -where` -lcamlrun -ldl -lm -lncurses -Wall
+
+
+wrapper: wrapper.o MinBFTtest2.o
+	cc wrapper.o MinBFTtest2.o  -o wrapper -L`ocamlc -where` -lcamlrun -ldl -lm -lncurses -Wall
+
+clean:
+	rm -f *.o
+	rm -f *.cmo
+	rm -f *.cmi
+	rm -f client
+	rm -f wrapper

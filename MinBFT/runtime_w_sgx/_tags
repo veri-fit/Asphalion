@@ -1,0 +1,2 @@
+<*.byte>: linkdep(tcp_client.o), custom
+<*.native>: linkdep(tcp_client.o)

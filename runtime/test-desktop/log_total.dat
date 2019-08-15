@@ -1,0 +1,3 @@
+Replicas  4 Clients   1 Requests  1000000 Elapsed   0 5 41 Average   .00034100000000000000
+Replicas  10 Clients   1 Requests  1000000 Elapsed   0 34 48 Average   .00208800000000000000
+Replicas  7 Clients   1 Requests  1000000 Elapsed   0 15 12 Average   .00091200000000000000
