@@ -83,7 +83,7 @@ Section MicroBFTagreement.
       induction es using Vector.caseS'; simpl in *.
       clear vt vd vc vn es.
       repndors; subst; unfold seq_concl, seq_event in *;
-        simpl in *; introv; simpl in *; tcsp;
+        simpl in *; introv; simpl in *; microbft_simp; tcsp;
           try (complete (apply ASSUMPTION_trusted_learns_if_gen_true; auto; destruct h0; auto));
           try (complete (apply ASSUMPTION_trusted_knew_or_learns_or_gen_true; auto; destruct h0; auto));
           try (complete (apply ASSUMPTION_monotonicity_true; auto; destruct h0; auto));

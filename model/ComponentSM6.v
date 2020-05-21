@@ -18,7 +18,7 @@ Section ComponentSM6.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -141,7 +141,7 @@ Section ComponentSM6.
     rewrite incr_pred_n_procs_raise_to_n_procs; auto.
   Qed.
 
-  Lemma app_m_proc_as_sm2update :
+(*  Lemma app_m_proc_as_sm2update :
     forall {n} {cn}
            (sm : n_proc n cn)
            (i  : cio_I (fio cn)),
@@ -168,7 +168,7 @@ Section ComponentSM6.
       fold n_proc in *.
       remember (sm2update_p sm (sm2state sm) i (decr_n_procs x)) as q; repnd; simpl; auto.
       unfold update_state_or_halt_m; destruct q1; simpl; auto. }
-  Qed.
+  Qed.*)
 
   Lemma select_n_proc_raise :
     forall {n} {cn} i j (a : n_proc n cn) b,
@@ -220,19 +220,19 @@ Section ComponentSM6.
     rewrite sel1; auto.
   Qed.
 
-  Definition M_run_smat_on_inputs {n} {cn}
+(*  Definition M_run_smat_on_inputs {n} {cn}
              (sm : n_proc_at n cn)
              (l  : list (cio_I (fio cn)))
              (i  : cio_I (fio cn))
     : M_n n (op_st_o cn) :=
-    M_run_update_on_inputs (sm_state sm) (sm_update sm) l i.
+    M_run_update_on_inputs (sm_state sm) (sm_update sm) l i.*)
 
-  Definition halt_main_ls {L S} (ls : LocalSystem L S) : LocalSystem L S :=
-    MkLocalSystem
+(*  Definition halt_main_ls {L S} (ls : LocalSystem L S) : LocalSystem L S :=
+    LocalSystem
       (halt_machine (ls_main ls))
-      (ls_subs ls).
+      (ls_subs ls).*)
 
-  Definition upd_ls_main_op_state_and_subs
+(*  Definition upd_ls_main_op_state_and_subs
              {L} {S}
              (ls : LocalSystem L S)
              (o  : option (sf _))
@@ -240,9 +240,9 @@ Section ComponentSM6.
     match o with
     | Some s => upd_ls_main_state_and_subs ls s ss
     | None => halt_main_ls (upd_ls_subs ls ss)
-    end.
+    end.*)
 
-  Definition M_output_ls_on_input
+(*  Definition M_output_ls_on_input
              {Lv cn}
              (ls : LocalSystem Lv cn)
              (i  : cio_I (fio cn)) : LocalSystem _ _ * cio_O (fio cn) :=
@@ -253,7 +253,7 @@ Section ComponentSM6.
          match op with
          | Some (ops, o) => (upd_ls_main_op_state_and_subs ls ops subs, o)
          | None => (halt_main_ls (upd_ls_subs ls subs), cio_default_O (fio cn))
-         end).
+         end).*)
 
   Definition raise_to_n_proc_def {n} {cn} m (p : n_proc n cn) (d : n_proc m cn) : n_proc m cn :=
     opt_val (raise_to_n_proc m p) d.
@@ -266,13 +266,13 @@ Section ComponentSM6.
     tcsp.
   Qed.
 
-  Lemma at2sm_halt_machine :
+(*  Lemma at2sm_halt_machine :
     forall n cn (p : n_proc_at n cn),
       at2sm (halt_machine p)
       = halt_machine_m (at2sm p).
   Proof.
     tcsp.
-  Qed.
+  Qed.*)
 
   Lemma raise_to_n_proc_update_state_m :
     forall m n cn (p : n_proc n cn) s,
@@ -290,7 +290,7 @@ Section ComponentSM6.
     repeat (rewrite option_map_option_map; unfold compose; simpl); auto.
   Qed.
 
-  Lemma raise_to_n_proc_halt_machine_m :
+(*  Lemma raise_to_n_proc_halt_machine_m :
     forall m n cn (p : n_proc n cn),
       raise_to_n_proc m (halt_machine_m p)
       = option_map halt_machine_m (raise_to_n_proc m p).
@@ -302,7 +302,7 @@ Section ComponentSM6.
     destruct (deq_nat n (S m)); subst; simpl in *; tcsp.
     rewrite IHm; clear IHm.
     repeat (rewrite option_map_option_map; unfold compose; simpl); auto.
-  Qed.
+  Qed.*)
 
   Lemma at2sm_sm2at :
     forall n cn (p : n_proc n cn),
@@ -324,16 +324,16 @@ Section ComponentSM6.
   Qed.
   Hint Rewrite at2sm_sm2at : comp.
 
-  Definition update_subs_with_sub_ls
+(*  Definition update_subs_with_sub_ls
              {n} {L} {cn}
              (subs : n_procs n)
              (sm   : n_proc n cn)
              (ls   : LocalSystem L cn) : n_procs n :=
     replace_subs
       (replace_name (raise_to_n_proc_def _ (at2sm (ls_main ls)) sm) subs)
-      (raise_to_n_procs (pred n) (ls_subs ls)).
+      (raise_to_n_procs (pred n) (ls_subs ls)).*)
 
-  Lemma M_break_call_comp :
+(*  Lemma M_break_call_comp :
     forall (cn : CompName) n O
            (i    : cio_I (fio cn))
            (subs : n_procs n)
@@ -377,25 +377,25 @@ Section ComponentSM6.
       unfold raise_to_n_proc_def.
       rewrite raise_to_n_proc_halt_machine_m.
       autorewrite with comp; simpl; auto. }
-  Qed.
+  Qed.*)
 
-  Lemma ls_subs_upd_ls_main_op_state_and_subs :
+(*  Lemma ls_subs_upd_ls_main_op_state_and_subs :
     forall {L S} (ls : LocalSystem L S) ops subs,
       ls_subs (upd_ls_main_op_state_and_subs ls ops subs) = subs.
   Proof.
     introv.
     destruct ops; simpl; auto.
   Qed.
-  Hint Rewrite @ls_subs_upd_ls_main_op_state_and_subs : comp.
+  Hint Rewrite @ls_subs_upd_ls_main_op_state_and_subs : comp.*)
 
-  Lemma is_proc_n_proc_at_upd_ls_main_op_state_and_subs :
+(*  Lemma is_proc_n_proc_at_upd_ls_main_op_state_and_subs :
     forall {L S} (ls : LocalSystem L S) ops subs,
       is_proc_n_proc_at (ls_main ls)
       -> is_proc_n_proc_at (upd_ls_main_op_state_and_subs ls ops subs).
   Proof.
     introv; destruct ops; simpl; auto.
   Qed.
-  Hint Resolve is_proc_n_proc_at_upd_ls_main_op_state_and_subs : comp.
+  Hint Resolve is_proc_n_proc_at_upd_ls_main_op_state_and_subs : comp.*)
 
   Lemma is_proc_n_proc_at_update_implies_some :
     forall cn n (p : n_proc_at n cn) s i subs1 subs2 sop out,
@@ -413,7 +413,7 @@ Section ComponentSM6.
     inversion e; subst; eauto.
   Qed.
 
-  Lemma M_output_ls_on_input_preserves :
+(*  Lemma M_output_ls_on_input_preserves :
     forall {L S} (ls1 ls2 : LocalSystem L S) i o,
       wf_ls ls1
       -> are_procs_ls ls1
@@ -451,7 +451,7 @@ Section ComponentSM6.
     dands; eauto 3 with comp;[].
     apply similar_subs_preserves_procs_names in q0.
     rewrite <- q0; auto.
-  Qed.
+  Qed.*)
 
   Lemma M_break_snd_eq :
     forall {n} {A} {B}
@@ -542,6 +542,86 @@ Section ComponentSM6.
   Qed.
   Hint Rewrite @update_state_m_sm_or_at_build_mp_sm : comp.
 
+  Lemma lower_head_incr_n_procs :
+    forall i {n} (l : n_procs n),
+      lower_head i (incr_n_procs l)
+      = lower_head i l.
+  Proof.
+    destruct l; simpl; auto.
+    destruct n0; simpl in *; tcsp.
+  Qed.
+  Hint Rewrite lower_head_incr_n_procs : comp.
+
+  Lemma ordered_subs_incr_n_procs :
+    forall {n} (l : n_procs n),
+      ordered_subs (incr_n_procs l)
+      = ordered_subs l.
+  Proof.
+    unfold incr_n_procs; induction l; introv; simpl in *; tcsp.
+    rewrite IHl; f_equal.
+    destruct a; simpl.
+    fold (incr_n_procs l); autorewrite with comp; auto.
+  Qed.
+  Hint Rewrite @ordered_subs_incr_n_procs : comp.
+
+  Lemma get_names_incr_n_procs :
+    forall {n} (l : n_procs n),
+      get_names (incr_n_procs l)
+      = get_names l.
+  Proof.
+    induction l; introv; simpl in *; tcsp.
+    rewrite IHl.
+    destruct a; simpl in *; tcsp.
+  Qed.
+  Hint Rewrite @get_names_incr_n_procs : comp.
+
+  Lemma are_procs_n_procs_incr_n_procs :
+    forall {n} (l : n_procs n),
+      are_procs_n_procs l
+      -> are_procs_n_procs (incr_n_procs l).
+  Proof.
+    introv aps i; apply in_map_iff in i; exrepnd; subst; simpl in *.
+    apply aps in i0.
+    destruct x; simpl in *; tcsp.
+  Qed.
+  Hint Resolve are_procs_n_procs_incr_n_procs : comp.
+
+  Lemma similar_procs_incr_n_nproc_left_implies :
+    forall {n} (p : n_nproc n) (k : n_nproc (S n)),
+      similar_procs (incr_n_nproc p) k
+      -> exists j, k = incr_n_nproc j /\ similar_procs p j.
+  Proof.
+    introv sim.
+    inversion sim as [? ? ? ? sims]; clear sim; subst.
+    match goal with
+    | [ H : context[p1] |- _ ] => rename H into h1
+    end.
+    match goal with
+    | [ H : context[p2] |- _ ] => rename H into h2
+    end.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; eauto 3 with comp.
+    apply Eqdep.EqdepTheory.inj_pair2 in h2; subst; eauto 3 with comp.
+    simpl in *.
+    destruct p, p1, p2; simpl in *; tcsp; inversion h1; subst; simpl in *.
+    match goal with
+    | [ H : context[b] |- _ ] => rename H into h3
+    end.
+    apply Eqdep.EqdepTheory.inj_pair2 in h3; subst; eauto 3 with comp.
+    exists (MkPProc pp_name b0); simpl; tcsp.
+  Qed.
+
+  Lemma similar_subs_incr_n_procs_left_implies :
+    forall {n} (l : n_procs n) (k : n_procs (S n)),
+      similar_subs (incr_n_procs l) k
+      -> exists j, k = incr_n_procs j /\ similar_subs l j.
+  Proof.
+    induction l; destruct k; introv sim; simpl in *; tcsp;
+      inversion sim; subst; clear sim.
+    { exists ([] : n_procs n); simpl; tcsp. }
+    apply IHl in sims; clear IHl; exrepnd; subst; simpl in *.
+    apply similar_procs_incr_n_nproc_left_implies in simp; exrepnd; subst.
+    exists (j0 :: j); simpl; tcsp.
+  Qed.
 
 End ComponentSM6.
 
@@ -549,30 +629,35 @@ End ComponentSM6.
 Hint Rewrite @M_to_same : comp.
 Hint Rewrite @M_from_same : comp.
 Hint Rewrite @at2sm_sm2at : comp.
-Hint Rewrite @ls_subs_upd_ls_main_op_state_and_subs : comp.
+(*Hint Rewrite @ls_subs_upd_ls_main_op_state_and_subs : comp.*)
 Hint Rewrite @similar_subs_nil_l : comp.
 Hint Rewrite @fold_build_m_sm : comp.
 Hint Rewrite @update_state_m_sm_or_at_build_mp_sm : comp.
+Hint Rewrite @lower_head_incr_n_procs : comp.
+Hint Rewrite @ordered_subs_incr_n_procs : comp.
+Hint Rewrite @get_names_incr_n_procs : comp.
+
+Hint Resolve are_procs_n_procs_incr_n_procs : comp.
 
 
-Hint Resolve is_proc_n_proc_at_upd_ls_main_op_state_and_subs : comp.
+(*Hint Resolve is_proc_n_proc_at_upd_ls_main_op_state_and_subs : comp.*)
 
 
 Ltac prove_wf :=
   match goal with
-  | [ |- wf_ls _ ] =>
+  | [ |- wf_procs _ ] =>
     repeat constructor; simpl; tcsp
   end.
 
 Ltac prove_are_procs :=
   match goal with
-  | [ |- are_procs_ls _ ] =>
+  | [ |- are_procs_n_procs _ ] =>
     repeat constructor;
     [unfold is_proc_n_proc_at; eexists; introv; reflexivity
     |introv xx; simpl in *; tcsp]
   end.
 
-Ltac m_output_ls_on_input_preserves H out :=
+(*Ltac m_output_ls_on_input_preserves H out :=
   match type of H with
   | M_output_ls_on_input ?ls1 ?i = (?ls2, ?o) =>
     let wf   := fresh "wf"   in
@@ -592,9 +677,9 @@ Ltac m_output_ls_on_input_preserves H out :=
     destruct wf as [wf1 [wf2 [wf3 wf4]]];
     exrepnd; subst; simpl in *;
     rename o into out
-  end.
+  end.*)
 
-Ltac abstract_m_output_ls_on_input H out :=
+(*Ltac abstract_m_output_ls_on_input H out :=
   match type of H with
   | context[M_output_ls_on_input ?ls ?i] =>
     let o := fresh "out" in
@@ -606,9 +691,9 @@ Ltac abstract_m_output_ls_on_input H out :=
       simpl in H;
       m_output_ls_on_input_preserves G out
     end
-  end.
+  end.*)
 
-Ltac use_m_break_call_comp out :=
+(*Ltac use_m_break_call_comp out :=
   match goal with
   | [ H : context[call_proc ?n ?i] |- _ ] =>
     let h  := fresh "h" in
@@ -618,4 +703,4 @@ Ltac use_m_break_call_comp out :=
     remember @M_output_ls_on_input as xx;
     simpl in H; subst xx;
     abstract_m_output_ls_on_input H out
-  end.
+  end.*)

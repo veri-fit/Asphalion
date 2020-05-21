@@ -39,7 +39,7 @@ Section Received_or_generated.
   Context { pm  : @Msg }.
   Context { qc  : @Quorum_context pn}.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.

@@ -45,7 +45,7 @@ Section Synch.
   Context { gms : @MsgStatus pm }.
   Context { dtc : @DTimeContext }.
   Context { tc  : @TimeConstraint dtc }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.

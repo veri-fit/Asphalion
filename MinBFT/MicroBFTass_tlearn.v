@@ -44,12 +44,6 @@ Section MicroBFTass_tlearn.
           try (complete (inversion sendbyz4; eauto)). }
       exrepnd.
 
-      (* this was original proof
-      assert (exists k, loc e' = MicroBFT_replica k) as eqloc'.
-      { destruct a as [a tok], a, m; simpl in *; tcsp; ginv;
-          try (complete (inversion sendbyz4; eauto)). }
-      exrepnd. *)
-
       unfold M_output_sys_on_event in sendbyz5; simpl in *.
       rewrite eqloc'0 in *; simpl in *.
       apply M_output_ls_on_event_as_run in sendbyz5; exrepnd.
@@ -60,7 +54,9 @@ Section MicroBFTass_tlearn.
       destruct trig; simpl in *; tcsp;[].
 
       (* XXXXXXXXXXX *)
-      autorewrite with microbft in *.
+      unfold M_run_ls_on_input_out in *.
+      unfold M_run_ls_on_input in *.
+      autorewrite with comp microbft in *.
       Time microbft_dest_msg Case; [|].
 
       { Case "Request".
@@ -80,15 +76,21 @@ Section MicroBFTass_tlearn.
         rewrite M_byz_output_ls_on_event_as_run.
         applydup @M_run_ls_before_event_M_byz_run_ls_before_event in sendbyz5 as byz.
         applydup trigger_op_Some_implies_trigger_message in Heqtrig as trig'.
+        unfold M_byz_output_ls_on_this_one_event; simpl.
+        unfold M_byz_run_ls_on_one_event; simpl.
         repeat (allrw; simpl).
-
-        autorewrite with microbft.
-        repeat unfold_handler_concl. smash_microbft.
+        unfold data_is_in_out, event2out; rewrite trig'; simpl.
+        unfold M_run_ls_on_input; simpl.
+        autorewrite with comp microbft.
+        repeat unfold_handler_concl.
+        smash_microbft.
+        eexists; dands; try reflexivity; dands; tcsp.
       }
+
       {
         Case "Commit".
 
-        repeat (simpl in *; autorewrite with minbft in *; smash_microbft2);
+        repeat (simpl in *; try autorewrite with comp minbft in *; smash_microbft2);
           try (complete (inversion sendbyz6; subst; simpl in *; tcsp)).
       }
     }
@@ -99,57 +101,24 @@ Section MicroBFTass_tlearn.
       exists (MkEventN e' exe'); simpl; allrw interp_towns; dands; eauto 3 with minbft;
         try (complete (unfold data_is_owned_by; simpl; unfold ui2rep; simpl; eauto));[].
 
-      unfold M_byz_output_sys_on_event_to_byz in *; simpl in *.
-      unfold M_byz_output_sys_on_event in *.
-      rewrite sendbyz6 in *; simpl in *.
-      rewrite M_byz_output_ls_on_event_as_run in sendbyz5.
+      unfold M_byz_output_sys_on_event in *; simpl in *.
+      rewrite sendbyz7 in *; simpl in *.
 
       assert (MicroBFTsys (MicroBFTheader.node2name (ui2rep t)) = MicroBFTlocalSys (ui2rep t)) as temp by auto.
       rewrite temp in *.
 
-      pose proof (ex_M_byz_run_ls_before_event_MicroBFTlocalSys e' (ui2rep t)) as w.
-      repndors; exrepnd;[|].
+      unfold disseminate_data.
+      unfold M_byz_output_sys_on_event; simpl.
+      allrw.
+      exists o; dands; auto.
+      clear sendbyz4.
 
-      {
-        rewrite w0 in *; simpl in *.
-        remember (trigger e') as trig; symmetry in Heqtrig.
-        destruct trig; simpl in *; ginv;[].
-        destruct i; simpl in *; repnd; simpl in *; ginv; simpl in *;[].
-
-        unfold ui2rep in *; simpl in *.
-        unfold state_of_trusted in *; simpl in *.
-
-        unfold disseminate_data; simpl.
-        unfold M_byz_output_sys_on_event; simpl.
-        allrw; simpl.
-        rewrite M_byz_output_ls_on_event_as_run.
-        repeat (allrw; simpl); tcsp.
-      }
-
-      {
-        rewrite w0 in *; simpl in *.
-        remember (trigger e') as trig; symmetry in Heqtrig.
-        destruct trig; simpl in *; ginv;[|].
-
-        { Time microbft_dest_msg Case;
-            unfold M_break, call_verify_ui, bind in *; simpl in *; smash_microbft. }
-
-        destruct i; simpl in *; repnd; simpl in *; ginv; simpl in *;[].
-
-        unfold kc_trust_is_owned; simpl.
-        unfold ui2rep in *; simpl in *.
-        unfold state_of_trusted in *; simpl in *.
-        unfold ui2counter in *; simpl in *.
-
-        unfold disseminate_data; simpl.
-        unfold M_byz_output_sys_on_event; simpl.
-        allrw; simpl.
-        rewrite M_byz_output_ls_on_event_as_run.
-        repeat (allrw; simpl); tcsp.
-      }
+      revert dependent o.
+      unfold is_trusted_event in *.
+      unfold data_is_in_out, trusted_is_in_out, event2out; simpl in *; rewrite p; simpl in *.
+      introv xx; subst; simpl in *.
+      allrw; simpl; tcsp.
     }
-
-
   Qed.
   Hint Resolve ASSUMPTION_trusted_learns_if_gen_true : microbft.
 

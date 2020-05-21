@@ -58,10 +58,10 @@ Section PBFTinstance.
   Definition MIP := 2.
 
   (* water-mark range *)
-  Definition WMR := 100.
+  Definition WMR := 200.
 
   (* checkpoint period *)
-  Definition CP := 50.
+  Definition CP := 100.
   (* ============================================ *)
 
 

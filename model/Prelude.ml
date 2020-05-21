@@ -60,8 +60,8 @@ module SM =
         match l with
         | [] -> raise (CALL_FAILED "key not found")
         | (a,(b,c)) :: l -> if a = cn
-                            then ((*print_endline "found key";*)
-                              snd((Obj.magic c)(i)))
+                            then (print_endline "found key";
+                                  snd((Obj.magic c)(i)))
                             else search l in
       search (!lkup)
   end

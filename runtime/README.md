@@ -17,6 +17,7 @@ crypto stuff.  To install all that, run:
 
 To use the simulator:
 
+- run "make ext"
 - run "make"
 - run "./Simul.native -max XXX", where XXX is the number of requests
   to send

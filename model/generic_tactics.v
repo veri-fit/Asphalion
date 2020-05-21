@@ -208,3 +208,8 @@ Ltac rename_hyp_with term h :=
   match goal with
   | [ H : context[term] |- _ ] => rename H into h
   end.
+
+Ltac sp_exI :=
+  match goal with
+  | [ H : existT _ ?x _ = existT _ ?x _ |- _ ] => apply Eqdep.EqdepTheory.inj_pair2 in H
+  end.

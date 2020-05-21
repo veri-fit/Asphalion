@@ -53,6 +53,7 @@ Section MicroBFTass_knew.
     unfold M_byz_output_sys_on_event; simpl.
     rewrite M_byz_output_ls_on_event_as_run; simpl.
     unfold M_byz_output_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
     apply (trigger_op_Some_implies_trigger_message e msg) in eqtrig.
     allrw; simpl.
 
@@ -64,19 +65,23 @@ Section MicroBFTass_knew.
 
     rewrite M_run_ls_on_event_unroll2 in runOn.
     rewrite runBef in runOn; simpl in *.
-    apply map_option_Some in runOn; exrepnd; rev_Some.
+    apply map_option_Some in runOn; exrepnd; rev_Some; microbft_simp.
     unfold trigger_op in *.
+    unfold data_is_in_out, event2out; simpl.
     rewrite eqtrig in *; simpl in *; ginv.
 
     clear runBef.
 
+    unfold M_run_ls_on_input_ls in *.
+    remember (M_run_ls_on_input (MicroBFTlocalSys_new (loc e) s1 u1 l1) (msg_comp_name 0) a) as z;
+      symmetry in Heqz; repnd; simpl in *; subst; simpl in *.
+    unfold M_run_ls_on_input in *.
     autorewrite with microbft in *.
 
     Time microbft_dest_msg Case;
-      repeat (simpl in *; autorewrite with microbft in *; smash_microbft2; try omega);
-      try (complete (allrw; auto));
-      try (complete (dands; tcsp; left; unfold invalid_prepare, valid_prepare in *; smash_microbft2));
-      try (complete (dands; tcsp; left; unfold invalid_commit, valid_commit in *; smash_microbft2)).
+      unfold lower_out_break in *; simpl in *; microbft_simp; try omega;
+        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2; try omega);
+        rewrite eqr; tcsp; eexists; dands; try reflexivity; simpl; tcsp.
   Qed.
   Hint Resolve on_request_implies_generates_trusted : microbft.
 
@@ -102,13 +107,12 @@ Section MicroBFTass_knew.
     simpl; allrw; simpl; dands; eauto 3 with microbft;[].
     unfold MicroBFT_ca_verify.
     rewrite request2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     unfold MicroBFTsys, MicroBFTheader.node2name; simpl.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
-    unfold state_of_trusted; simpl.
     autorewrite with microbft; smash_microbft.
   Qed.
   Hint Resolve implies_learns_microbft_data_rdata : microbft.
@@ -142,6 +146,7 @@ Section MicroBFTass_knew.
     unfold M_byz_output_sys_on_event; simpl.
     rewrite M_byz_output_ls_on_event_as_run; simpl.
     unfold M_byz_output_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
     apply (trigger_op_Some_implies_trigger_message e msg) in eqtrig.
     allrw; simpl.
 
@@ -154,19 +159,23 @@ Section MicroBFTass_knew.
 
     rewrite M_run_ls_on_event_unroll2 in runOn.
     rewrite runBef in runOn; simpl in *.
-    apply map_option_Some in runOn; exrepnd; rev_Some.
+    apply map_option_Some in runOn; exrepnd; rev_Some; microbft_simp.
     unfold trigger_op in *.
+    unfold data_is_in_out, event2out; simpl.
     rewrite eqtrig in *; simpl in *; ginv.
 
     hide_hyp runBef.
 
+    unfold M_run_ls_on_input_ls in *.
+    remember (M_run_ls_on_input (MicroBFTlocalSys_new (loc e) s1 u1 l1) (msg_comp_name 0) a) as z;
+      symmetry in Heqz; repnd; simpl in *; subst; simpl in *.
+    unfold M_run_ls_on_input in *.
     autorewrite with microbft in *.
 
     Time microbft_dest_msg Case;
-      repeat (simpl in *; autorewrite with microbft in *; smash_microbft2; try omega);
-      try (complete (allrw; auto));
-      try (complete (dands; tcsp; left; unfold invalid_prepare, valid_prepare in *; smash_microbft2));
-      try (complete (dands; tcsp; left; unfold invalid_commit, valid_commit in *; smash_microbft2)).
+      unfold lower_out_break in *; simpl in *; microbft_simp; try omega;
+        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2; try omega);
+        rewrite eqr; tcsp; eexists; dands; try reflexivity; simpl; tcsp.
   Qed.
   Hint Resolve on_request_implies_generates : microbft.
 
@@ -180,11 +189,11 @@ Section MicroBFTass_knew.
     introv eqloc run verif.
     unfold MicroBFT_ca_verify; simpl.
     destruct m as [k ui]; simpl.
-    unfold M_byz_state_sys_before_event_of_trusted.
+    unfold M_byz_state_sys_before_event.
     subst.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in run.
-    allrw; simpl.
+    simpl in *; allrw; simpl.
     unfold state_of_trusted; simpl; auto.
   Qed.
   Hint Resolve verify_UI_implies_MicroBFT_ca_verify : microbft.
@@ -204,7 +213,7 @@ Section MicroBFTass_knew.
     rewrite kn1 in *; simpl in *.
     apply map_option_Some in kn2; exrepnd; rev_Some.
     applydup M_run_ls_on_event_ls_is_microbft in kn2; exrepnd; subst; simpl in *.
-    unfold state_of_subcomponents in *; simpl in *; ginv.
+    apply option_map_Some in kn3; exrepnd; subst; simpl in *; microbft_simp.
     dup kn2 as runOn; hide_hyp runOn.
     dup kn2 as eqid.
 
@@ -213,14 +222,15 @@ Section MicroBFTass_knew.
     apply map_option_Some in kn2; exrepnd; rev_Some.
 
     applydup M_run_ls_before_event_ls_is_microbft in kn2; exrepnd; subst; simpl in *.
-    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some.
+    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some; microbft_simp.
     rename kn2 into runBef.
     rename kn1 into eqloc.
 
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
     autorewrite with microbft in *.
 
     Time (destruct c; simpl in *; microbft_dest_msg Case);
-      repeat (simpl in *; autorewrite with minbft in *; smash_microbft2; repndors);
+      repeat (simpl in *; try autorewrite with minbft in *; smash_microbft2; repndors);
       try (complete (left; eexists; simpl; unfold state_before; simpl;
                        rewrite M_state_sys_before_event_unfold;
                        rewrite eqloc; simpl; rewrite runBef; simpl; dands;[eexists;dands|];

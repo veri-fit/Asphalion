@@ -13,6 +13,7 @@ Section MicroBFTass_uniq.
   Context { usig_hash           : USIG_hash             }.
   Context { microbft_auth       : MicroBFT_auth         }.
 
+
   Lemma ASSUMPTION_disseminate_unique_true :
     forall (eo : EventOrdering), assume_eo eo ASSUMPTION_disseminate_unique.
   Proof.
@@ -26,30 +27,39 @@ Section MicroBFTass_uniq.
     unfold MicroBFTheader.node2name in *; simpl in *; subst.
     unfold MicroBFTsys in *; simpl in *.
 
-    pose proof (ex_M_byz_run_ls_before_event_MicroBFTlocalSys e (loc e)) as run.
-    repndors; exrepnd; rewrite run0 in h5, h6; simpl in *.
+    remember (M_byz_run_ls_before_event (MicroBFTlocalSys (loc e)) e) as ls; symmetry in Heqls.
+    apply M_byz_run_ls_before_event_ls_is_microbft in Heqls.
+    repndors; exrepnd; subst.
 
-    { remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig; simpl in *; ginv; tcsp;[].
-      unfold state_of_trusted in *; simpl in *.
-      unfold USIG_update in *; destruct i; simpl in *;
-        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
-        try (complete (inversion Heqx; clear Heqx; subst; simpl in *; repndors;
-                       tcsp; subst; simpl in *; tcsp)). }
+    { rewrite h5 in *; ginv.
+      unfold M_byz_output_ls_on_this_one_event in h5.
+      unfold M_byz_run_ls_on_one_event in h5.
+      revert dependent o.
+      unfold data_is_in_out, event2out in *.
+      remember (trigger e) as trig; symmetry in Heqtrig.
+      destruct trig; simpl in *; ginv; tcsp; introv a run b.
 
-    remember (trigger e) as trig; symmetry in Heqtrig.
-    destruct trig; simpl in *; ginv; tcsp;[|].
+      { allrw in_flat_map; exrepnd.
+        unfold M_run_ls_on_input in *.
+        autorewrite with microbft in *.
+        Time microbft_dest_msg Case;
+          repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
+          try (complete (repndors; ginv; tcsp)). }
 
-    { autorewrite with microbft in *.
-      Time microbft_dest_msg Case;
-        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
-        try (complete (repndors; ginv; tcsp)). }
+      { unfold M_run_ls_on_trusted, M_run_ls_on_input in *; simpl in *.
+        destruct i, o; simpl in *; repndors; ginv; tcsp. } }
 
-    { unfold state_of_trusted in *; simpl in *.
-      unfold USIG_update in *; destruct i; simpl in *;
-        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
-        try (complete (inversion Heqx; clear Heqx; subst; simpl in *; repndors;
-                       tcsp; subst; simpl in *; tcsp)). }
+    { rewrite h5 in *; ginv.
+      unfold M_byz_output_ls_on_this_one_event in h5.
+      unfold M_byz_run_ls_on_one_event in h5.
+      revert dependent o.
+      unfold data_is_in_out, event2out in *.
+      remember (trigger e) as trig; symmetry in Heqtrig.
+      destruct trig; simpl in *; ginv; tcsp; introv a run b.
+
+      unfold M_run_ls_on_trusted, M_run_ls_on_input in *; simpl in *.
+      autorewrite with microbft in *.
+      destruct i, o; simpl in *; repndors; ginv; tcsp. }
   Qed.
   Hint Resolve ASSUMPTION_disseminate_unique_true : microbft.
 

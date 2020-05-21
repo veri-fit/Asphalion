@@ -649,13 +649,13 @@ Module MLOG := Msm (SMLOG).
 
 (* ====== Main ====== *)
 
-Module SMMAIN <: SMat.
-  Definition level := 1.
+Module SMMAIN <: SM.
+  Definition level := 2.
   Definition name  := MAINname.
   Definition sm    := MAIN_comp self.
 End SMMAIN.
 
-Module MMAIN := Msmat (SMMAIN).
+Module MMAIN := Msm (SMMAIN).
 
 
 Definition mk_request

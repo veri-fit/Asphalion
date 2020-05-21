@@ -1,9 +1,10 @@
 Require Export MicroBFT.
-(*
-Require Export MicroBFTtacts.
-Require Export MicroBFTbreak. *)
+(*Require Export MicroBFTtacts.*)
+(*Require Export MicroBFTbreak. *)
 Require Export ComponentAxiom.
 Require Export ComponentSM3.
+Require Export ComponentSM6.
+Require Export ComponentSM9.
 
 
 Section MicroBFTsubs.
@@ -36,18 +37,18 @@ Section MicroBFTsubs.
   Qed.
   Hint Resolve local_pred_preserves_is_replica : microbft.
 
-  Lemma are_procs_MicroBFTls : forall n, are_procs_ls (MicroBFTlocalSys n).
+  Lemma are_procs_MicroBFTls : forall n, are_procs_n_procs (MicroBFTlocalSys n).
   Proof.
-    introv; simpl; split; simpl;
+    introv; simpl;
       try (complete (eexists; introv; unfold proc2upd; simpl; try reflexivity));
       try (complete (introv i; simpl in *; repndors; subst; tcsp; simpl;
                      eexists; introv; unfold proc2upd;  reflexivity)).
   Qed.
   Hint Resolve are_procs_MicroBFTls : microbft.
 
-  Lemma wf_MicroBFTls : forall n, wf_ls (MicroBFTlocalSys n).
+  Lemma wf_MicroBFTls : forall n, wf_procs (MicroBFTlocalSys n).
   Proof.
-    repeat introv; unfold wf_ls, wf_procs; simpl;
+    repeat introv; unfold wf_procs; simpl;
       dands; try (complete (introv xx; repndors; tcsp; ginv));
         repeat constructor; simpl; tcsp;
           try (complete (introv xx; repndors; tcsp; ginv)).
@@ -95,15 +96,73 @@ Section MicroBFTsubs.
     unfold MicroBFTsubs_new, build_m_sm, build_mp_sm, at2sm; simpl; eauto.
   Qed.
 
+  Lemma similar_microbft_subs_new_implies_subs :
+    forall (subs : n_procs 1) a b,
+      similar_subs subs (MicroBFTsubs_new a b)
+      -> exists (s1 : USIG_state) (s2 : LOG_state),
+        subs = MicroBFTsubs_new s1 s2.
+  Proof.
+    introv sim.
+    inversion sim; subst; clear sim.
+    inversion sims; subst; clear sims.
+    inversion sims0; subst; clear sims0.
+    applydup @similar_procs_implies_same_name in simp; simpl in *.
+    applydup @similar_procs_implies_same_name in simp0; simpl in *.
+    destruct p1, p0; simpl in *; subst; simpl in *.
+    destruct pp_proc, pp_proc0; simpl in *; tcsp;[].
+    apply @similar_procs_implies_same_proc in simp.
+    apply @similar_procs_implies_same_proc in simp0.
+    simpl in *; repnd; subst.
+    destruct a, a0; simpl in *; subst; simpl in *; tcsp;[].
+    unfold similar_sms_at in *; repnd; simpl in *; subst; tcsp.
+    destruct a1; simpl in *; subst; tcsp.
+    unfold MicroBFTsubs_new, build_m_sm, build_mp_sm, at2sm; simpl; eauto.
+  Qed.
+
   Lemma similar_sms_at_microbft_replica :
-    forall r (p : n_proc_at 1 _),
-      similar_sms_at p (MAIN_comp r)
+    forall r (p : n_proc 2 _),
+      similar_sms p (MAIN_comp r)
       -> exists s, p = MicroBFT_replicaSM_new r s.
   Proof.
     introv sim.
+    destruct p; simpl in *; tcsp.
     unfold similar_sms_at in *; repnd; simpl in *; subst.
-    destruct p as [h upd st]; simpl in *; subst; simpl in *.
+    destruct a as [upd st]; simpl in *; subst; simpl in *.
     exists st; auto.
+  Qed.
+
+  Lemma similar_procs_MAIN :
+    forall r p,
+      similar_procs (MkPProc MAINname (MAIN_comp r)) p
+      -> exists s, p = MkPProc MAINname (MicroBFT_replicaSM_new r s).
+  Proof.
+    introv sim.
+    inversion sim as [? ? ? ? sims]; clear sim; subst.
+    match goal with
+    | [ H : context[p1] |- _ ] => rename H into h1
+    end.
+    match goal with
+    | [ H : context[p2] |- _ ] => rename H into h2
+    end.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; eauto 3 with comp.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; eauto 3 with comp.
+    apply Eqdep.EqdepTheory.inj_pair2 in h2; subst; eauto 3 with comp.
+    apply similar_sms_sym in sims.
+    apply similar_sms_at_microbft_replica in sims; exrepnd; subst; eauto.
+  Qed.
+
+  Lemma similar_subs_MicroBFTlocalSys_implies :
+    forall r (ls : n_procs 2),
+      similar_subs (MicroBFTlocalSys r) ls
+      -> exists s s1 s2, ls = MicroBFTlocalSys_new r s s1 s2.
+  Proof.
+    introv sim.
+    inversion sim; clear sim; subst; simpl in *.
+    pose proof (similar_subs_incr_n_procs_left_implies (MicroBFTsubs r) ps2) as q.
+    simpl in *; apply q in sims; clear q; exrepnd; subst.
+    apply similar_subs_sym in sims0; apply similar_microbft_implies_subs in sims0; exrepnd; subst.
+    apply similar_procs_MAIN in simp; exrepnd; subst; simpl in *.
+    exists s s1 s2; auto.
   Qed.
 
   (* We can also prove some preservation lemmas:
@@ -112,7 +171,7 @@ Section MicroBFTsubs.
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : MicroBFT_node)
-           (ls : MicroBFTls),
+           (ls : LocalSystem 2 0),
       M_run_ls_before_event (MicroBFTlocalSys r) e = Some ls
       ->
       exists (s : MAIN_state) (s1 : USIG_state) (s2 : LOG_state),
@@ -121,20 +180,14 @@ Section MicroBFTsubs.
     introv run.
     apply M_run_ls_before_event_preserves_subs in run; eauto 3 with comp microbft.
     repnd; simpl in *.
-    destruct ls as [main subs]; simpl in *.
-
-    apply similar_subs_sym in run3.
-    apply similar_microbft_implies_subs in run3; exrepnd; subst.
-    apply similar_sms_at_sym in run2.
-    apply similar_sms_at_microbft_replica in run2; exrepnd; subst.
-    eexists; eexists; eexists; try reflexivity.
+    apply similar_subs_MicroBFTlocalSys_implies in run2; auto.
   Qed.
 
   Lemma M_run_ls_on_event_ls_is_microbft :
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : MicroBFT_node)
-           (ls : MicroBFTls),
+           (ls : LocalSystem 2 0),
       M_run_ls_on_event (MicroBFTlocalSys r) e = Some ls
       ->
       exists (s : MAIN_state) (s1 : USIG_state) (s2 : LOG_state),
@@ -143,13 +196,7 @@ Section MicroBFTsubs.
     introv run.
     apply M_run_ls_on_event_preserves_subs in run; eauto 3 with comp microbft.
     repnd; simpl in *.
-    destruct ls as [main subs]; simpl in *.
-
-    apply similar_subs_sym in run3.
-    apply similar_microbft_implies_subs in run3; exrepnd; subst.
-    apply similar_sms_at_sym in run2.
-    apply similar_sms_at_microbft_replica in run2; exrepnd; subst.
-    eexists; eexists; eexists; try reflexivity.
+    apply similar_subs_MicroBFTlocalSys_implies in run2; auto.
   Qed.
 
   Lemma similar_microbft_implies_level :
@@ -182,15 +229,15 @@ Section MicroBFTsubs.
   Definition USIG_sm_new s :=
     build_m_sm USIG_update s.
 
-  Lemma trusted_run_sm_on_inputs_usig :
+  (*Lemma trusted_run_sm_on_inputs_usig :
     forall s n l,
       trusted_run_sm_on_inputs s (USIG_comp n) l
       = Some (run_sm_on_inputs_trusted (USIG_sm_new s) l).
   Proof.
     tcsp.
-  Qed.
+  Qed.*)
 
-  Lemma run_sm_on_inputs_trusted_usig_preserves_id :
+  (*Lemma run_sm_on_inputs_trusted_usig_preserves_id :
     forall l s,
       usig_id (run_sm_on_inputs_trusted (USIG_sm_new s) l) = usig_id s.
   Proof.
@@ -203,20 +250,17 @@ Section MicroBFTsubs.
 
     unfold USIG_update in Heqz.
     destruct a; simpl in *; repnd; simpl in *; inversion Heqz; simpl in *; auto.
-  Qed.
+  Qed.*)
 
   Lemma similar_sms_at_log :
     forall s p,
       similar_sms_at (build_mp_sm LOG_update s) p
       <-> exists s', p = build_mp_sm LOG_update s'.
   Proof.
-    introv; split; intro h; exrepnd; subst; eauto.
-
-    { inversion h; subst.
-      destruct p as [ha up st]; simpl in *; subst; eauto.
-      exists st; auto. }
-
-    { constructor; auto. }
+    introv; split; intro h; exrepnd; subst; eauto; tcsp;[].
+    inversion h; subst.
+    destruct p as [up st]; simpl in *; subst; eauto.
+    exists st; auto.
   Qed.
   Hint Rewrite similar_sms_at_log : microbft.
 
@@ -225,15 +269,65 @@ Section MicroBFTsubs.
       similar_sms_at (build_mp_sm USIG_update s) p
       <-> exists s', p = build_mp_sm USIG_update s'.
   Proof.
-    introv; split; intro h; exrepnd; subst; eauto.
-
-    { inversion h; subst.
-      destruct p as [ha up st]; simpl in *; subst; eauto.
-      exists st; auto. }
-
-    { constructor; auto. }
+    introv; split; intro h; exrepnd; subst; eauto; tcsp.
+    inversion h; subst.
+    destruct p as [up st]; simpl in *; subst; eauto.
+    exists st; auto.
   Qed.
   Hint Rewrite similar_sms_at_usig : microbft.
+
+  Lemma procs2byz_MicroBFTlocalSys :
+    forall r, procs2byz (MicroBFTlocalSys r) = [MkPProc USIGname (incr_n_proc (USIG_comp r))].
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite procs2byz_MicroBFTlocalSys : microbft.
+
+  Lemma M_byz_run_ls_before_event_ls_is_microbft :
+    forall {eo : EventOrdering}
+           (e  : Event)
+           (r  : MicroBFT_node)
+           (ls : LocalSystem 2 0),
+      M_byz_run_ls_before_event (MicroBFTlocalSys r) e = ls
+      ->
+      (
+        (exists (s : MAIN_state) (u : USIG_state) (l : LOG_state),
+            ls = MicroBFTlocalSys_new r s u l)
+        \/
+        (exists (u : USIG_state),
+            ls = [MkPProc USIGname (incr_n_proc (build_m_sm USIG_update u))])
+      ).
+  Proof.
+    introv run.
+    apply M_byz_run_ls_before_event_preserves_subs_byz2 in run; eauto 3 with microbft comp;[].
+    repnd; autorewrite with microbft in *.
+    repndors.
+
+    { apply similar_subs_MicroBFTlocalSys_implies in run; exrepnd; subst; eauto. }
+
+    { inversion run; subst; clear run.
+      inversion sims; subst; clear sims.
+      applydup @similar_procs_implies_same_name in simp; simpl in *.
+      destruct p2; simpl in *; subst; simpl in *.
+      apply @similar_procs_implies_same_proc in simp.
+      destruct pp_proc; simpl in *; tcsp;[].
+      destruct b; simpl in *; subst; simpl in *; tcsp;[].
+      unfold similar_sms_at in *; repnd; simpl in *; subst; tcsp.
+      destruct a; simpl in *; subst; tcsp.
+      right.
+      exists sm_state; auto. }
+  Qed.
+
+  Lemma on_comp_sing_eq :
+    forall {n} {cn} (p : n_proc n cn) {cn'} {A} (F : n_proc n cn' -> A) (a : A),
+      on_comp [MkPProc cn p] F a
+      = match CompNameDeq cn cn' with
+        | left x => F (eq_rect _ _ p _ x)
+        | right _ => a
+        end.
+  Proof.
+    introv; unfold on_comp; simpl; repeat dest_cases w.
+  Qed.
 
 End MicroBFTsubs.
 
@@ -250,3 +344,4 @@ Hint Resolve is_trusted_ls_usig : microbft.
 
 Hint Rewrite @similar_sms_at_log : microbft.
 Hint Rewrite @similar_sms_at_usig : microbft.
+Hint Rewrite @procs2byz_MicroBFTlocalSys : microbft.

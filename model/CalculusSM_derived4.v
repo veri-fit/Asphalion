@@ -17,7 +17,7 @@ Section CalculusSM_derived4.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
   Context { ctp : @ComponentTrust pd pn pat qc iot }.
   Context { cap : @ComponentAuth pd pn pk pat pm dtc iot }.
 
@@ -96,19 +96,48 @@ Section CalculusSM_derived4.
   (* ==================================================== *)
 
 
-  (* MOVE: This really belongs to [ComponentTrust] in [ComponentAxiom] *)
-  Definition AXIOM_iot_def_output_no_trust := ct_out2trust iot_def_output = None.
+  Lemma dmsg_is_in_out_implies_trust_data_is_in_out :
+    forall d a m dst delay {eo : EventOrdering} {e : Event} {s} (o : event2out s e),
+      AXIOM_in_auth2data_implies_in_msg2data
+      -> In d (kc_auth2data a)
+      -> In a (get_contained_authenticated_data m)
+      -> dmsg_is_in_out (MkDMsg m dst delay) o
+      -> data_is_in_out d o.
+  Proof.
+    introv ax i j k.
+    unfold dmsg_is_in_out in *.
+    unfold data_is_in_out in *.
+    unfold event2out in *; remember (trigger e) as trig; destruct trig; simpl in *; tcsp.
+    apply in_flat_map; eexists; dands; eauto; simpl.
+  Qed.
+  Hint Resolve dmsg_is_in_out_implies_trust_data_is_in_out : kc.
+
+  Lemma implies_trust2data_is_in_out :
+    forall t (i : ITrusted) {eo : EventOrdering} {e : Event} {s} (o : event2out s e)
+           (p : is_trusted_event e i) (x : iot_output (iot_fun (it_name i))),
+      trusted_is_in_out p x o
+      -> ct_out2trust (it_name i) x = Some t
+      -> data_is_in_out (kc_trust2data t) o.
+  Proof.
+    introv h q.
+    unfold trusted_is_in_out in h; subst.
+    unfold is_trusted_event in p.
+    unfold data_is_in_out.
+    revert o q.
+    unfold event2out in *; simpl in *; rewrite p; simpl; introv h.
+    unfold kc_out2trust; rewrite h; simpl; tcsp.
+  Qed.
+  Hint Resolve implies_trust2data_is_in_out : kc.
 
   Lemma ASSUMPTION_authenticated_messages_were_sent_or_byz_true :
     forall (eo : EventOrdering),
-      AXIOM_iot_def_output_no_trust
-      -> AXIOM_data_in_auth_implies_from_node
+      AXIOM_data_in_auth_implies_from_node
       -> AXIOM_data_in_auth_implies_protocol
       -> AXIOM_in_auth2data_implies_in_msg2data
       -> AXIOM_authenticated_messages_were_sent_or_byz eo kc_sys
       -> assume_eo eo ASSUMPTION_authenticated_messages_were_sent_or_byz.
   Proof.
-    introv defnt a2n a2p a2m sendbyz lrn; simpl in *.
+    introv a2n a2p a2m sendbyz lrn; simpl in *.
     unfold learns_data in lrn; exrepnd.
     pose proof (sendbyz e a (mk_opTrust lrn3) lrn2 lrn1) as sendbyz; simpl in *.
     exrepnd; repndors; exrepnd; subst; simpl in *; ginv;[|].
@@ -123,11 +152,9 @@ Section CalculusSM_derived4.
       { apply name2node_cond in exe0; eauto. }
 
       { unfold disseminate_data; simpl.
-        applydup in_M_output_ls_on_event_implies_byz_eq in sendbyz5 as eqo; simpl in *.
-        unfold M_byz_output_sys_on_event; simpl.
-        rewrite eqo; simpl.
-        eapply in_flat_map.
-        eexists; dands; eauto; simpl. }
+        apply in_M_output_sys_on_event_implies_in_byz in sendbyz5; exrepnd.
+        exists o; dands; auto.
+        eapply dmsg_is_in_out_implies_trust_data_is_in_out; eauto. }
 
       { apply M_output_sys_on_event_implies_has_correct_trace_before in sendbyz5.
         applydup name2node_cond in exe0 as cond.
@@ -138,8 +165,7 @@ Section CalculusSM_derived4.
         apply cor; eauto 3 with eo. }
     }
 
-    { inversion sendbyz4; subst; simpl in *; clear sendbyz4.
-
+    { inversion sendbyz3; subst.
       right.
       assert (ex_node_e e') as exe'.
       { unfold ex_node_e; allrw; rewrite node2name_cond; eauto. }
@@ -147,14 +173,14 @@ Section CalculusSM_derived4.
       exists (MkEventN e' exe'); simpl; dands; auto.
 
       { unfold disseminate_data, kc_out2trust; simpl.
-        unfold M_byz_output_sys_on_event_to_byz in sendbyz5; simpl in *.
-        remember (M_byz_output_sys_on_event kc_sys e') as tm; destruct tm; simpl in *;
-          allrw; simpl; tcsp;[].
-        rewrite defnt in sendbyz5; ginv. }
+        rewrite sendbyz4.
+        exists o; dands; auto.
+        eapply implies_trust2data_is_in_out; eauto. }
 
       { eexists; dands; eauto; simpl.
         unfold data_is_owned_by; simpl.
-        rewrite kc_same_trust2owner; auto. } }
+        rewrite kc_same_trust2owner; auto.
+        unfold kc_trust2owner; allrw; auto. } }
   Qed.
 
 

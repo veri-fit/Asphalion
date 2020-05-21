@@ -68,31 +68,26 @@ Section TrIncsm_mon.
   Hint Resolve implies_lts_update_counter : minbft.
 
   Lemma USIG_sm_mon :
-    forall {eo : EventOrdering} (e : Event) n l s1 s2,
-      loc e = MinBFT_replica n
-      -> trinc_id s1 = n
-      -> run_sm_on_inputs_trusted (USIG_sm_new s1) l = s2
+    forall n l s1 s2,
+      trusted_run_sm_on_inputs s1 (USIG_comp n) l = s2
       -> trinc_counters s1 = trinc_counters s2
          \/
          lts (trinc_counters s1) (trinc_counters s2).
   Proof.
-    induction l; introv eqloc eqid run; simpl in *; tcsp.
+    unfold trusted_run_sm_on_inputs.
+    induction l; introv run; simpl in *; subst; tcsp.
+    destruct a; repnd; simpl in *; tcsp;[].
+    unfold update_state in *; simpl in *.
+    autorewrite with comp in *.
 
-    { autorewrite with minbft in *; simpl in *; subst; tcsp. }
+    unfold try_update_TRINC in *; simpl in *; dest_cases w;[].
 
-    pose proof (run_sm_on_inputs_trusted_cons
-                  _ _ _ (USIG_sm_new s1) a l) as w.
-    simpl in *; rewrite w in run; auto; clear w;[].
+    match goal with
+    | [ |- _ \/ lts (trinc_counters ?a) (trinc_counters ?b) ] =>
+      pose proof (IHl (update_TRINC msg0 msg s1) b) as IHl
+    end; repeat (autodimp IHl hyp); simpl in *; repndors; tcsp; try omega; smash_minbft2.
 
-    unfold USIG_update in run; destruct a; repnd; simpl in *;
-      [|apply IHl in run; auto];[].
-
-    unfold try_update_TRINC in run; simpl in *; dest_cases w.
-    apply IHl in run; simpl; auto; clear IHl;[].
-    simpl in *.
-    repndors; exrepnd; try omega; smash_minbft2.
-
-    { right; rewrite <- run; clear run; eauto 3 with minbft. }
+    { right; rewrite <- IHl; eauto 3 with minbft. }
 
     { right; eapply lts_transitive;[|eauto]; eauto 3 with minbft. }
   Qed.

@@ -199,7 +199,7 @@ Section MicroBFTcount.
   Hint Resolve accepted_counter_positive : microbft.
 *)
 
-  Lemma M_output_ls_on_input_is_log_new_implies :
+  (*Lemma M_output_ls_on_input_is_log_new_implies :
     forall u r v o,
       M_output_ls_on_input (LOGlocalSys u) (log_new r) = (LOGlocalSys v, o)
       -> in_log r v.
@@ -210,7 +210,7 @@ Section MicroBFTcount.
     unfold M_run_update_on_inputs in out; simpl in *.
     unfold M_break in *; simpl in *; ginv.
     inversion out; auto; simpl; tcsp.
-  Qed.
+  Qed.*)
 
   Lemma invalid_request_false_implies_ui2rep_eq :
     forall R r s,
@@ -259,29 +259,14 @@ Section MicroBFTcount.
     rename ls' into ls.
     rewrite M_run_ls_on_event_unroll2; allrw; simpl.
     applydup M_run_ls_before_event_ls_is_microbft in h1; exrepnd; subst.
-    apply in_M_output_ls_on_this_one_event_implies in h0; exrepnd; simpl in *.
+    apply in_M_output_ls_on_this_one_event_implies in h0; exrepnd; simpl in *; microbft_simp.
     unfold M_run_ls_on_this_one_event; simpl; allrw; simpl.
-
-    rewrite M_break_snd_eq2 in h2.
-    rewrite M_break_option_map_fst_eq.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input.
     unfold statefund_nm in *; simpl in *.
-    match goal with
-    | [ H : context[M_break ?a ?b ?c] |- _ ] => remember (M_break a b c) as mb; symmetry in Heqmb
-    end.
-    simpl in *.
-    rewrite Heqmb in h2; rewrite Heqmb.
-    repnd; simpl in *.
-
     autorewrite with microbft comp in *.
 
-    Time microbft_dest_msg Case; simpl in *; tcsp; ginv; repeat smash_microbft_2; ginv;
-      repeat (use_m_break_call_comp out;
-                destruct out; simpl in *; repeat smash_microbft_2;
-                  repndors; ginv; tcsp).
-
-    exrepnd; subst.
-    applydup M_output_ls_on_input_is_log_new_implies in Heqout0.
-    eexists; eexists; eexists; eexists; eexists; dands; try reflexivity; eauto 3 with microbft.
+    Time microbft_dest_msg Case; simpl in *; tcsp; ginv; repeat smash_microbft_2; ginv.
+    eexists; eexists; eexists; eexists; eexists; dands; try reflexivity; eauto 3 with microbft; tcsp.
   Qed.
 
 End MicroBFTcount.

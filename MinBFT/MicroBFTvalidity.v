@@ -35,7 +35,12 @@ Section MicroBFTvalidity.
     unfold disseminate_data; simpl.
     unfold M_byz_output_sys_on_event; simpl.
     subst; simpl in *.
-    applydup in_M_output_ls_on_event_implies_byz_eq in send; allrw; simpl.
+    applydup in_M_output_ls_on_event_implies_byz_eq in send; exrepnd; allrw; simpl.
+    eexists; dands; eauto.
+
+    clear send send0.
+    unfold dmsg_is_in_out, data_is_in_out, event2out in *.
+    remember (trigger e) as trig. destruct trig; simpl in *; tcsp.
     apply in_flat_map; eexists; dands; eauto.
     simpl; tcsp.
   Qed.
@@ -57,28 +62,36 @@ Section MicroBFTvalidity.
     unfold KE_LOCAL_CORRECT_TRACE_BEFORE in *.
     allrw @interp_KE_CORRECT_TRACE_BEFORE.
     Transparent KE_CORRECT_TRACE_BEFORE.
-    unfold disseminate_data in h0; simpl in *.
+
+    unfold disseminate_data in h0; simpl in *; exrepnd.
     unfold M_byz_output_sys_on_event in *; simpl in *.
-    rewrite correct_implies_byz_output_eq in h0; auto; simpl in *.
-    apply in_flat_map in h0; exrepnd.
-    apply M_output_ls_on_event_implies_run in h0; exrepnd.
+    apply correct_byz_output_implies in h0; exrepnd; auto; subst.
+    eapply data_is_in_out_and_dmsgs_are_out_implies in h1; eauto.
+    clear dependent o.
+
+    apply in_flat_map in h1; exrepnd.
+    apply M_output_ls_on_event_implies_run in h1; exrepnd.
 
     unfold knows_after, state_after, M_state_sys_on_event; simpl.
     unfold M_state_ls_on_event.
     unfold MicroBFTsys in *; simpl in *.
     rewrite M_run_ls_on_event_unroll2.
-    rewrite h0; simpl.
+    rewrite h1; simpl.
 
     unfold MicroBFTheader.node2name in *; simpl in *.
     rewrite h3 in *; simpl in *.
-    applydup M_run_ls_before_event_ls_is_microbft in h0; exrepnd; subst; simpl in *.
-    apply in_M_output_ls_on_this_one_event_implies in h4; exrepnd; simpl in *.
-    unfold M_run_ls_on_this_one_event; allrw; simpl.
+    applydup M_run_ls_before_event_ls_is_microbft in h1; exrepnd; subst; simpl in *.
+    apply in_M_output_ls_on_this_one_event_implies in h5; exrepnd; simpl in *; microbft_simp.
+    unfold M_run_ls_on_this_one_event.
+    allrw; simpl.
+
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
+    autorewrite with comp microbft in *.
 
     Time microbft_dest_msg Case;
       repeat(simpl in *; autorewrite with microbft in *; smash_microbft2).
 
-    { unfold state_of_subcomponents in *; simpl in *.
+    { unfold state_of_component in *; simpl in *.
       repndors; subst; simpl in *; tcsp.
       { eexists;dands;[eexists;dands;[eexists;dands;eauto|]| |]; simpl; tcsp.
         { unfold MicroBFT_data_knows; simpl.
@@ -86,14 +99,14 @@ Section MicroBFTvalidity.
           apply orb_true_iff;left; dest_cases w. }
         { simpl.
           unfold Request2HashData, ui2rep; simpl.
-          apply usig_same_keys in h0; allrw.
+          apply usig_same_keys in h1; allrw.
           eexists; rewrite verify_create_hash_usig; eauto. } }
       eexists; dands;[eexists;dands;[eexists;dands;eauto|] |]; simpl; auto;
         unfold MicroBFT_data_knows; simpl;
           unfold ui_in_log_entry; simpl;
             apply orb_true_iff;left; dest_cases w. }
 
-    { unfold state_of_subcomponents in *; simpl in *.
+    { unfold state_of_component in *; simpl in *.
       eexists;dands;[eexists;dands;[eexists;dands;eauto|] |]; simpl;
         [unfold MicroBFT_data_knows; simpl;
          unfold ui_in_log_entry; simpl;
@@ -105,7 +118,7 @@ Section MicroBFTvalidity.
       unfold accept2hdata; simpl.
       rewrite <- inv0.
       rewrite eq_preUI; eauto.
-      apply usig_same_keys in h0; rewrite h0 in *.
+      apply usig_same_keys in h1; rewrite h1 in *.
       eexists; eauto. }
   Qed.
 

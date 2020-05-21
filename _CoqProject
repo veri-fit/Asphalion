@@ -2,6 +2,7 @@
 -R PBFT PBFT
 -R MinBFT MinBFT
 -R SM SM
+-R SM2 SM2
 -R PrimaryBackup PrimaryBackup
 -R runtime runtime
 -R TwoThirds TwoThirds

@@ -14,7 +14,7 @@ Section MinBFTvreq_mon.
   Context { minbft_auth         : MinBFT_auth         }.
 
   Lemma vreq_monotonic_step :
-    forall {eo : EventOrdering} (e : Event) r s u l s' c t (ls : MLocalSystem 1 0),
+    forall {eo : EventOrdering} (e : Event) r s u l s' c t (ls : MinBFTls),
       M_run_ls_on_this_one_event (MinBFTlocalSys_new r s u l) e = Some ls
       -> state_of_component MAINname ls = Some s'
       -> find_latest_executed_request c (vreq s) = Some t
@@ -23,7 +23,8 @@ Section MinBFTvreq_mon.
           /\ t <= t'.
   Proof.
     introv run eqst find.
-    apply map_option_Some in run; exrepnd; simpl in *; rev_Some.
+    apply map_option_Some in run; exrepnd; simpl in *; rev_Some; minbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *; simpl in *.
     autorewrite with minbft in *.
 
     Time minbft_dest_msg Case;

@@ -18,7 +18,7 @@ Section ComponentSM6.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -54,19 +54,19 @@ Section ComponentSM6.
     apply CompNameDeq.
   Qed.
 
-  Lemma state_of_subcomponents_replace_name :
+  Lemma state_of_component_replace_name :
     forall {n} {cn} (p : n_proc n cn) subs,
       in_subs cn subs = true
-      -> state_of_subcomponents (replace_name p subs) cn = Some (sm2state p).
+      -> state_of_component cn (replace_name p subs) = Some (sm2state p).
   Proof.
     induction subs; introv i; simpl in *; tcsp.
     destruct a as [cm q]; simpl in *; dest_cases w; subst; GC.
-    { unfold state_of_subcomponents; simpl; dest_cases w.
+    { unfold state_of_component; simpl; dest_cases w.
       simpl.
       rewrite (compname_proof_irrelevance w eq_refl); simpl; auto. }
-    { unfold state_of_subcomponents; simpl; dest_cases w. }
+    { unfold state_of_component; simpl; dest_cases w. }
   Qed.
-  Hint Resolve state_of_subcomponents_replace_name : comp.
+  Hint Resolve state_of_component_replace_name : comp.
 
   Lemma implies_in_subs_replace_name :
     forall {n} {cn1 cn2} (p : n_proc n cn1) subs,
@@ -78,7 +78,7 @@ Section ComponentSM6.
   Qed.
   Hint Resolve implies_in_subs_replace_name : comp.
 
-  Lemma implies_in_subs_replace_sub :
+  (*Lemma implies_in_subs_replace_sub :
     forall {n} {cn cn'} (subs : n_procs n) (p : n_proc _ cn'),
       in_subs cn subs = true
       -> in_subs cn (replace_sub subs p) = true.
@@ -86,9 +86,9 @@ Section ComponentSM6.
     induction subs; introv i; simpl; tcsp.
     destruct a as [cm q]; repeat (simpl in *; dest_cases w; subst; GC).
   Qed.
-  Hint Resolve implies_in_subs_replace_sub : comp.
+  Hint Resolve implies_in_subs_replace_sub : comp.*)
 
-  Lemma implies_in_subs_replace_subs :
+  (*Lemma implies_in_subs_replace_subs :
     forall {n} {cn} l (subs : n_procs n),
       in_subs cn subs = true
       -> in_subs cn (replace_subs subs l) = true.
@@ -97,7 +97,7 @@ Section ComponentSM6.
     destruct a as [cm q]; repeat (simpl in *; dest_cases w; subst; GC).
     apply IHl; eauto 3 with comp.
   Qed.
-  Hint Resolve implies_in_subs_replace_subs : comp.
+  Hint Resolve implies_in_subs_replace_subs : comp.*)
 
   Lemma find_name_replace_name_same :
     forall {m} {cn} (p : n_proc m cn) subs,
@@ -215,21 +215,36 @@ Section ComponentSM6.
   Qed.
   Hint Rewrite @sm_or_at_proc2at0_v2 : comp.
 
+  Lemma similar_subs_preserves_in_subs :
+    forall cn {n} (l k : n_procs n),
+      similar_subs l k
+      -> in_subs cn l = true
+      -> in_subs cn k = true.
+  Proof.
+    introv sim; induction sim; introv i; simpl in *; tcsp.
+    destruct p1, p2; simpl in *; repeat dest_cases w.
+    inversion simp; subst; tcsp.
+  Qed.
+  Hint Resolve similar_subs_preserves_in_subs : comp.
+
 End ComponentSM6.
 
 
-Hint Rewrite @decr_n_procs_1 : comp.
-Hint Resolve state_of_subcomponents_replace_name : comp.
+Hint Resolve state_of_component_replace_name : comp.
 Hint Resolve implies_in_subs_replace_name : comp.
-Hint Resolve implies_in_subs_replace_sub : comp.
-Hint Resolve implies_in_subs_replace_subs : comp.
+Hint Resolve similar_subs_preserves_in_subs : comp.
+
+(*Hint Resolve implies_in_subs_replace_sub : comp.*)
+(*Hint Resolve implies_in_subs_replace_subs : comp.*)
+
+Hint Rewrite @decr_n_procs_1 : comp.
 Hint Rewrite @sm_or_at_proc2at0 : comp.
 Hint Rewrite @sm_or_at_proc2at0_v2 : comp.
 
 
 Ltac in_subs_tac :=
   repeat (first [complete auto
-                |apply implies_in_subs_replace_subs
+                (*|apply implies_in_subs_replace_subs*)
                 |apply implies_in_subs_replace_name]).
 
 Ltac simplify_find_name_replace :=

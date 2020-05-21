@@ -1,6 +1,9 @@
+(* USIG instance *)
+
 Require Export MinBFTprops0.
 Require Export MinBFTsubs.
 Require Export MinBFTbreak.
+Require Export MinBFTstate.
 
 
 
@@ -18,18 +21,17 @@ Section MinBFTview.
 
 
   Lemma preserves_view_step0 :
-    forall {eo : EventOrdering} (e : Event) r s1 s2 su sl ls,
+    forall {eo : EventOrdering} (e : Event) r s1 s2 su sl (ls : LocalSystem 2 0),
       M_run_ls_on_this_one_event (MinBFTlocalSys_new r s1 su sl) e = Some ls
       -> state_of_component MAINname ls = Some s2
       -> current_view s1 = current_view s2.
   Proof.
     introv h eqst.
-    apply map_option_Some in h; exrepnd; simpl in *; rev_Some.
+    apply map_option_Some in h; exrepnd; simpl in *; minbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
     autorewrite with comp minbft in *.
 
-    Time minbft_dest_msg Case;
-      repeat (simpl in *; autorewrite with minbft comp in * ;
-                smash_minbft2; simpl in *; ginv).
+    Time (minbft_dest_msg Case; repeat smash_minbft2).
   Qed.
 
   Lemma preserves_view_step1 :
@@ -44,29 +46,20 @@ Section MinBFTview.
     unfold M_state_sys_before_event in h; simpl in h.
     unfold M_state_sys_on_event in q; simpl in q.
     rewrite isr0 in h; rewrite isr0 in q; simpl in *.
-    apply map_option_Some in h; exrepnd.
-    apply map_option_Some in q; exrepnd.
-    symmetry in h0.
-    symmetry in q0.
+    apply map_option_Some in h; exrepnd; rev_Some.
+    apply map_option_Some in q; exrepnd; rev_Some.
 
     rewrite M_run_ls_on_event_unroll in q1.
     rewrite h1 in q1; simpl in q1.
 
     applydup M_run_ls_before_event_ls_is_minbft in h1; exrepnd; subst; simpl in *; ginv.
+    autorewrite with minbft in *; minbft_simp.
 
     destruct (dec_isFirst e) as [d|d];
       eapply preserves_view_step0 in q1; eauto;[].
 
-    rewrite M_run_ls_before_event_is_first in h1; auto.
-    rewrite MinBFTlocalSys_as_new in h1.
-
-    apply eq_Some in h1.
-    apply decomp_LocalSystem in h1; repnd; simpl in *.
-    inversion h0; subst; simpl in *; GC.
-    repeat (apply eq_cons in h1; repnd); GC.
-    apply decomp_p_nproc in h0.
-    apply decomp_p_nproc in h2.
-    inversion h0; inversion h2; subst; simpl in *; auto.
+    rewrite M_run_ls_before_event_is_first in h1; auto; minbft_simp.
+    apply MinBFTlocalSys_new_inj in h1; repnd; subst; auto.
   Qed.
 
   Lemma preserves_view_step :
@@ -150,7 +143,7 @@ Section MinBFTview.
     applydup M_run_ls_on_event_ls_is_minbft in h1; exrepnd; subst.
 
     eapply preserves_view_step0 in h0; eauto.
-    eapply ind in h1; simpl; try reflexivity; eauto 3 with eo; try congruence.
+    eapply ind in h1; simpl; try reflexivity; eauto 3 with eo; simpl in *; try congruence.
   Qed.
 
   Lemma preserves_view_init_ls :

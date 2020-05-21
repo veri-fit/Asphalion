@@ -50,20 +50,42 @@ Section EventOrdering.
   Context { m   : @Msg }.
   Context { dtc : @DTimeContext }.
 
+  Definition CompNameKind  := String.string.
+  Definition CompNameSpace := nat.
 
-  Class IOTrusted :=
-    {
-      iot_input      : Type;
-      iot_output     : Type;
-      iot_def_output : iot_output;
-    }.
-  Context { iot : @IOTrusted }.
+  Record PreCompName :=
+    MkPreCompName
+      {
+        comp_name_kind  : CompNameKind;
+        comp_name_space : CompNameSpace;
+      }.
 
+  Record IOTrusted :=
+    MkIOTrusted
+      {
+        iot_input      : Type;
+        iot_output     : Type;
+        iot_def_output : iot_output;
+      }.
+
+  Class IOTrustedFun :=
+    MkIOTrustedFun
+      {
+        iot_fun : PreCompName -> IOTrusted;
+      }.
+  Context { iot : @IOTrustedFun }.
+
+  Record ITrusted :=
+    MkITrusted
+      {
+        it_name  : PreCompName;
+        it_input : iot_input (iot_fun it_name);
+      }.
 
   Inductive trigger_info (D : Type) :=
   | trigger_info_data (d : D)
   | trigger_info_arbitrary
-  | trigger_info_trusted (i : iot_input).
+  | trigger_info_trusted (i : ITrusted).
   Global Arguments trigger_info_data [D] _.
   Global Arguments trigger_info_arbitrary [D].
   Global Arguments trigger_info_trusted [D] _.

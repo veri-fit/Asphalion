@@ -82,6 +82,7 @@ Section MinBFTagreement.
       clear vt vd vc vn es.
       repndors; subst; unfold seq_concl, seq_event in *;
         simpl in *; introv; simpl in *; tcsp;
+          try (complete (unfold data_is_owned_by; minbft_simp; allrw; auto));
           try (complete (apply ASSUMPTION_trusted_learns_if_gen_true; auto; destruct h0; auto));
           try (complete (apply ASSUMPTION_trusted_knew_or_learns_or_gen_true; auto; destruct h0; auto));
           try (complete (apply ASSUMPTION_monotonicity_true; auto; destruct h0; auto));

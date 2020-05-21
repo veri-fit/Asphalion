@@ -18,7 +18,7 @@ Section ComponentAxiom.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -33,9 +33,9 @@ Section ComponentAxiom.
 
         ct_auth2trust  : AuthenticatedData -> list ct_trust;
 
-        ct_out2trust   : iot_output -> option ct_trust;
+        ct_out2trust   : forall (cn : PreCompName), iot_output (iot_fun cn) -> option ct_trust;
 
-        ct_trust2owner : ct_trust -> node_type;
+        ct_trust2owner : ct_trust -> option node_type;
       }.
 
   Context { ctp : ComponentTrust }.
@@ -64,6 +64,8 @@ Section ComponentAxiom.
       }.
   Global Arguments opt_T [a] _.
   Global Arguments opt_C [a] _.
+
+
 
   Definition AXIOM_authenticated_messages_were_sent_or_byz {F}
              (eo : EventOrdering)
@@ -107,13 +109,18 @@ Section ComponentAxiom.
             \/
 
             (
-              isByz e'
-              /\
-              exists t n,
-                opt_T opt = Some t
-                /\ ct_out2trust (M_byz_output_sys_on_event_to_byz sys e') = Some t
-                /\ loc e' = node2name n
-                /\ ct_trust2owner t = n
+              exists (i : ITrusted)
+                     (o : event2out (fls_space F (loc e')) e')
+                     (p : is_trusted_event e' i)
+                     (x : iot_output (iot_fun (it_name i)))
+                     (t : ct_trust)
+                     (n : node_type),
+                  opt_T opt = Some t
+                  /\ M_byz_output_sys_on_event sys e' = Some o
+                  /\ trusted_is_in_out p x o
+                  /\ ct_out2trust (it_name i) x = Some t
+                  /\ loc e' = node2name n
+                  /\ ct_trust2owner t = Some n
             )
 
             \/

@@ -44,12 +44,18 @@ Section LearnAndKnow.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.
   Local Open Scope proc.
 
+  Class SysOutput :=
+    MkSysOutput {
+        lak_output : Type;
+      }.
+
+  Context { out : SysOutput }.
 
   Class LearnAndKnow (n : nat) :=
     MkLearnAndKnow {
@@ -83,8 +89,7 @@ Section LearnAndKnow.
         lak_verify : forall {eo : EventOrdering} (e : Event) (d : lak_data), bool;
 
         (* the system *)
-        lak_output : Type;
-        lak_system : node_type -> StateMachine lak_memory msg (list lak_output);
+        lak_system : USystem (fun _ => lak_memory) msg (list lak_output);
         lak_no_initial_memory_i : forall n i, ~ lak_knows_i i (sm_state (lak_system n));
       }.
 

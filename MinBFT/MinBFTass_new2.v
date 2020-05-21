@@ -1,5 +1,6 @@
 Require Export MinBFTinv.
 Require Export MinBFTprops2.
+Require Export MinBFTrun.
 
 
 Section MinBFTass_new.
@@ -33,68 +34,85 @@ Section MinBFTass_new.
     unfold trusted_state_before, trusted_state_after in *; simpl in *.
     exrepnd.
     rewrite h2 in h3; ginv.
-    unfold disseminate_data in *.
+    unfold disseminate_data in *; exrepnd; simpl in *.
 
-    unfold M_byz_state_sys_on_event_of_trusted in *; simpl in *.
-    unfold M_byz_state_sys_before_event_of_trusted in *; simpl in *.
+    revert dependent o.
+    allrw; simpl; introv out dout.
+
+    unfold M_byz_state_sys_on_event in *; simpl in *.
+    unfold M_byz_state_sys_before_event in *; simpl in *.
     unfold M_byz_output_sys_on_event in *.
     rewrite h2 in *; simpl in *.
 
     applydup preserves_usig_id in h1 as eqid; auto;[].
 
-    apply map_option_Some in h1; exrepnd; rev_Some; simpl in *.
-    apply map_option_Some in h5; exrepnd; rev_Some; simpl in *.
-    rewrite M_byz_output_ls_on_event_as_run in h4.
-    rewrite h5 in h4; simpl in *.
+    unfold M_byz_output_ls_on_event in out.
+    apply map_option_Some in h1; exrepnd; rev_Some; simpl in *; minbft_simp.
+    apply map_option_Some in h5; exrepnd; rev_Some; simpl in *; minbft_simp.
 
-    pose proof (MinBFT_M_byz_run_ls_on_event_unroll_sp e n) as w.
-    rewrite h5 in w.
-    rewrite h1 in w.
+    rewrite M_byz_run_ls_on_event_unroll2 in h1; simpl in *.
 
-    clear h1 h5.
+    match goal with
+    | [ H : context[M_byz_run_ls_before_event ?ls ?e] |- _ ] =>
+      remember (M_byz_run_ls_before_event ls e) as run; symmetry in Heqrun
+    end.
+    apply M_byz_run_ls_before_event_ls_is_minbft in Heqrun.
+    repndors; exrepnd; subst; simpl in *.
 
-    apply on_M_trusted_implies_or in h3.
-    apply on_M_trusted_implies_or in h7.
-    repndors; exrepnd; subst; simpl in *; ginv;
-      try (inversion w0; subst; simpl in *; clear w0);
-      ginv; simpl in *;
-        unfold state_of_trusted; simpl; rev_Some; [| |].
-
-    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
-      unfold M_byz_run_ls_on_this_one_event in w1; simpl in *.
+    { unfold M_byz_output_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_input in *; simpl in *.
+      unfold data_is_in_out, event2out in *; simpl in *.
 
       remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig; simpl in *; ginv;[].
+      destruct trig; simpl in *; tcsp.
 
-      (* XXXXXXXXXXXX *)
-      autorewrite with minbft in *.
-      Time minbft_dest_msg Case;
-        repeat (simpl in *; autorewrite with minbft in *; smash_minbft2); repndors; smash_minbft2;
-        try (complete (unfold state_of_trusted_in_ls, find_trusted_sub in *; simpl in *; ginv; simpl in * ));
-        try (complete (ginv; simpl in *; autorewrite with minbft in *;
-                         try (rename_hyp_with invalid_commit invc);
-                         try (rename_hyp_with invalid_prepare invp);
-                         try (eapply data_is_owned_by_invalid_prepare_implies_false in invp; eauto; tcsp);
-                         try (eapply data_is_owned_by_invalid_commit_not_pil_implies_false in invc; eauto; tcsp))). }
+      { match goal with
+        | [ H : context[M_run_ls_on_input ?ls ?cn ?i] |- _ ] =>
+          remember (M_run_ls_on_input ls cn i) as oni; symmetry in Heqoni
+        end.
+        repnd; simpl in *; subst; simpl in *; minbft_simp.
+        applydup (M_run_ls_on_input_ls_is_minbft_new (msg_comp_name 0)) in Heqoni.
+        exrepnd; subst; simpl in *; ginv; simpl in *.
+        apply in_flat_map in dout; exrepnd; simpl in *.
 
-    { unfold M_byz_run_ls_on_this_one_event in *; simpl in *.
+        unfold M_run_ls_on_input in *; simpl in *.
+        autorewrite with minbft in *; simpl in *.
+
+        Time minbft_dest_msg Case;
+          repeat (simpl in *; autorewrite with minbft in *; smash_minbft2); repndors; smash_minbft2;
+            try (complete (unfold state_of_trusted_in_ls, find_trusted_sub in *; simpl in *; ginv; simpl in * ));
+            try (complete (unfold lower_out_break in *; simpl in *; minbft_simp;
+                             repeat (repndors; ginv; subst; tcsp; simpl in *; tcsp);
+                             ginv; simpl in *; autorewrite with minbft in *;
+                             try (rename_hyp_with invalid_commit invc);
+                             try (rename_hyp_with invalid_prepare invp);
+                             try (eapply data_is_owned_by_invalid_prepare_implies_false in invp; eauto; tcsp);
+                             try (eapply data_is_owned_by_invalid_commit_not_pil_implies_false in invc; eauto; tcsp))). }
+
+      { pose proof (snd_M_run_ls_on_trusted_incr_n_procs_eq (USIGlocalSys u) i) as z.
+        unfold LocalSystem in *; simpl in *; rewrite z in out; clear z.
+        rewrite rw_M_run_ls_on_trusted_USIGlocalSys in out.
+        destruct i as [cn i]; simpl in *; dest_cases w;[].
+        subst; simpl in *.
+        destruct i; repnd; repeat (simpl in *; repndors; ginv; tcsp). } }
+
+    { unfold M_byz_output_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_input in *; simpl in *.
+      unfold data_is_in_out, event2out in *; simpl in *.
+
       remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig in *; simpl in *; tcsp;[|].
+      destruct trig; simpl in *; tcsp;[].
 
-      { unfold M_break in *; simpl in *; smash_minbft;[].
-        repnd; simpl in *.
-        apply option_map_Some in w1; exrepnd; subst; simpl in *; ginv. }
-
-      { ginv; simpl in *.
-        unfold state_of_trusted_in_ls, state_of_trusted in *; simpl in *.
-        destruct i; simpl in *; repnd; tcsp; simpl in *; repndors; tcsp; ginv. } }
-
-    { unfold state_of_trusted_in_ls, state_of_trusted in *; simpl in *.
-
-      remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig in *; simpl in *; tcsp;[].
-      destruct i; simpl in *; repnd; tcsp; simpl in *; tcsp.
-      repndors; subst; simpl in *; tcsp; ginv. }
+      pose proof (snd_M_run_ls_on_trusted_incr_n_procs_eq (USIGlocalSys u) i) as z.
+      unfold LocalSystem in *; simpl in *; rewrite z in out; clear z.
+      rewrite rw_M_run_ls_on_trusted_USIGlocalSys in out.
+      destruct i as [cn i]; simpl in *; dest_cases w;[].
+      subst; simpl in *.
+      destruct i; repnd; repeat (simpl in *; repndors; ginv; tcsp). }
   Qed.
   Hint Resolve ASSUMPTION_generates_new_true : minbft.
 

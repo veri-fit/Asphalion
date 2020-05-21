@@ -69,24 +69,20 @@ Section TrInc.
     ].
 
   Definition MinBFTlocalSys (n : Rep) : MinBFTls :=
-    MkLocalSystem
-      (MAIN_comp n)
-      (MinBFTsubs n).
+    MkPProc _ (MAIN_comp n) :: incr_n_procs (MinBFTsubs n).
 
   Definition MinBFTlocalSys_new
              (n  : Rep)
              (s  : MAIN_state)
              (s1 : TRINC_state)
              (s2 : LOG_state) : MinBFTls :=
-    MkLocalSystem
-      (MinBFT_replicaSM_new n s)
-      (MinBFTsubs_new s1 s2).
+    MkPProc _ (MinBFT_replicaSM_new n s) :: incr_n_procs (MinBFTsubs_new s1 s2).
 
   Definition MinBFTsys : M_USystem MinBFTfunLevelSpace (*name -> M_StateMachine 2 msg_comp_name*) :=
     fun name =>
       match name with
       | MinBFT_replica n => MinBFTlocalSys n
-      | _ => unit_ls
+      | _ => empty_ls _ _
       end.
 
   Lemma MinBFTsubs_new_inj :
@@ -107,9 +103,12 @@ Section TrInc.
       -> b1 = b2 /\ c1 = c2 /\ d1 = d2.
   Proof.
     introv h.
-    apply decomp_LocalSystem in h; repnd; simpl in *.
-    apply MinBFTsubs_new_inj in h; repnd; subst.
-    inversion h0; subst; simpl in *; tcsp.
+    unfold MinBFTlocalSys_new in h.
+    apply eq_cons in h; repnd.
+    apply decomp_p_nproc in h0.
+    inversion h0; subst.
+    apply incr_n_procs_inj in h.
+    apply MinBFTsubs_new_inj in h; repnd; subst; tcsp.
   Qed.
 
   Lemma MinBFTlocalSys_as_new :
@@ -124,8 +123,8 @@ Section TrInc.
     introv; eauto.
   Qed.
 
-  Definition USIGlocalSys (s : TRINC_state) : LocalSystem _ _  :=
-    MkLocalSystem (build_mp_sm USIG_update s) [].
+  Definition USIGlocalSys (s : TRINC_state) : LocalSystem 1 0 :=
+    [MkPProc _ (build_m_sm USIG_update s)].
 
   Lemma update_state_USIG_update :
     forall s s',
@@ -145,7 +144,7 @@ Section TrInc.
   Qed.
   Hint Rewrite @update_state_LOG_update : minbft.
 
-  Lemma upd_ls_main_state_and_subs_MinBFTlocalSys_new2 :
+(*  Lemma upd_ls_main_state_and_subs_MinBFTlocalSys_new2 :
     forall n (s : MAIN_state) (u : TRINC_state) (l : LOG_state) s' u' l',
       upd_ls_main_state_and_subs
         (MinBFTlocalSys_new n s u l)
@@ -156,7 +155,7 @@ Section TrInc.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite upd_ls_main_state_and_subs_MinBFTlocalSys_new2 : minbft.
+  Hint Rewrite upd_ls_main_state_and_subs_MinBFTlocalSys_new2 : minbft.*)
 
 End TrInc.
 
@@ -164,4 +163,4 @@ End TrInc.
 Hint Rewrite @verify_create_hash_usig : minbft.
 Hint Rewrite @update_state_USIG_update : minbft.
 Hint Rewrite @update_state_LOG_update : minbft.
-Hint Rewrite @upd_ls_main_state_and_subs_MinBFTlocalSys_new2 : minbft.
+(*Hint Rewrite @upd_ls_main_state_and_subs_MinBFTlocalSys_new2 : minbft.*)

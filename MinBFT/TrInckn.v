@@ -29,7 +29,7 @@ Section TrInckn.
     | MinBFT_msg_bare_request r => []
     | MinBFT_msg_bare_reply r => []   (*FIX: check *)
     | MinBFT_msg_bare_prepare bp pui =>
-      match M_byz_state_sys_before_event_of_trusted MinBFTsys e with
+      match M_byz_state_sys_before_event MinBFTsys e USIGname with
       | Some u =>
         let view := bare_prepare_v bp in
         let msg  := bare_prepare_m bp in
@@ -41,7 +41,7 @@ Section TrInckn.
       | None => []
       end
     | MinBFT_msg_bare_commit  bc pui =>
-      match M_byz_state_sys_before_event_of_trusted MinBFTsys e with
+      match M_byz_state_sys_before_event MinBFTsys e USIGname with
       | Some u =>
         let view := bare_commit_v bc in
         let msg  := bare_commit_m bc in
@@ -57,14 +57,14 @@ Section TrInckn.
   Definition MinBFT_ca_verify (eo : EventOrdering) (e : Event) (a : AuthenticatedData) : bool :=
     match a with
     | MkAuthData (MinBFT_msg_bare_prepare bp pui) [d] =>
-      match M_byz_state_sys_before_event_of_trusted MinBFTsys e with
+      match M_byz_state_sys_before_event MinBFTsys e USIGname with
       | Some u =>
         verify_TrIncUI (bare_prepare_v bp) (bare_prepare_m bp) (Build_UI pui d) u
       | None => false
       end
 
     | MkAuthData (MinBFT_msg_bare_commit bc pui) [d] =>
-      match M_byz_state_sys_before_event_of_trusted MinBFTsys e with
+      match M_byz_state_sys_before_event MinBFTsys e USIGname with
       | Some u =>
         (verify_TrIncUI (bare_commit_v bc) (bare_commit_m bc) (Build_UI pui d) u)
           && (verify_TrIncUI (bare_commit_v bc) (bare_commit_m bc) (bare_commit_ui bc) u)
@@ -169,6 +169,11 @@ Section TrInckn.
     | minbft_data_ui _, minbft_data_ui _ => True
     | _, _ => False
     end.
+
+  Lemma similar_data_sym : symmetric _ similar_data.
+  Proof.
+    introv sim; unfold similar_data in *; destruct x, y; tcsp.
+  Qed.
 
   (* MOVE to USIG *)
   Parameter collision_resistant_verif :
@@ -516,13 +521,17 @@ Section TrInckn.
   Lemma init_counter_cond :
     forall n : node_type,
     exists m,
-      state_of_trusted_in_ls (MinBFTsys (node2name n)) = Some m
+      state_of_component USIGname (MinBFTsys (node2name n)) = Some m
       /\ trinc_counters m = init_counter.
   Proof.
     introv; simpl.
-    unfold state_of_trusted_in_ls, state_of_trusted; simpl.
+    unfold state_of_component; simpl.
     eexists; dands; eauto.
   Qed.
+
+  Definition ext_prim := True.
+  Definition ext_prim_interp : forall (eo : EventOrdering) (e : Event), ext_prim -> Prop :=
+    fun eo e p => True.
 
   Global Instance MinBFT_I_KnowledgeComponents : KnowledgeComponents :=
     MkKnowledgeComponents
@@ -531,6 +540,7 @@ Section TrInckn.
       minbft_data_ui_inj
       generated_for
       similar_data
+      similar_data_sym
       collision_resistant
       MinBFT_data2owner
       same_ui2owner
@@ -539,6 +549,7 @@ Section TrInckn.
       MinBFT_data2trust_correct
       MinBFT_auth2trust_correct
       LOGname
+      preUSIGname
       MinBFT_data_knows
       MinBFT_data_knows_dec
       MinBFTfunLevelSpace
@@ -555,8 +566,8 @@ Section TrInckn.
       similar_ui_equivalence
       similar_ui_pres
       trinc_counters
-      init_counter
-      init_counter_cond.
+      ext_prim
+      ext_prim_interp.
 
   (* === ======================== === *)
 

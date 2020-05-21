@@ -21,7 +21,9 @@ Section MicroBFTsame.
       -> usig_id s1 = usig_id u1.
   Proof.
     introv h.
-    apply map_option_Some in h; exrepnd; rev_Some; simpl in *.
+    apply map_option_Some in h; exrepnd; rev_Some; simpl in *; microbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in h0.
+    autorewrite with microbft comp in *.
 
     Time microbft_dest_msg Case;
       repeat(simpl in *; autorewrite with microbft in *; smash_microbft2).
@@ -34,7 +36,9 @@ Section MicroBFTsame.
       -> usig_local_keys s1 = usig_local_keys u1.
   Proof.
     introv h.
-    apply map_option_Some in h; exrepnd; rev_Some; simpl in *.
+    apply map_option_Some in h; exrepnd; rev_Some; simpl in *; microbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in h0.
+    autorewrite with microbft comp in *.
 
     Time microbft_dest_msg Case;
       repeat(simpl in *; autorewrite with microbft in *; smash_microbft2).
@@ -117,7 +121,7 @@ Section MicroBFTsame.
     applydup usig_same_id_on in h1.
     apply usig_same_keys_on in h1.
     simpl in *.
-    unfold state_of_subcomponents in h0; simpl in *; ginv.
+    unfold state_of_component in h0; simpl in *; ginv.
   Qed.
 
 End MicroBFTsame.

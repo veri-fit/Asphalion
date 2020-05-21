@@ -79,38 +79,57 @@ Section MinBFTass_diss.
   Proof.
     Opaque KE_CORRECT_TRACE_BEFORE.
     introv diss cor; simpl in *; exrepnd.
-    unfold disseminate_data in *; simpl in *.
+    unfold disseminate_data in *; simpl in *; exrepnd.
     unfold M_byz_output_sys_on_event in *.
+    revert dependent o.
+    rewrite diss1 in *; simpl in *; introv run out.
     apply interp_KE_CORRECT_TRACE_BEFORE in cor.
 
-    applydup (correct_implies_byz_output_eq e (MinBFTsys (loc e))) in cor as eqm.
-    rewrite eqm in diss; simpl in diss; clear eqm.
-    apply in_flat_map in diss; exrepnd.
-    rewrite diss1 in *.
-    apply M_output_ls_on_event_implies_run in diss2; exrepnd; simpl in *.
-    applydup M_run_ls_before_event_ls_is_minbft in diss2; exrepnd; subst; simpl in *.
+    eapply correct_byz_output_implies in cor; eauto; exrepnd; subst; simpl in *.
+    eapply data_is_in_out_and_dmsgs_are_out_implies in cor2; eauto.
+    clear dependent o.
+    apply in_flat_map in cor2; exrepnd; simpl in *.
 
-    unfold knows_after.
-    unfold state_after; simpl.
+    unfold M_output_ls_on_event in *.
+    apply in_olist2list in cor2; exrepnd; simpl in *.
+    apply option_map_Some in cor2; exrepnd; subst; simpl in *.
+    applydup M_run_ls_before_event_ls_is_minbft in cor2; exrepnd; subst; simpl in *.
+
+    unfold knows_after,  state_after; simpl.
     unfold M_state_sys_on_event; simpl.
     allrw; simpl.
     unfold M_state_ls_on_event; simpl.
     rewrite M_run_ls_on_event_unroll2.
     allrw; simpl.
 
-    applydup usig_same_id in diss2 as eqid; subst; simpl in *.
-    hide_hyp diss2.
+    applydup usig_same_id in cor2 as eqid; subst; simpl in *.
+    hide_hyp cor2.
 
-    apply in_M_output_ls_on_this_one_event_implies in diss3; exrepnd; simpl in *.
-    unfold M_run_ls_on_this_one_event in *; simpl.
-    allrw; simpl.
+    unfold M_output_ls_on_this_one_event, trigger_op in *; simpl in *.
+    unfold M_run_ls_on_this_one_event, trigger_op; simpl.
+    rewrite cor0 in *; simpl in *.
+    unfold M_run_ls_on_input_out, M_run_ls_on_input_ls in *; simpl in *.
+
+    remember (M_run_ls_on_input (MinBFTlocalSys_new (usig_id s1) s s1 s2) (msg_comp_name 0) i) as run.
+    symmetry in Heqrun; repnd; simpl in *.
+    apply in_olist2list in cor3; exrepnd; subst; simpl in *.
+    applydup (M_run_ls_on_input_ls_is_minbft_new (msg_comp_name 0)) in Heqrun.
+    exrepnd; subst; simpl in *.
+    unfold state_of_component; simpl.
+    exists l'.
+
+    unfold M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft in *; simpl in *.
 
     Time minbft_dest_msg Case;
       repeat (autorewrite with minbft comp in *; simpl in *; smash_minbft2);
       repeat (repndors; subst; simpl in *; tcsp);
-      unfold state_of_subcomponents in *; simpl in *;
-      eexists; dands; try (complete (eexists;dands;try reflexivity));
+      unfold state_of_component in *; simpl in *;
+      dands; try (complete (eexists;dands;try reflexivity));
       unfold MinBFT_data_knows; simpl; repeat smash_minbft2;
+      unfold lower_out_break in *; simpl in *; minbft_simp;
+      repeat (repndors; subst; simpl in *; tcsp);
+      repeat smash_minbft2;
       try (complete (rename_hyp_with invalid_prepare invp;
                      applydup invalid_prepare_false_implies_eq_prepare2view in invp as eqv; rewrite <- eqv in *;
                      applydup invalid_prepare_false_implies_eq_prepare2sender in invp as eqs;

@@ -34,7 +34,7 @@ Section TrIncprops1.
         M_run_ls_on_event (MinBFTlocalSys R) e = Some (MinBFTlocalSys_new R s s1 s2)
         /\ kc_knows (minbft_data_rdata (request_data (current_view s) r ui)) s2
         /\ kc_Tknows ui s2
-        /\ kc_trust2owner ui = MinBFTprimary (current_view s)
+        /\ kc_trust2owner ui = Some (MinBFTprimary (current_view s))
         /\ ui2cid ui = 0
         /\ ui2counter ui = i.
   Proof.
@@ -43,7 +43,7 @@ Section TrIncprops1.
     exrepnd.
     exists s s1 s2 ui.
     simpl.
-    dands; auto; unfold MinBFT_data_knows; simpl; subst; eauto 3 with minbft;[].
+    dands; auto; unfold MinBFT_data_knows; simpl; subst; allrw; eauto 3 with minbft;[].
     unfold request_data_in_log; simpl.
     allrw <-; autorewrite with minbft; allrw; auto.
   Qed.
@@ -592,6 +592,50 @@ Section TrIncprops1.
     }
   Qed.*)
 
+  Lemma are_procs_n_procs_minbft_subs_new :
+    forall u l, are_procs_n_procs (MinBFTsubs_new u l).
+  Proof.
+    introv i; simpl in *; repndors; subst; tcsp;
+      unfold is_proc_n_nproc; simpl; eauto 3 with minbft;
+        unfold is_proc_n_proc; simpl; eexists; introv; try reflexivity.
+  Qed.
+  Hint Resolve are_procs_n_procs_minbft_subs_new : minbft.
+
+  Lemma similar_minbft_implies_subs_new :
+    forall (subs : n_procs 1) u l,
+      similar_subs (MinBFTsubs_new u l) subs
+      -> exists u' l', subs = MinBFTsubs_new u' l'.
+  Proof.
+    introv sim.
+    inversion sim; subst; clear sim.
+    inversion sims; subst; clear sims.
+    inversion sims0; subst; clear sims0.
+    applydup @similar_procs_implies_same_name in simp; simpl in *.
+    applydup @similar_procs_implies_same_name in simp0; simpl in *.
+    destruct p2, p0; simpl in *; subst; simpl in *.
+    destruct pp_proc, pp_proc0; simpl in *; tcsp;[].
+    apply @similar_procs_implies_same_proc in simp.
+    apply @similar_procs_implies_same_proc in simp0.
+    simpl in *; repnd; subst.
+    destruct a, a0; simpl in *; subst; simpl in *; tcsp;[].
+    unfold similar_sms_at in *; repnd; simpl in *; subst; tcsp.
+    unfold MinBFTsubs_new, build_m_sm, build_mp_sm, at2sm; simpl; eauto.
+  Qed.
+
+  Lemma M_run_ls_on_input_ls_is_minbft_new :
+    forall cn i o r s u l ls,
+      M_run_ls_on_input (MinBFTlocalSys_new r s u l) cn i = (ls, o)
+      -> exists s' u' l',
+        ls = MinBFTlocalSys_new r s' u' l'.
+  Proof.
+    introv run.
+    apply M_run_ls_on_input_ls_is_minbft_newP in run; eauto 3 with minbft; tcsp;
+      try (complete (unfold get_names; simpl; introv xx; repndors; tcsp; inversion xx)).
+    exrepnd; subst; simpl in *.
+    apply similar_minbft_implies_subs_new in run1; exrepnd; subst.
+    eexists; eexists; eexists; try reflexivity.
+  Qed.
+
   Lemma request_data_was_verified :
     forall {eo : EventOrdering} (e : Event) (l : LOG_state) (u : TRINC_state) v r ui,
       is_replica e
@@ -656,26 +700,30 @@ Section TrIncprops1.
       applydup M_run_ls_before_event_ls_is_minbft in run1; exrepnd; subst.
 
       unfold M_run_ls_on_this_one_event in run0; simpl in *.
-      apply map_option_Some in run0; exrepnd; rev_Some.
-      autorewrite with minbft in *.
+      apply map_option_Some in run0; exrepnd; rev_Some; minbft_simp.
+      unfold M_run_ls_on_input_ls in *; simpl in *.
+      remember (M_run_ls_on_input (MinBFTlocalSys_new r0 s s1 s2) (msg_comp_name 0) a0) as run.
+      symmetry in Heqrun; repnd; simpl in *.
+      applydup (M_run_ls_on_input_ls_is_minbft_new (msg_comp_name 0)) in Heqrun; exrepnd; subst; simpl in *.
+      autorewrite with minbft in *; minbft_simp.
+      unfold M_run_ls_on_input in Heqrun; simpl in *.
+      autorewrite with minbft in *; simpl in *.
 
       Time minbft_dest_msg Case;
         repeat (simpl in *; autorewrite with minbft in *; smash_minbft2);
         try (simpl in *; unfold state_of_subcomponents in *; simpl in *; ginv);
-        try (complete (ginv; unfold try_create_trinc_ui, try_update_TRINC in *; simpl in *; smash_minbft2;
-                         rewrite M_run_ls_before_event_unroll_on in run1;
-                         destruct (dec_isFirst e); smash_minbft2;
-                           eapply ind in run1; eauto; eauto 3 with eo));
-        try (complete (ginv; unfold try_create_trinc_ui, try_update_TRINC in *; simpl in *; smash_minbft2;
-                         unfold verify_UI in *; simpl in *; autorewrite with minbft in *;
-                           first [destruct p as [b pui], b
-                                 |destruct c as [b pui], b]; simpl in *; ginv;
-                             unfold prepare2hash_data, RequestData2HashData, prepare2request in *; simpl in *; auto;
-                               unfold invalid_prepare, valid_prepare in *; simpl in *; smash_minbft;
-                                 unfold prepare2view in *; simpl in *; subst; tcsp; ginv; auto;
-                                   try (complete (rewrite M_run_ls_before_event_unroll_on in run1;
-                                                    destruct (dec_isFirst e); smash_minbft2;
-                                                      eapply ind in run1; eauto; eauto 3 with eo)))).
+        (unfold lower_out_break in *; simpl in *; minbft_simp;
+                ginv; unfold try_create_trinc_ui, try_update_TRINC in *; simpl in *;
+                  repeat (smash_minbft1; ginv; simpl in *;tcsp);
+                  rewrite M_run_ls_before_event_unroll_on in run1;
+                  destruct (dec_isFirst e); simpl in *;
+                    minbft_simp; simpl in *; repeat (smash_minbft1; ginv; simpl in *;tcsp);
+                      try (complete (eapply ind in run1; eauto; eauto 3 with eo));
+                      first [destruct p as [b pui], b
+                            |destruct c as [b pui], b]; simpl in *; ginv;
+                        unfold prepare2hash_data, RequestData2HashData, prepare2request in *; simpl in *; auto;
+                          unfold invalid_prepare, valid_prepare in *; simpl in *; smash_minbft3;
+                            unfold prepare2view in *; simpl in *; subst; tcsp; ginv; auto).
     }
   Qed.
 
@@ -691,7 +739,7 @@ Section TrIncprops1.
     unfold M_state_sys_on_event; allrw; simpl.
     unfold M_state_ls_on_event.
     allrw; simpl.
-    unfold state_of_subcomponents; simpl; tcsp.
+    unfold state_of_component; simpl; tcsp.
   Qed.
 
 End TrIncprops1.

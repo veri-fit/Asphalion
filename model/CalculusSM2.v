@@ -14,7 +14,7 @@ Section CalculusSM2.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
   Context { ctp : @ComponentTrust pd pn pat qc iot }.
   Context { cap : @ComponentAuth pd pn pk pat pm dtc iot }.
 

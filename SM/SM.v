@@ -96,7 +96,7 @@ Section SM.
      No trusted component
      =============================================================== *)
 
-  Global Instance SM_I_IOTrusted : IOTrusted := Build_IOTrusted unit unit tt.
+  Global Instance SM_I_IOTrustedFun : IOTrustedFun := MkIOTrustedFun (fun _ => MkIOTrusted unit unit tt).
 
 
   Inductive General :=

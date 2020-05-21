@@ -846,7 +846,8 @@ Section IC1.
            (fun n => is_lieutenant n = true)
            sm_signed_msg2size (S F).
   Proof.
-    introv ckeys isl eqloc lrn kn dkn len.
+    introv ckeys isl eqloc jl.
+    destruct jl as [lrn [kn [dkn len]]].
 
     unfold knows, didnt_know in *; exrepnd.
     rewrite eqloc in *; ginv; simpl in *.
@@ -1610,7 +1611,7 @@ Section IC1.
   Lemma names_not_in_list_as_dis_names_not_in_list :
     forall l,
       names_not_in_list l
-      = map general (dis_nodes_not_in_list l).
+      = map general (nodes_not_in_list l).
   Proof.
     tcsp.
   Qed.
@@ -1806,16 +1807,15 @@ Section IC1.
   Hint Resolve SM_preserves_knows : sm.
 
   Lemma SM_all_messages_are_disseminated_before_deadline :
-    forall (eo : EventOrdering) (gen : Gen) M,
+    forall (eo : EventOrdering) (gen : Gen),
       AXIOM_SMcorrect_keys eo
       -> is_lieutenant gen = true
       -> AXIOM_all_messages_are_disseminated_before_deadline
            eo
-           M
            (fun g => g = general gen)
            (nat2pdt (S F) * (mu + tau))%dtime.
   Proof.
-    introv ckeys isl cor xx yy dis; repnd.
+    introv ckeys isl cor xx dis; repnd.
     pose proof (lieutenant_disseminate_signed_msg_implies e d gen) as q.
     repeat (autodimp q hyp).
     exrepnd; auto.
@@ -1829,16 +1829,15 @@ Section IC1.
   Hint Resolve SM_all_messages_are_disseminated_before_deadline : sm.
 
   Lemma SM_all_messages_are_disseminated_before_deadline2 :
-    forall (eo : EventOrdering) (gen : Gen) M,
+    forall (eo : EventOrdering) (gen : Gen),
       AXIOM_SMcorrect_keys eo
       -> is_lieutenant gen = true
       -> AXIOM_all_messages_are_disseminated_before_deadline
            eo
-           M
            (fun g => g = general gen)
            (nat2pdt F * (mu + tau))%dtime.
   Proof.
-    introv ckeys isl cor xx yy dis; repnd.
+    introv ckeys isl cor xx dis; repnd.
     pose proof (lieutenant_disseminate_signed_msg_implies e d gen) as q.
     repeat (autodimp q hyp).
     exrepnd; auto.
@@ -1874,7 +1873,7 @@ Section IC1.
 
 
   Lemma SM_all_containers_satisfy_constraint :
-    forall eo, AXIOM_all_containers_satisfy_constraint eo (fun _ => True).
+    forall eo, AXIOM_all_containers_satisfy_constraint eo.
   Proof.
     introv xx.
     simpl in *; dands; eauto 3 with sm.
@@ -1979,7 +1978,7 @@ Section IC1.
   Hint Resolve SM_knows_extend : sm.
 
   Lemma SM_lak_verify_extend_implies :
-    forall eo, AXIOM_lak_verify_extend_implies eo.
+    forall eo, AXIOM_verify_extend_implies eo.
   Proof.
     introv verif.
     simpl in *.
@@ -2030,7 +2029,6 @@ Section IC1.
 
     pose proof (dis_message_is_disseminated_before_deadline5
                   e1 e2
-                  (fun _ => True)
                   (fun g => g = g2)
                   m g2
                   (nat2pdt (S F) * (mu + tau))%dtime) as q.
@@ -2503,7 +2501,7 @@ Section IC1.
   Hint Resolve SM_events_in_same_epoch_implies_verify_extend : sm.
 
   Lemma dis_extend_data_raises_epoch_sm_signed_msg2size :
-    dis_extend_data_raises_epoch sm_signed_msg2size.
+    AXIOM_extend_data_raises_epoch sm_signed_msg2size.
   Proof.
     introv; simpl.
     unfold sm_signed_msg2size; simpl; autorewrite with list; auto.
@@ -2641,6 +2639,7 @@ Section IC1.
       pose proof (nodes_have_correct_traces_before_two_implies_causal_left e1 e2 e' g1 g2) as cle.
       repeat (autodimp cle hyp).
       apply (sm_received_msg_was_sent e' e2 m g1 g2 s2); auto; try congruence; eauto 3 with diss sm.
+      eapply learns_on_time_implies_learns; eauto.
     }
 
     {
@@ -2672,7 +2671,8 @@ Section IC1.
           try (complete (rewrite eqloc'; eauto 3 with eo sm;
                          eapply nodes_have_correct_traces_before_two_implies_causal_left_1 in ctraces; eauto));
           try (complete (exists e2; dands; eauto 3 with eo; eapply time_plus_mu_tau_le; eauto));
-          try (complete (eapply implies_events_in_later_epoch; eauto; simpl in *; auto)).
+          try (complete (eapply implies_events_in_later_epoch; eauto; simpl in *; auto));
+          try (complete (split; auto)).
       }
 
       {
@@ -2680,7 +2680,7 @@ Section IC1.
              There must be 1 correct general among those [F+1] generals. *)
 
         (* continue here ..... *)
-        pose proof(exists_one_correct_implies [e1,e2] e' m g1 (fun _ => True) F) as xx.
+        pose proof(exists_one_correct_implies [e1,e2] e' m g1 F) as xx.
         repeat(autodimp xx hyp);
           try rewrite <- sm_signed_msg2senders_eq_dis_data2senders;
           autorewrite with sm; eauto 3 with sm eo diss;
@@ -2726,13 +2726,13 @@ Section IC1.
           simpl in lot; rewrite <- sm_signed_msg2senders_eq_dis_data2senders in lot.
           rewrite sm_extend_data_as_extend_signed_msg in lot.
           repeat (autodimp lot hyp); auto; eauto 3 with sm eo diss;
-            try (complete (unfold sm_signed_msg2size; omega));
+            try (complete (split; dands; auto; unfold sm_signed_msg2size; omega));
             try (complete (rewrite out2 in *; autorewrite with sm list in *; simpl in *;
                            introv xx; subst; tcsp));
             try (complete (apply (implies_is_correct_in_near_future e'0 e2 g2 v sm_signed_msg2size (S F));
                            unfold sm_signed_msg2size; auto; eauto 3 with sm diss; try omega));
             try (complete (apply (implies_events_in_later_epoch e'0 e2 g2 v sm_signed_msg2size (S F));
-                           unfold sm_signed_msg2size; auto; eauto 3 with sm diss; try omega));[].
+                           unfold sm_signed_msg2size; auto; eauto 3 with sm diss; try omega)); [].
           rewrite out2 in *; autorewrite with sm in *.
           eapply sm_knew_implies in lot; eauto; simpl in *; tcsp.
         }

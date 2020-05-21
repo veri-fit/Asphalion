@@ -55,16 +55,7 @@ Section TrIncass_tknew0.
     intros eo e.
     induction e as [e ind] using predHappenedBeforeInd;[]; introv run.
     rewrite M_run_ls_before_event_unroll in run.
-    destruct (dec_isFirst e) as [d|d]; ginv.
-
-    { rewrite MinBFTlocalSys_as_new in run.
-      apply eq_Some in run.
-      apply decomp_LocalSystem in run; repnd; simpl in *.
-      inversion run0; subst; simpl in *; GC.
-      repeat (apply eq_cons in run; repnd); GC.
-      apply decomp_p_nproc in run0.
-      apply decomp_p_nproc in run1.
-      inversion run0; inversion run1; subst; simpl in *; auto. }
+    destruct (dec_isFirst e) as [d|d]; ginv; minbft_simp; tcsp;[].
 
     apply map_option_Some in run; exrepnd; rev_Some.
     applydup M_run_ls_before_event_ls_is_minbft in run1; exrepnd; subst.
@@ -74,8 +65,9 @@ Section TrIncass_tknew0.
     eapply ind in run; eauto 3 with eo;[].
     hide_hyp run_backup.
 
-    apply map_option_Some in run0; exrepnd; simpl in *; rev_Some.
-    autorewrite with minbft comp in *.
+    apply map_option_Some in run0; exrepnd; simpl in *; rev_Some; minbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft comp in *; simpl in *.
     Time minbft_dest_msg Case;
       repeat (autorewrite with minbft comp in *; simpl in *; smash_minbft2);
       try (complete (unfold try_create_trinc_ui, try_update_TRINC in *; simpl in *; smash_minbft2;
@@ -123,19 +115,29 @@ Section TrIncass_tknew0.
 
     rewrite M_run_ls_on_event_unroll2 in runOn.
     rewrite runBef in runOn; simpl in *.
-    apply map_option_Some in runOn; exrepnd; rev_Some.
+    apply map_option_Some in runOn; exrepnd; rev_Some; minbft_simp.
     unfold trigger_op in *.
     rewrite eqtrig in *; simpl in *; ginv.
 
     clear runBef.
 
-    autorewrite with minbft in *.
+    unfold M_byz_run_ls_on_one_event; simpl.
+    unfold data_is_in_out, event2out; simpl; allrw; simpl.
+    unfold M_run_ls_on_input_ls in *.
+    remember (M_run_ls_on_input (MinBFTlocalSys_new (trinc_id u1) s1 u1 l1) (msg_comp_name 0) a) as run.
+    symmetry in Heqrun; repnd; simpl in *; subst.
+    unfold M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft in *; simpl in *.
 
     Time minbft_dest_msg Case;
       repeat (simpl in *; autorewrite with minbft in *; smash_minbft2; try omega);
       unfold try_create_trinc_ui in *; simpl in *; smash_minbft2;
         try (complete (dands; tcsp; left; unfold invalid_prepare, valid_prepare in *; smash_minbft2));
-        try (complete (dands; tcsp; left; unfold invalid_commit, valid_commit in *; smash_minbft2)).
+        try (complete (dands; tcsp; left; unfold invalid_commit, valid_commit in *; smash_minbft2));
+        unfold lower_out_break in *; simpl in *; minbft_simp; eexists; dands; eauto;
+          simpl in *; tcsp; try omega;
+            try (complete (dands; tcsp; left; unfold invalid_prepare, valid_prepare in *; smash_minbft2));
+            try (complete (dands; tcsp; left; unfold invalid_commit, valid_commit in *; smash_minbft2)).
   Qed.
   Hint Resolve on_request_implies_generates_trusted : minbft.
 

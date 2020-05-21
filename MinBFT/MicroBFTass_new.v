@@ -17,6 +17,7 @@ Section MicroBFTass_new.
   Opaque KE_TOWNS.
   Opaque KE_ID_BEFORE.
 
+
   Lemma ASSUMPTION_generates_new_true :
     forall (eo : EventOrdering), assume_eo eo ASSUMPTION_generates_new_ex.
   Proof.
@@ -31,79 +32,72 @@ Section MicroBFTass_new.
     unfold trusted_state_before, trusted_state_after in *; simpl in *.
     exrepnd.
     rewrite h2 in *; unfold MicroBFTheader.node2name in *; ginv; subst.
-    unfold disseminate_data in *.
-
-    unfold M_byz_state_sys_on_event_of_trusted in *; simpl in *.
-    unfold M_byz_state_sys_before_event_of_trusted in *; simpl in *.
+    unfold disseminate_data in *; exrepnd.
     unfold M_byz_output_sys_on_event in *.
+    unfold M_byz_output_ls_on_event in *; simpl in *.
+    unfold M_byz_state_sys_on_event in *; simpl in *.
+    unfold M_byz_state_sys_before_event in *; simpl in *.
 
     applydup preserves_usig_id in h5 as eqid; auto;[].
 
-    apply map_option_Some in h5; exrepnd; rev_Some; simpl in *.
-    apply map_option_Some in h6; exrepnd; rev_Some; simpl in *.
-    rewrite M_byz_output_ls_on_event_as_run in h3.
-    rewrite h5 in h3; simpl in *.
+    apply map_option_Some in h5; exrepnd; rev_Some; simpl in *; microbft_simp.
+    apply map_option_Some in h6; exrepnd; rev_Some; simpl in *; microbft_simp.
+    rewrite M_byz_run_ls_on_event_unroll2 in h3; simpl in *.
 
-    pose proof (MicroBFT_M_byz_run_ls_on_event_unroll_sp e (loc e)) as w.
+    remember (M_byz_run_ls_before_event (MicroBFTsys (loc e)) e) as ls; symmetry in Heqls.
     simpl in *.
+    rewrite Heqls in *.
     unfold MicroBFTsys in *; simpl in *.
-    rewrite h5 in w.
-    rewrite h1 in w.
 
-    clear h1 h5.
-
-    apply on_M_trusted_implies_or in h0.
-    apply on_M_trusted_implies_or in h2.
-    repndors; exrepnd; subst; simpl in *; ginv;
-      try (inversion w0; subst; simpl in *; clear w0);
-      ginv; simpl in *;
-        unfold state_of_trusted; simpl; rev_Some; [| |].
-
-    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
-      unfold M_byz_run_ls_on_this_one_event in w1; simpl in *.
-
-      remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig; simpl in *; ginv;[].
-
-      (* XXXXXXXXXXXX *)
-      autorewrite with microbft in *.
-      Time microbft_dest_msg Case;
-        repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
-        try (complete (repndors; ginv; tcsp;
-                       unfold state_of_trusted_in_ls, find_trusted_sub in *; simpl in *; ginv;
-                       simpl in *; tcsp;
-                       unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *;
-                       eexists; dands;[| | |right;eauto|]; simpl; auto; try omega;
-                       remember (usig_counters u) as K; destruct K; simpl in *; tcsp;
-                       destruct n; simpl in *; tcsp; try omega;
-                         try (complete (f_equal; apply Max.max_l; try omega));
-                         try (complete (left; dands; try omega; apply les_reflexive));
-                         try (complete (left; dands; try apply les_reflexive; apply lt_n_S; apply Nat.max_lt_iff; left; try omega)))). }
+    apply M_byz_run_ls_before_event_ls_is_microbft in Heqls.
+    repndors; exrepnd; subst; simpl in *; microbft_simp.
 
     { unfold M_byz_run_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_one_event in *; simpl in *.
+      revert dependent o.
+      unfold data_is_in_out, event2out in *.
       remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig in *; simpl in *; tcsp;[|].
+      destruct trig; simpl in *; ginv; tcsp; introv run j.
 
-      { unfold M_break in *; simpl in *; smash_microbft;[].
-        repnd; simpl in *.
-        apply option_map_Some in w1; exrepnd; subst; simpl in *; ginv. }
+      { allrw in_flat_map; exrepnd.
+        unfold M_run_ls_on_input in *.
+        autorewrite with microbft in *.
+        Time microbft_dest_msg Case;
+          repeat (simpl in *; autorewrite with microbft in *; smash_microbft2);
+          try (complete (repndors; ginv; simpl in *;
+                           unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *;
+                             eexists; dands; try reflexivity; try omega; tcsp)). }
 
-      { ginv; simpl in *.
-        unfold state_of_trusted_in_ls, state_of_trusted in *; simpl in *.
-        destruct i; simpl in *; repnd; tcsp; simpl in *; repndors; tcsp; ginv.
+      { unfold M_run_ls_on_trusted, M_run_ls_on_input in *; simpl in *.
+        autorewrite with microbft in *.
+        rewrite @on_comp_sing_eq in run.
+        rewrite @on_comp_sing_eq in h3.
+        dest_cases w; simpl in *;[].
+        destruct i, o; simpl in *; repndors; ginv; tcsp;[].
+        inversion w; subst; simpl in *.
+        rewrite (UIP_refl_CompName _ w) in *; auto; simpl in *.
+        destruct it_input; simpl in *; repnd; simpl in *; tcsp; microbft_simp; ginv;
+          unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *;
+            eexists; dands; try reflexivity; try omega; tcsp. } }
 
-        unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *.
-        eexists; dands;[| | |right;eauto|]; simpl; auto; try omega; eauto 3 with minbft. } }
-
-    { unfold state_of_trusted_in_ls, state_of_trusted in *; simpl in *.
-
+    { unfold M_byz_run_ls_on_this_one_event in *; simpl in *.
+      unfold M_byz_run_ls_on_one_event in *; simpl in *.
+      revert dependent o.
+      unfold data_is_in_out, event2out in *.
       remember (trigger e) as trig; symmetry in Heqtrig.
-      destruct trig in *; simpl in *; tcsp;[].
-      destruct i; simpl in *; repnd; tcsp; simpl in *; tcsp.
-      repndors; subst; simpl in *; tcsp; ginv.
+      destruct trig; simpl in *; ginv; tcsp; introv run j.
 
-        unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *.
-        eexists; dands;[| | |right;eauto|]; simpl; auto; try omega; eauto 3 with minbft. }
+      unfold M_run_ls_on_trusted, M_run_ls_on_input in *; simpl in *.
+      autorewrite with microbft in *.
+      rewrite @on_comp_sing_eq in run.
+      rewrite @on_comp_sing_eq in h3.
+      dest_cases w; simpl in *;[].
+      destruct i, o; simpl in *; repndors; ginv; tcsp;[].
+      inversion w; subst; simpl in *.
+      rewrite (UIP_refl_CompName _ w) in *; auto; simpl in *.
+      destruct it_input; simpl in *; repnd; simpl in *; tcsp; microbft_simp; ginv;
+        unfold ui_has_counter, ui2counter, state_of_trusted in *; simpl in *;
+          eexists; dands; try reflexivity; try omega; tcsp. }
   Qed.
   Hint Resolve ASSUMPTION_generates_new_true : microbft.
 

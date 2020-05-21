@@ -6,7 +6,7 @@ set -e
 
 TERMINAL=gnome-terminal
 CONF_FILE=config
-NUM_REQUESTS=100000
+NUM_REQUESTS=1000000
 NUM_FAULTS=1
 NUM_CLIENTS=1
 PRINTING_PERIOD=100
@@ -36,25 +36,25 @@ make ext
 make
 
 
-# Replica keys
-for i in `seq 0 ${NUM_REPLICASM1}`;
-do
-    ./RsaKey.native -priv private_key${i} -pub public_key${i} -print false
-done
+# # Replica keys
+# for i in `seq 0 ${NUM_REPLICASM1}`;
+# do
+#     ./RsaKey.native -priv private_key${i} -pub public_key${i} -print false
+# done
 
 
-# Client keys
-for i in `seq 0 ${NUM_CLIENTSM1}`;
-do
-    ./RsaKey.native -priv private_key_client${i} -pub public_key_client${i} -print false
-done
+# # Client keys
+# for i in `seq 0 ${NUM_CLIENTSM1}`;
+# do
+#     ./RsaKey.native -priv private_key_client${i} -pub public_key_client${i} -print false
+# done
 
 
-# Replicas
-for i in `seq 0 ${NUM_REPLICASM1}`;
-do
-    ${TERMINAL} --title=replica${i} --geometry 60x20+$(( 100*(${i}+1) ))+$(( 100*(${i}+1) )) -x ./Replica.native -id ${i} -num-faults ${NUM_FAULTS} -num-clients ${NUM_CLIENTS} -conf ${CONF_FILE}
-done
+# # Replicas
+# for i in `seq 0 ${NUM_REPLICASM1}`;
+# do
+#     ${TERMINAL} --title=replica${i} --geometry 60x20+$(( 100*(${i}+1) ))+$(( 100*(${i}+1) )) -x ./Replica.native -id ${i} -num-faults ${NUM_FAULTS} -num-clients ${NUM_CLIENTS} -conf ${CONF_FILE}
+# done
 
 
 sleep 2

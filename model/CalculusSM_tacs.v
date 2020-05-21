@@ -582,7 +582,10 @@ Ltac LOCKauto :=
     LOCKapply PRIMITIVE_RULE_at_true
 
   | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_TRUE @ ?e)] =>
-    LOCKapply PRIMITIVE_RULE_true_true
+    LOCKapply DERIVED_RULE_true_true
+
+  | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_ID_EQ ?c ?c @ _)] =>
+    LOCKapply PRIMITIVE_RULE_id_eq_refl_true
 
   | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_OR KE_FIRST KE_NOT_FIRST @ ?e)] =>
     LOCKapply PRIMITIVE_RULE_first_dec_true
@@ -593,7 +596,7 @@ Ltac LOCKauto :=
       norm_with v; LOCKapply PRIMITIVE_RULE_hypothesis_true
 
     | context[?v › KE_FALSE @ ?e] =>
-      norm_with v; LOCKapply PRIMITIVE_RULE_false_elim_true
+      norm_with v; LOCKapply DERIVED_RULE_false_elim_true
     end
   end.
 

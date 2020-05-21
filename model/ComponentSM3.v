@@ -17,7 +17,7 @@ Section ComponentSM3.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -31,170 +31,36 @@ Section ComponentSM3.
   Lemma M_byz_compose2 :
     forall {eo : EventOrdering} (e : Event)
            {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {cn}
-           (sm : n_proc L cn),
-      are_procs_ls ls
-      -> wf_ls ls
-      -> find_sub cn ls = Some sm
+           (sm : n_proc L (pre2trusted cn)),
+      are_procs_n_procs ls
+      -> wf_procs ls
+      -> find_name (pre2trusted cn) ls = Some sm
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
-      -> is_trusted_ls cn ls
       ->
-      exists (s : M_trusted (sf cn)) (l : list (trigger_info (cio_I (fio cn)))),
-        map_untrusted_op
-          (snd (run_sm_on_byz_inputs sm l (ls_subs ls)))
-          (fun p => Some (sm2state p)) = Some s
-        /\ M_byz_state_ls_before_event ls e cn = Some s.
+      exists (s : tsf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+        M_state_ls_on_inputs (sm2ls sm) (pre2trusted cn) l = Some s
+        /\ M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s.
   Proof.
-    intros eo e.
-    induction e as [e ind] using predHappenedBeforeInd; introv aps wf fs lvl trust.
-    unfold M_byz_state_ls_before_event.
-    rewrite M_byz_run_ls_before_event_unroll.
-
-    destruct (dec_isFirst e) as [d|d].
-
-    { simpl.
-      rewrite state_of_component_eq.
-      pose proof (find_sub_wf_ls_implies cn ls sm) as dn.
-      repeat (autodimp dn hyp).
-      destruct (CompNameDeq (msg_comp_name S) cn); tcsp.
-      unfold state_of_subcomponents.
-      unfold find_sub in fs; rewrite fs; simpl.
-      eexists; exists ([] : list (trigger_info (cio_I (fio cn)))); dands;[|eauto]; simpl; auto. }
-
-    pose proof (ind (local_pred e)) as ind.
-    autodimp ind hyp; eauto 3 with eo.
-    pose proof (ind L S ls cn sm) as ind.
-    repeat (autodimp ind hyp).
-    exrepnd.
-
-    unfold M_byz_state_ls_before_event in ind1.
-
-    remember (M_byz_run_ls_before_event ls (local_pred e)) as run; symmetry in Heqrun.
-    destruct run; simpl in *; eauto;[].
-
-    unfold M_byz_run_M_trusted_ls_on_this_one_event.
-    destruct m as [ls'|t]; simpl;[|].
-
-    { applydup M_byz_run_ls_before_event_M_nt_preserves_subs in Heqrun as prp; auto; repnd;[].
-      unfold map_untrusted_op in ind0; simpl in *.
-      unfold M_byz_run_ls_on_this_one_event, M_break.
-
-      pose proof (are_procs_ls_implies_ls_run_sub ls') as lsr; repeat (autodimp lsr hyp).
-      pose proof (are_procs_ls_implies_ls_preserves_sub ls') as lps; repeat (autodimp lps hyp).
-      pose proof (run_subs_leaves_of_find_sub ls ls' sm) as z.
-      repeat (autodimp z hyp); eauto 3 with comp;[].
-      exrepnd.
-      applydup @find_sub_implies_state_of_component in z0; auto.
-      rewrite z1 in ind1; simpl in ind1; ginv.
-      applydup @find_sub_implies_in in z0.
-
-      remember (trigger (local_pred e)) as trig; clear Heqtrig.
-      destruct trig; simpl;[| |].
-
-      { remember (sm_update (ls_main ls') (sm_state (ls_main ls')) d0 (ls_subs ls')) as w; symmetry in Heqw.
-        repnd; simpl.
-        applydup @are_procs_ls_implies_some in Heqw; auto;[].
-        exrepnd; subst.
-        autorewrite with comp.
-
-        pose proof (lsr (sm_state (ls_main ls')) d0) as lsr.
-        pose proof (lps (sm_state (ls_main ls')) d0 (ls_subs ls')) as lps.
-        autodimp lps hyp; eauto 3 with comp.
-        unfold M_break in lps; split_pair.
-        rewrite Heqw in lsr; simpl in lsr.
-        rewrite Heqw in lps; simpl in lps.
-
-        apply lsr in z2; auto; autorewrite with comp; auto; exrepnd;[].
-        dup z3 as v.
-        apply (state_of_components_upd_ls_main_state_and_subs_if_in s ls') in v; eauto; eauto 3 with comp;[].
-        rewrite v; simpl.
-
-        pose proof (run_sm_on_inputs_app l0 l1 sm (ls_subs ls)) as xx.
-        split_pair.
-        erewrite (eq_snd_run_sm_on_inputs_on_diff_subs_if_leaf l1 _ _ (fst (run_sm_on_inputs sm l0 (ls_subs ls))));
-          autorewrite with comp; auto;[].
-        rewrite <- xx; clear xx.
-
-        eexists; exists (map (fun x => trigger_info_data x) (l0 ++ l1)).
-        dands;[|eauto].
-
-        pose proof (run_sm_on_byz_inputs_as_run_sm_on_inputs
-                      cn L (l0 ++ l1) sm (ls_subs ls)) as xx.
-        autodimp xx hyp; eauto 3 with comp;[].
-
-        remember (run_sm_on_inputs sm (l0 ++ l1) (ls_subs ls)) as rn.
-        symmetry in Heqrn; repnd; simpl.
-        simpl in xx; rewrite xx; clear xx; simpl; auto. }
-
-      { dup trust as trust'.
-        unfold is_trusted_ls in trust'.
-        erewrite <- (similar_subs_preserves_is_trusted L cn) in trust';[|eauto].
-
-        pose proof (run_sm_on_byz_inputs_as_run_sm_on_inputs_app
-                      cn L l0 [trigger_info_arbitrary] sm (ls_subs ls)) as h.
-        remember (run_sm_on_inputs sm l0 (ls_subs ls)) as rn; symmetry in Heqrn.
-        repnd; simpl in *.
-        rewrite <- snoc_as_app in h.
-
-        applydup is_trusted_implies_find_trusted2 in trust'; exrepnd.
-        unfold find_sub in z0.
-        rewrite trust'0 in z0.
-        inversion z0; subst sm0.
-
-        eexists.
-        exists (snoc (map (fun x => trigger_info_data x) l0) trigger_info_arbitrary).
-
-        rewrite h; clear h.
-        unfold byz_run_sm_on_byz_inputs; simpl.
-        rewrite trust'1; simpl.
-        rewrite (to_trusted_eq _ eqn); simpl; dands; eauto. }
-
-      { dup trust as trust'.
-        unfold is_trusted_ls in trust'.
-        erewrite <- (similar_subs_preserves_is_trusted L cn) in trust';[|eauto].
-
-        pose proof (run_sm_on_byz_inputs_as_run_sm_on_inputs_app
-                      cn L l0 [trigger_info_trusted i] sm (ls_subs ls)) as h.
-        remember (run_sm_on_inputs sm l0 (ls_subs ls)) as rn; symmetry in Heqrn.
-        repnd; simpl in *.
-        rewrite <- snoc_as_app in h.
-
-        applydup is_trusted_implies_find_trusted2 in trust'; exrepnd.
-        unfold find_sub in z0.
-        rewrite trust'0 in z0.
-        inversion z0; subst sm0.
-
-        eexists.
-        exists (snoc (map (fun x => trigger_info_data x) l0) (trigger_info_trusted i)).
-
-        rewrite h; clear h.
-        unfold byz_run_sm_on_byz_inputs; simpl.
-        rewrite trust'1; simpl.
-        rewrite (to_trusted_eq _ eqn); simpl; dands; eauto. } }
-
-    { simpl in *; ginv.
-      remember (trigger (local_pred e)) as trig.
-      destruct trig; simpl;[| |];
-        try (complete (eexists; exists l; rewrite ind0; simpl; auto));[].
-
-      remember (sm_update (tsm_sm t) (state_of_trusted t) i []) as z; symmetry in Heqz.
-      simpl in *; repnd.
-      apply map_untrusted_op_Some_M_t_implies in ind0.
-
-      eexists.
-      exists (snoc l (trigger_info_trusted i)).
-
-      rewrite snoc_as_app.
-      remember (run_sm_on_byz_inputs sm l (ls_subs ls)) as w; symmetry in Heqw; repnd; simpl in *; subst.
-      applydup (run_sm_on_byz_inputs_as_run_sm_on_inputs_app_trusted
-                  l [trigger_info_trusted i] sm) in Heqw; simpl in *.
-      rewrite Heqw0; clear Heqw0.
-      rewrite Heqz; simpl; dands; eauto. }
+    introv aps wf fn lvl.
+    pose proof (M_byz_compose e ls sm) as q.
+    repeat (autodimp q hyp); exrepnd.
+    rewrite <- q0.
+    unfold M_state_ls_on_inputs, on_some in *.
+    remember (M_run_ls_on_inputs (sm2ls sm) (pre2trusted cn) l) as run; symmetry in Heqrun; repnd.
+    pose proof (M_run_ls_on_inputs_preserves_subs (pre2trusted cn) l (sm2ls sm) run) as q.
+    repeat (autodimp q hyp); eauto 3 with comp;
+      try (apply implies_wf_procs_sm2ls);
+      try (apply implies_are_procs_n_procs_sm2ls);
+      eauto 3 with comp;[]; repnd.
+    apply similar_subs_sm2ls in q3; exrepnd; subst.
+    exists (sm2state q4) l; allrw.
+    unfold state_of_component; rewrite find_name_sm2ls; simpl; tcsp.
   Qed.
 
-  Definition trusted_run_sm_on_byz_inputs {n} {cn}
+(*  Definition trusted_run_sm_on_byz_inputs {n} {cn}
              (p    : n_proc n cn)
              (mt   : M_trusted (sf cn))
              (l    : list (trigger_info (cio_I (fio cn))))
@@ -202,9 +68,9 @@ Section ComponentSM3.
     match mt with
     | inl s => run_sm_on_byz_inputs (update_state_m p s) l subs
     | inr t => ([], M_t (run_trustedSM_on_trigger_info_list t l))
-    end.
+    end.*)
 
-  Lemma map_untrusted_op_Some_M_nt_implies :
+(*  Lemma map_untrusted_op_Some_M_nt_implies :
     forall {T} {A} (x : M_trusted T) (F : T -> option A) (a : A),
       map_untrusted_op x F = Some (M_nt a)
       -> exists t, x = M_nt t /\ F t = Some a.
@@ -213,7 +79,7 @@ Section ComponentSM3.
     destruct x; simpl in *; ginv; tcsp;[].
     apply option_map_Some in h; exrepnd; ginv.
     exists t; dands; auto.
-  Qed.
+  Qed.*)
 
   Lemma similar_sms_implies_eq_update_state_m_sm2state :
     forall n cn (sm1 sm2 : n_proc n cn),
@@ -247,195 +113,256 @@ Section ComponentSM3.
   Qed.
 
   Lemma similar_subs_preserves_find_sub :
-    forall {L S cn} (ls ls' : LocalSystem L S) (sm : n_proc L cn) (s : sf cn),
-      wf_ls ls
-      -> find_sub cn ls = Some sm
-      -> similar_subs (ls_subs ls) (ls_subs ls')
+    forall {n} {cn} (ls ls' : n_procs n) (sm : n_proc n cn) (s : sf cn),
+      wf_procs ls
+      -> find_name cn ls = Some sm
+      -> similar_subs ls ls'
       -> state_of_component cn ls' = Some s
-      -> find_sub cn ls' = Some (update_state_m sm s).
+      -> find_name cn ls' = Some (update_state_m sm s).
   Proof.
     introv wf fs sim comp.
-    unfold find_sub in *.
-    unfold state_of_component in comp.
-    destruct wf as [wf1 wf2].
-    destruct ls as [main1 subs1], ls' as [main2 subs2].
-    autorewrite with comp in *.
-    destruct (CompNameDeq S cn); subst.
-
-    { apply find_name_implies_in_procs_names in fs; tcsp. }
-
-    unfold state_of_subcomponents in comp.
-    apply option_map_Some in comp; exrepnd; subst.
-    erewrite <- similar_subs_preserves_find_name; eauto.
+    apply option_map_Some in comp; exrepnd; subst; simpl in *.
+    allrw.
+    eapply similar_subs_preserves_find_name in comp1; try exact fs; auto.
+    f_equal; auto.
   Qed.
   Hint Resolve similar_subs_preserves_find_sub : comp.
 
   Lemma similar_subs_preserves_is_trusted_ls :
-    forall {L S} cn (ls1 ls2 : LocalSystem L S),
-      similar_subs (ls_subs ls1) (ls_subs ls2)
+    forall {n} cn (ls1 ls2 : n_procs n),
+      similar_subs ls1 ls2
       -> is_trusted_ls cn ls1
       -> is_trusted_ls cn ls2.
   Proof.
     introv sim ist.
     unfold is_trusted_ls in *.
-    destruct ls1 as [main1 subs1], ls2 as [main2 subs2]; simpl in *.
     apply (similar_subs_preserves_is_trusted _ cn) in sim; congruence.
   Qed.
   Hint Resolve similar_subs_preserves_is_trusted_ls : comp.
+
+  Definition M_byz_state_ls_on_this_one_event
+             {L S}
+             (ls : LocalSystem L S)
+             {eo : EventOrdering}
+             (e  : Event)
+             (cn : CompName) : option (sf cn) :=
+    let ls' := M_byz_run_ls_on_this_one_event ls e in
+    state_of_component cn ls'.
 
   (* TODO: use this one to prove the other M_byz_compose lemmas *)
   Lemma M_byz_compose_step :
     forall {eo : EventOrdering} (e : Event)
            {L S} {cn}
-           (ls : MLocalSystem L S)
-           (sm : n_proc L cn),
-      are_procs_ls ls
-      -> wf_ls ls
-      -> find_sub cn ls = Some sm
+           (ls : LocalSystem L S)
+           (sm : n_proc L (pre2trusted cn)),
+      are_procs_n_procs ls
+      -> wf_procs ls
+      -> find_name (pre2trusted cn) ls = Some sm
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
-      -> is_trusted_ls cn ls
       ->
-      exists (s : M_trusted (sf cn)) (l : list (trigger_info (cio_I (fio cn)))),
-        map_op_untrusted_op
-          (M_byz_run_ls_on_this_one_event ls e)
-          (state_of_component cn) = Some s
-        /\ map_untrusted_op
-             (snd (run_sm_on_byz_inputs sm l []))
-             (fun p => Some (sm2state p)) = Some s.
+      exists (s : sf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+        M_state_ls_on_inputs (sm2ls sm) (pre2trusted cn) l = Some s
+        /\ M_byz_state_ls_on_this_one_event ls e (pre2trusted cn) = Some s.
   Proof.
-    introv aps wf fs lvl trust.
-    unfold M_byz_run_ls_on_this_one_event, M_break.
+    introv aps wf fs lvl.
+    unfold M_byz_state_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
+    pose proof (M_byz_compose_gen (msg_comp_name S) [trigger e] ls sm) as q.
+    repeat (autodimp q hyp); exrepnd.
+    simpl in *.
+    unfold event2out, LocalSystem in *; simpl in *; rewrite <- q0.
+    unfold M_state_ls_on_inputs, on_some in *.
+    remember (M_run_ls_on_inputs (sm2ls sm) (pre2trusted cn) l) as run; symmetry in Heqrun; repnd.
+    pose proof (M_run_ls_on_inputs_preserves_subs (pre2trusted cn) l (sm2ls sm) run) as q.
+    repeat (autodimp q hyp); eauto 3 with comp;
+      try (apply implies_wf_procs_sm2ls);
+      try (apply implies_are_procs_n_procs_sm2ls);
+      eauto 3 with comp;[]; repnd.
+    apply similar_subs_sm2ls in q3; exrepnd; subst.
+    exists (sm2state q4) l; allrw.
+    unfold state_of_component; rewrite find_name_sm2ls; simpl; tcsp.
+  Qed.
 
-    pose proof (are_procs_ls_implies_ls_run_sub ls) as lsr; repeat (autodimp lsr hyp).
-    pose proof (are_procs_ls_implies_ls_preserves_sub ls) as lps; repeat (autodimp lps hyp).
+  Definition sub_procs {n} (l k : n_procs n) :=
+    forall p, In p l -> exists q, In q k /\ similar_procs p q.
 
-    applydup @find_sub_implies_state_of_component in fs; auto.
-    applydup @find_sub_implies_in in fs.
+  Lemma similar_subs_implies_sub_procs :
+    forall {n} (l k : n_procs n),
+      similar_subs l k
+      -> sub_procs l k.
+  Proof.
+    introv sim; induction sim; eauto with comp.
+    { introv i; simpl in *; tcsp. }
+    introv i; simpl in *; repndors; subst; tcsp.
+    { exists p2; dands; tcsp. }
+    apply IHsim in i; exrepnd; eauto.
+  Qed.
+  Hint Resolve similar_subs_implies_sub_procs : comp.
 
-    remember (trigger e) as trig; clear Heqtrig.
-    destruct trig; simpl;[| |].
+  Lemma sub_procs_procs2bys :
+    forall {n} (ls : n_procs n),
+      sub_procs (procs2byz ls) ls.
+  Proof.
+    introv i; apply in_procs2byz in i; repnd.
+    exists p; dands; tcsp; eauto 3 with comp.
+  Qed.
+  Hint Resolve sub_procs_procs2bys : comp.
 
-    { remember (sm_update (ls_main ls) (sm_state (ls_main ls)) d (ls_subs ls)) as w; symmetry in Heqw.
-      repnd; simpl.
-      applydup @are_procs_ls_implies_some in Heqw; auto;[].
-      exrepnd; subst.
-      autorewrite with comp.
+  Lemma sub_procs_trans :
+    forall {n} (ls1 ls2 ls3 : n_procs n),
+      sub_procs ls1 ls2
+      -> sub_procs ls2 ls3
+      -> sub_procs ls1 ls3.
+  Proof.
+    introv a b i; apply a in i; exrepnd.
+    apply b in i1; exrepnd.
+    exists q0; dands; eauto 3 with comp.
+  Qed.
+  Hint Resolve sub_procs_trans : comp.
 
-      pose proof (lsr (sm_state (ls_main ls)) d) as lsr.
-      pose proof (lps (sm_state (ls_main ls)) d (ls_subs ls)) as lps.
-      autodimp lps hyp; eauto 3 with comp.
-      unfold M_break in lps; split_pair.
-      rewrite Heqw in lsr; simpl in lsr.
-      rewrite Heqw in lps; simpl in lps.
+  Lemma M_byz_run_ls_on_input_preserves_subs2 :
+    forall cn i {n} (ls1 ls2 : n_procs n) o,
+      wf_procs ls1
+      -> are_procs_n_procs ls1
+      -> M_byz_run_ls_on_input ls1 cn i = (ls2, o)
+      -> (wf_procs ls2
+          /\ are_procs_n_procs ls2
+          /\ sub_procs ls2 ls1).
+  Proof.
+    introv wf aps run.
+    unfold M_byz_run_ls_on_input in run.
+    destruct i.
 
-      apply lsr in fs1; auto; exrepnd;[].
+    { apply M_run_ls_on_input_preserves_subs in run; repnd; dands; eauto 3 with comp. }
 
-      dup fs2 as v.
-      apply (state_of_components_upd_ls_main_state_and_subs_if_in s ls) in v; eauto; eauto 3 with comp;[].
-      rewrite v; simpl.
+    { ginv.
+      dands;
+        try apply implies_wf_procs_procs2byz;
+        try apply implies_are_procs_n_procs_procs2byz;
+        auto; eauto 3 with comp. }
 
-      rewrite (eq_snd_run_sm_on_inputs_on_diff_subs_if_leaf l sm (ls_subs ls) []); auto;[].
+    { ginv.
+      unfold M_run_ls_on_trusted in run.
+      pose proof (M_run_ls_on_input_preserves_subs
+                    (pre2trusted (it_name i))
+                    (it_input i)
+                    (procs2byz ls1) ls2 o) as q.
+      repeat (autodimp q hyp); eauto 3 with comp; repnd; dands; tcsp;
+        try apply implies_wf_procs_procs2byz;
+        try apply implies_are_procs_n_procs_procs2byz;
+        auto.
+      apply similar_subs_sym in q2; apply similar_subs_implies_sub_procs in q2; eauto 3 with comp. }
+  Qed.
 
-      pose proof (run_sm_on_byz_inputs_as_run_sm_on_inputs cn L l sm []) as xx.
-      autodimp xx hyp; eauto 3 with comp;[].
-      remember (run_sm_on_inputs sm l []) as rn.
-      symmetry in Heqrn; repnd; simpl.
+  Lemma M_byz_run_ls_on_inputs_preserves_subs2 :
+    forall cn l {n} (ls1 ls2 : n_procs n),
+      wf_procs ls1
+      -> are_procs_n_procs ls1
+      -> M_byz_run_ls_on_inputs ls1 cn l = ls2
+      -> (wf_procs ls2
+          /\ are_procs_n_procs ls2
+          /\ sub_procs ls2 ls1).
+  Proof.
+    induction l; introv wf aps run; simpl in *; ginv; tcsp.
 
-      eexists.
-      exists (map (fun x => trigger_info_data x) l).
-      dands; try reflexivity.
-      simpl; simpl in xx; rewrite xx; auto. }
+    { subst; dands; eauto 3 with comp. }
 
-    { dup trust as trust'.
-      unfold is_trusted_ls in trust'.
+    remember (M_byz_run_ls_on_input ls1 cn a) as z; symmetry in Heqz; repnd; simpl in *.
+    pose proof (M_byz_run_ls_on_input_preserves_subs2 cn a ls1 z0 z) as w.
+    repeat (autodimp w hyp); repnd.
+    apply IHl in run; auto; repnd; dands; eauto 3 with comp.
+  Qed.
 
-      applydup is_trusted_implies_find_trusted2 in trust'; exrepnd.
-      unfold find_sub in fs.
-      rewrite trust'0 in fs.
-      inversion fs; subst sm0.
-      rewrite trust'1; simpl.
+  Lemma M_byz_run_ls_before_event_preserves_subs :
+    forall {eo : EventOrdering} e {L S} (ls1 ls2 : LocalSystem L S),
+      wf_procs ls1
+      -> are_procs_n_procs ls1
+      -> M_byz_run_ls_before_event ls1 e = ls2
+      -> (wf_procs ls2
+          /\ are_procs_n_procs ls2
+          /\ sub_procs ls2 ls1).
+  Proof.
+    introv wf aps run.
+    apply M_byz_run_ls_on_inputs_preserves_subs2 in run; auto.
+  Qed.
 
-      eexists.
-      exists [trigger_info_arbitrary : trigger_info (cio_I (fio cn))]; simpl.
-      dands; eauto.
-      unfold byz_run_sm_on_byz_inputs; simpl.
-      rewrite (to_trusted_eq _ eqn); simpl; auto. }
-
-    { dup trust as trust'.
-      unfold is_trusted_ls in trust'.
-
-      applydup is_trusted_implies_find_trusted2 in trust'; exrepnd.
-      unfold find_sub in fs.
-      rewrite trust'0 in fs.
-      inversion fs; subst sm0.
-      rewrite trust'1; simpl.
-
-      eexists.
-      exists [trigger_info_trusted i : trigger_info (cio_I (fio cn))]; simpl.
-      dands; dands; eauto;[].
-      unfold byz_run_sm_on_byz_inputs; simpl.
-      rewrite (to_trusted_eq _ eqn); simpl; auto. }
+  Lemma sub_procs_preserves_find_name :
+    forall {n} (l k : n_procs n) cn p,
+      wf_procs k
+      -> sub_procs l k
+      -> find_name cn l = Some p
+      -> exists q, find_name cn k = Some q /\ similar_sms p q.
+  Proof.
+    introv wf sp fn.
+    applydup @find_name_implies_in in fn.
+    apply sp in fn0; exrepnd.
+    inversion fn1; subst; simpl in *; clear fn1; GC.
+    match goal with
+    | [ H : context[p0] |- _ ] => rename H into h1
+    end.
+    match goal with
+    | [ H : context[p2] |- _ ] => rename H into h2
+    end.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; eauto 3 with comp.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; eauto 3 with comp.
+    apply Eqdep.EqdepTheory.inj_pair2 in h2; subst; eauto 3 with comp.
+    apply in_implies_find_name in fn0; eauto.
   Qed.
 
   Lemma M_byz_compose_step2 :
     forall {eo : EventOrdering} (e : Event)
            {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {cn}
-           (sm : n_proc L cn),
-      are_procs_ls ls
-      -> wf_ls ls
-      -> find_sub cn ls = Some sm
+           (sm : n_proc L (pre2trusted cn)),
+      are_procs_n_procs ls
+      -> wf_procs ls
+      -> find_name (pre2trusted cn) ls = Some sm
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
-      -> is_trusted_ls cn ls
       ->
-      exists (s1 s2 : M_trusted (sf cn)) (l : list (trigger_info (cio_I (fio cn)))),
-        M_byz_state_ls_before_event ls e cn = Some s1
-        /\ M_byz_state_ls_on_event ls e cn = Some s2
-        /\ map_untrusted_op
-             (snd (trusted_run_sm_on_byz_inputs sm s1 l []))
-             (fun p => Some (sm2state p)) = Some s2.
+      exists (s1 s2 : sf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+        M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s1
+        /\ M_byz_state_ls_on_event ls e (pre2trusted cn) = Some s2
+        /\ sm2state (snd (run_sm_on_inputs (update_state_m sm s1) l [])) = s2.
   Proof.
-    introv aps wf fs lvl ist.
+    introv aps wf fs lvl.
+
     pose proof (M_byz_compose2 e ls sm) as q.
     repeat (autodimp q hyp); exrepnd.
     clear dependent l.
+
     exists s.
     unfold M_byz_state_ls_on_event, M_byz_state_ls_before_event in *.
     rewrite M_byz_run_ls_on_event_unroll2.
     rewrite q1.
 
-    remember (M_byz_run_ls_before_event ls e) as run; symmetry in Heqrun.
-    destruct run; simpl in *; ginv;[].
+    apply option_map_Some in q1; exrepnd; subst; simpl in *.
+    remember (M_byz_run_ls_before_event ls e) as run; symmetry in Heqrun; simpl.
+    applydup M_byz_run_ls_before_event_preserves_subs in Heqrun; auto; repnd;[].
+    dup Heqrun0 as sp.
+    eapply sub_procs_preserves_find_name in sp; eauto; exrepnd.
+    rewrite sp1 in *; ginv.
+    applydup similar_sms_implies_eq_sm2levels in sp0.
 
-    destruct s as [s|t]; simpl in *.
+    remember (M_byz_run_ls_before_event ls e) as run; symmetry in Heqrun; simpl.
+    pose proof (M_byz_compose_step e run a) as q.
+    repeat (autodimp q hyp); eauto 3 with comp; try congruence;[].
+    exrepnd.
+    unfold M_byz_state_ls_on_this_one_event in q2.
+    rewrite q2.
+    apply map_option_Some in q0; exrepnd; ginv.
+    exists (sm2state a0) l; dands; auto.
 
-    { apply map_untrusted_op_Some_M_nt_implies in q1; exrepnd.
-      subst; simpl in *.
-      rename t into ls'.
-      applydup M_byz_run_ls_before_event_M_nt_preserves_subs in Heqrun; auto; repnd.
+    rewrite <- similar_sms_implies_eq_update_state_m_sm2state; eauto 3 with comp;[].
 
-      assert (find_sub cn ls' = Some (update_state_m sm s)) as fs' by eauto 3 with comp.
-      assert (is_trusted_ls cn ls') as ist' by eauto 3 with comp.
-      assert (sm2level (update_state_m sm s) = 0) as lvl' by (autorewrite with comp; auto).
-
-      clear dependent ls.
-      pose proof (M_byz_compose_step e ls' (update_state_m sm s)) as q.
-      repeat (autodimp q hyp).
-      exrepnd.
-      exists s0 l; dands; auto. }
-
-    { apply map_untrusted_op_Some_M_t_implies in q1; exrepnd; subst; simpl in *.
-      remember (trigger e) as trig.
-      destruct trig; simpl;[| |];
-        try (complete (exists (M_t t : M_trusted (sf cn)) ([] : list (trigger_info (cio_I (fio cn))));
-                              simpl; dands; auto));[].
-
-      eexists.
-      exists [trigger_info_trusted i : trigger_info (cio_I (fio cn))].
-      dands; try reflexivity. }
+    remember (snd (run_sm_on_inputs a l [])) as comp; symmetry in Heqcomp.
+    apply M_comp_ls_on_op_inputs_sm2ls_as_run_sm_on_inputs in Heqcomp; autorewrite with comp; eauto 3 with comp; try congruence;[].
+    apply map_option_Some in Heqcomp; exrepnd; rev_Some.
+    rewrite M_run_ls_on_op_inputs_as_M_run_ls_on_inputs in Heqcomp1; ginv.
+    rewrite q0 in Heqcomp0; ginv.
   Qed.
 
   (*Definition to_trusted_state {cn} : sf cn -> option tsf :=
@@ -451,24 +378,18 @@ Section ComponentSM3.
     let (subs', sm') := run_sm_on_inputs sm l subs in
     to_trusted_state (sm2state sm').*)
 
-  Definition run_sm_on_inputs_trusted
-             {n} {k} {s}
-             (sm : n_proc n (MkCN k s true))
-             (l  : list (cio_I (fio (MkCN k s true)))) : tsf :=
-    sm2state (snd (run_sm_on_inputs sm l [])).
-
-  Definition trusted_run_sm_on_inputs {n} {cn} (t : tsf)
-    : n_proc n cn -> list (cio_I (fio cn)) -> option tsf :=
-    match cn with
-    | MkCompName k s true =>
-      fun sm l => Some (run_sm_on_inputs_trusted (update_state_m sm t) l)
-    | _ => fun sm l => None
-    end.
+  Definition trusted_run_sm_on_inputs
+             {n} {pcn}
+             (s  : tsf pcn)
+             (sm : n_proc n (pre2trusted pcn))
+             (l  : list (cio_I (fio (pre2trusted pcn))))
+    : tsf pcn :=
+    sm2state (snd (run_sm_on_inputs (update_state_m sm s) l [])).
 
   Definition is_trusted_comp_name (cn : CompName) :=
     comp_name_trust cn = true.
 
-  Lemma is_trusted_comp_name_implies_to_trusted_some :
+  (*Lemma is_trusted_comp_name_implies_to_trusted_some :
     forall {cn} {n} (sm : n_proc n cn),
       is_trusted_comp_name cn
       -> exists t, to_trusted sm = Some t.
@@ -476,9 +397,9 @@ Section ComponentSM3.
     introv ist.
     destruct cn as [s k t]; simpl in *.
     unfold is_trusted_comp_name in ist; simpl in *; subst; simpl in *; eauto.
-  Qed.
+  Qed.*)
 
-  Lemma run_sm_on_byz_inputs_M_nt_implies :
+  (*Lemma run_sm_on_byz_inputs_M_nt_implies :
     forall n cn l (sm1 sm2 : n_proc n cn) (subs1 subs2 : n_procs n),
       is_trusted_comp_name cn
       -> run_sm_on_byz_inputs sm1 l subs1 = (subs2, M_nt sm2)
@@ -507,7 +428,7 @@ Section ComponentSM3.
       pose proof (is_trusted_comp_name_implies_to_trusted_some sm1) as k.
       autodimp k hyp; exrepnd.
       rewrite k0 in run; ginv. }
-  Qed.
+  Qed.*)
 
   Lemma sm_state_sm2at :
     forall {cn} {n} (sm : n_proc n cn),
@@ -517,7 +438,7 @@ Section ComponentSM3.
   Qed.
   Hint Rewrite @sm_state_sm2at : comp.
 
-  Lemma is_proc_n_proc_to_trusted_implies_update_some :
+  (*Lemma is_proc_n_proc_to_trusted_implies_update_some :
     forall {n} {cn} (sm : n_proc n cn) (tsm : trustedSM) i subs1 subs2 sop out,
       is_proc_n_proc sm
       -> to_trusted sm = Some tsm
@@ -531,7 +452,7 @@ Section ComponentSM3.
     unfold state_of_trusted in upd; simpl in upd.
     autorewrite with comp in *.
     apply @is_proc_n_proc_update_implies_some in upd; auto.
-  Qed.
+  Qed.*)
 
   Lemma implies_equal_trustedSM :
     forall lvl1 lvl2 k s
@@ -559,7 +480,7 @@ Section ComponentSM3.
     pose proof (UIP_refl_nat _ e) as xx; subst; simpl in *; auto.
   Qed.
 
-  Lemma run_trustedSM_on_trigger_info_list_implies_run_sm_on_inputs :
+  (*Lemma run_trustedSM_on_trigger_info_list_implies_run_sm_on_inputs :
     forall {D} (l : list (trigger_info D))
            (tsm1 tsm2 : trustedSM)
            {n} {cn}
@@ -618,9 +539,9 @@ Section ComponentSM3.
       unfold n_nproc in q; rewrite Heqw in q; repnd.
       inversion q0; clear q0; subst; simpl in *.
       autorewrite with comp; auto. }
-  Qed.
+  Qed.*)
 
-  Lemma run_sm_on_byz_inputs_M_t_implies :
+  (*Lemma run_sm_on_byz_inputs_M_t_implies :
     forall n k s l (sm : n_proc n (MkCN k s true)) (tsm : trustedSM) (subs1 subs2 : n_procs n),
       sm2level sm = 0
       -> is_proc_n_proc sm
@@ -704,22 +625,17 @@ Section ComponentSM3.
       remember (run_sm_on_inputs (update_state_m sm s0) l' (raise_to_n_procs n upd0)) as r; symmetry in Heqr.
       repnd; simpl in *; subst.
       exists r0; dands; auto. }
-  Qed.
+  Qed.*)
 
   Lemma is_trusted_ls_implies_is_trusted_comp_name :
-    forall cn {L S} (ls : LocalSystem L S),
+    forall cn {n} (ls : n_procs n),
       is_trusted_ls cn ls
       -> is_trusted_comp_name cn.
   Proof.
     introv trust.
     unfold is_trusted_ls in trust.
-    destruct ls as [main subs]; simpl in *.
-    induction subs; simpl in *; tcsp.
-    destruct a as [c a]; simpl in *.
-    destruct c as [k n t]; simpl in *.
-    destruct t; simpl in *; tcsp.
-
-    destruct (CompNameDeq cn (MkCN k n true)); subst; simpl in *; tcsp.
+    induction ls; simpl in *; tcsp.
+    destruct a as [c a]; simpl in *; dest_cases w.
   Qed.
   Hint Resolve is_trusted_ls_implies_is_trusted_comp_name : comp.
 
@@ -741,7 +657,7 @@ Section ComponentSM3.
     unfold update_state; simpl; auto.
   Qed.
 
-  Lemma similar_subs_preserves_find_trusted :
+  (*Lemma similar_subs_preserves_find_trusted :
     forall n (subs1 subs2 : n_procs n) tsm,
       similar_subs subs1 subs2
       -> find_trusted subs1 = Some tsm
@@ -759,7 +675,7 @@ Section ComponentSM3.
     apply similar_sms_implies_eq_sm2levels in simp as e; symmetry in e.
     apply (implies_equal_trustedSM _ _ _ _ _ _ e).
     apply sm2at_as_update_state_sm2at_sm2state; auto.
-  Qed.
+  Qed.*)
 
   Lemma update_state_sm_state :
     forall n cn (sm : n_proc_at n cn),
@@ -780,7 +696,7 @@ Section ComponentSM3.
   Qed.
   Hint Rewrite updateTrustedSM_state_of_trusted : comp.
 
-  Lemma find_trusted_implies_find_name :
+  (*Lemma find_trusted_implies_find_name :
     forall n (subs : n_procs n) (t : trustedSM),
       find_trusted subs = Some t
       ->
@@ -802,29 +718,29 @@ Section ComponentSM3.
     { destruct (CompNameKindDeq k (tsm_kind t)); subst; tcsp;
         destruct (CompNameSpaceDeq s (tsm_space t)); subst; tcsp;
           destruct (CompNameStateDeq x (tsm_state t)); subst; tcsp. }
-  Qed.
+  Qed.*)
 
-  Lemma state_of_trusted_updateTrustedSM :
+  (*Lemma state_of_trusted_updateTrustedSM :
     forall (tsm : trustedSM) s,
       state_of_trusted (updateTrustedSM tsm s) = s.
   Proof.
     introv.
     destruct tsm; simpl; tcsp.
   Qed.
-  Hint Rewrite state_of_trusted_updateTrustedSM : comp.
+  Hint Rewrite state_of_trusted_updateTrustedSM : comp.*)
 
-  Lemma updateTrustedSM_updateTrustedSM :
+  (*Lemma updateTrustedSM_updateTrustedSM :
     forall tsm s1 s2,
       updateTrustedSM (updateTrustedSM tsm s1) s2
       = updateTrustedSM tsm s2.
   Proof.
     destruct tsm; introv; simpl; tcsp.
   Qed.
-  Hint Rewrite updateTrustedSM_updateTrustedSM : comp.
+  Hint Rewrite updateTrustedSM_updateTrustedSM : comp.*)
 
-  Lemma M_byz_run_ls_on_this_one_event_M_t_preserves_trusted :
-    forall {eo : EventOrdering} e {L S} (ls : MLocalSystem L S) (tsm t : trustedSM),
-      are_procs_ls ls
+  (*Lemma M_byz_run_ls_on_this_one_event_M_t_preserves_trusted :
+    forall {eo : EventOrdering} e {L S} (ls : LocalSystem L S) (tsm t : trustedSM),
+      are_procs_n_procs ls
       -> find_trusted (ls_subs ls) = Some tsm
       -> M_byz_run_ls_on_this_one_event ls e = Some (M_t t)
       -> t = updateTrustedSM tsm (state_of_trusted t).
@@ -848,7 +764,7 @@ Section ComponentSM3.
       pose proof (is_proc_n_proc_to_trusted_implies_update_some sm tsm i [] w0 w2 w1) as q.
       repeat (autodimp q hyp); eauto 3 with comp;[]; exrepnd; subst; simpl in *.
       autorewrite with comp; auto. }
-  Qed.
+  Qed.*)
 
   Lemma is_proc_n_proc_at_implies_update_some :
     forall (tsm : trustedSM) i subs1 subs2 sop out,
@@ -879,9 +795,9 @@ Section ComponentSM3.
   Qed.
   Hint Resolve implies_is_proc_n_proc_at : comp.
 
-  Lemma M_byz_run_ls_on_this_one_event_M_t_implies_is_proc :
-    forall {eo : EventOrdering} e {L S} (ls : MLocalSystem L S) (t : trustedSM),
-      are_procs_ls ls
+  (*Lemma M_byz_run_ls_on_this_one_event_M_t_implies_is_proc :
+    forall {eo : EventOrdering} e {L S} (ls : LocalSystem L S) (t : trustedSM),
+      are_procs_n_procs ls
       -> M_byz_run_ls_on_this_one_event ls e = Some (M_t t)
       -> is_proc_n_proc_at (tsm_sm t).
   Proof.
@@ -912,12 +828,12 @@ Section ComponentSM3.
       inversion run2; simpl.
       destruct aps as [aps1 aps2]; simpl in *.
       apply are_procs_n_procs_find_name in run0; auto; eauto 3 with comp. }
-  Qed.
+  Qed.*)
 
-  Lemma find_trusted_implies_is_proc :
+  (*Lemma find_trusted_implies_is_proc :
     forall {L S} (ls : LocalSystem L S) (t : trustedSM),
-      are_procs_ls ls
-      -> find_trusted (ls_subs ls) = Some t
+      are_procs_n_procs ls
+      -> find_trusted ls = Some t
       -> is_proc_n_proc_at (tsm_sm t).
   Proof.
     introv aps run.
@@ -927,16 +843,16 @@ Section ComponentSM3.
     apply are_procs_n_procs_find_name in run0; auto.
     simpl in *; inversion run1; subst; simpl in *; eauto 3 with comp.
   Qed.
-  Hint Resolve find_trusted_implies_is_proc : comp.
+  Hint Resolve find_trusted_implies_is_proc : comp.*)
 
-  Lemma M_byz_run_ls_before_event_some_M_t_implies :
+  (*Lemma M_byz_run_ls_before_event_some_M_t_implies :
     forall {eo : EventOrdering} (e : Event)
-           {L S} (ls : MLocalSystem L S)
+           {L S} (ls : LocalSystem L S)
            (t tsm : trustedSM),
-      wf_ls ls
-      -> are_procs_ls ls
+      wf_procs ls
+      -> are_procs_n_procs ls
       -> M_byz_run_ls_before_event ls e = Some (M_t t)
-      -> find_trusted (ls_subs ls) = Some tsm
+      -> find_trusted ls = Some tsm
       -> t = updateTrustedSM tsm (state_of_trusted t)
          /\ is_proc_n_proc_at (tsm_sm t).
   Proof.
@@ -971,159 +887,36 @@ Section ComponentSM3.
       rewrite ind0.
       autorewrite with comp; dands; auto; eauto 3 with comp.
       destruct tsm as [lvl k sp sm]; simpl in *; eauto 3 with comp. }
-  Qed.
+  Qed.*)
 
   Lemma M_byz_compose_step_trusted :
     forall {eo : EventOrdering} (e : Event)
            {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {cn}
-           (sm : n_proc L cn),
-      are_procs_ls ls
-      -> wf_ls ls
-      -> find_sub cn ls = Some sm
+           (sm : n_proc L (pre2trusted cn)),
+      are_procs_n_procs ls
+      -> wf_procs ls
+      -> find_name (pre2trusted cn) ls = Some sm
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
-      -> is_trusted_ls cn ls
       ->
-      exists (s1 s2 : tsf) (l : list (cio_I (fio cn))),
-        M_byz_state_ls_before_event_of_trusted ls e = Some s1
-        /\ M_byz_state_ls_on_event_of_trusted ls e = Some s2
-        /\ trusted_run_sm_on_inputs s1 sm l = Some s2.
+      exists (s1 s2 : tsf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+        M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s1
+        /\ M_byz_state_ls_on_event ls e (pre2trusted cn) = Some s2
+        /\ trusted_run_sm_on_inputs s1 sm l = s2.
   Proof.
-    introv aps wf fs lvl trust.
-    unfold M_byz_state_ls_before_event_of_trusted.
-    unfold M_byz_state_ls_on_event_of_trusted.
-
-    pose proof (M_byz_compose_step2 e ls sm) as h.
-    repeat (autodimp h hyp).
-    exrepnd.
-
-    unfold M_byz_state_ls_before_event in *.
-    unfold M_byz_state_ls_on_event in *.
-
-    remember (M_byz_run_ls_before_event ls e) as runa; symmetry in Heqruna.
-    remember (M_byz_run_ls_on_event ls e) as runb; symmetry in Heqrunb.
-
-    destruct runa; simpl in *; ginv.
-    destruct runb; simpl in *; ginv.
-
-    destruct m; simpl in *.
-
-    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
-      applydup M_byz_run_ls_before_event_M_nt_preserves_subs in Heqruna; auto; repnd;[].
-      dup Heqruna4 as ist.
-      apply (similar_subs_preserves_is_trusted_ls cn) in ist; auto.
-      applydup is_trusted_implies_find_trusted2 in ist; exrepnd.
-      rewrite wf_is_trusted_implies_state_of_subcomponents in h1; auto;[].
-      unfold state_of_subcomponents in h1.
-      rewrite ist0 in h1; simpl in *; ginv.
-      unfold state_of_trusted_in_ls, find_trusted_sub; rewrite ist1; simpl.
-      unfold state_of_trusted; simpl.
-
-      destruct m0; simpl in *.
-
-      { apply option_map_Some in h2; exrepnd; subst; simpl in *.
-        applydup M_byz_run_ls_on_event_M_nt_preserves_subs in Heqrunb; auto; repnd;[].
-        dup Heqrunb4 as ist'.
-        apply (similar_subs_preserves_is_trusted_ls cn) in ist'; auto.
-        applydup is_trusted_implies_find_trusted2 in ist'; exrepnd.
-        rewrite wf_is_trusted_implies_state_of_subcomponents in h2; auto;[].
-        unfold state_of_subcomponents in h2.
-        rewrite ist'0 in h2; simpl in *; ginv.
-        unfold find_trusted_sub; rewrite ist'1; simpl.
-        assert (eqn0 = eqn) by (apply UIP_dec; apply CompNameDeq); subst.
-
-        destruct cn as [k s t]; simpl in *; ginv;[].
-        inversion eqn; subst; simpl in *;[].
-        pose proof (UIP_refl_CompName _ eqn) as xx; subst; simpl in *;[].
-
-        apply map_untrusted_op_Some_M_nt_implies in h0; exrepnd.
-        inversion h1 as [xx].
-        rewrite xx in *; clear h1.
-
-        autorewrite with comp in *.
-        exists (sm2state sm0) (sm2state sm1); simpl.
-
-        pose proof (run_sm_on_byz_inputs_M_nt_implies
-                      L (MkCN k s true) l
-                      (update_state_m sm (sm2state sm0))
-                      t []) as q.
-        remember (run_sm_on_byz_inputs (update_state_m sm (sm2state sm0)) l []) as w; symmetry in Heqw; repnd.
-        simpl in *; subst; simpl in *.
-        unfold is_trusted_comp_name in q; simpl in q.
-        pose proof (q w0) as q; repeat (autodimp q hyp);[].
-        exrepnd; subst; simpl in *.
-        exists k0; simpl in *.
-        unfold run_sm_on_inputs_trusted; simpl.
-        rewrite q0; simpl; dands; auto;[].
-        unfold MkCN in *; rewrite xx; auto. }
-
-      { ginv.
-        apply map_untrusted_op_Some_M_t_implies in h0.
-        destruct cn as [k s tr]; simpl in *.
-        inversion eqn; subst; simpl in *.
-        pose proof (UIP_refl_CompName _ eqn) as xx; subst; simpl in *;[].
-
-        autorewrite with comp in *.
-        exists (sm2state sm0) (sm_state (tsm_sm t)).
-
-        remember (run_sm_on_byz_inputs (update_state_m sm (sm2state sm0)) l []) as r; symmetry in Heqr; repnd; simpl in *; subst.
-        applydup run_sm_on_byz_inputs_M_t_implies in Heqr; exrepnd; autorewrite with comp; eauto 3 with comp;[].
-
-        exists l'.
-        unfold run_sm_on_inputs_trusted; simpl.
-        rewrite Heqr0; simpl in *; ginv; simpl in *.
-        autorewrite with comp; auto. } }
-
-    { ginv.
-      apply map_untrusted_op_Some_M_t_implies in h2; subst; simpl in *.
-      applydup is_trusted_ls_implies_is_trusted_comp_name in trust.
-
-      exists (state_of_trusted t) (state_of_trusted (run_trustedSM_on_trigger_info_list t l)).
-
-      destruct cn as [k s tr]; simpl in *.
-      unfold is_trusted_comp_name in *; simpl in *; subst; simpl in *.
-
-      remember (run_trustedSM_on_trigger_info_list t l) as tsm.
-
-      pose proof (run_trustedSM_on_trigger_info_list_implies_run_sm_on_inputs
-                    l t tsm
-                    (update_state_m sm (state_of_trusted t))) as xx.
-      autorewrite with comp in xx.
-      repeat (autodimp xx hyp); eauto 3 with comp.
-
-      { simpl; f_equal.
-        unfold is_trusted_ls in trust.
-        applydup is_trusted_implies_find_trusted2 in trust; simpl in *.
-        exrepnd; ginv.
-        pose proof (UIP_refl_CompName _ eqn) as xx; subst; simpl in *.
-        unfold find_sub in fs; rewrite trust0 in fs.
-        inversion fs; subst; simpl in *; clear fs.
-
-        eapply M_byz_run_ls_before_event_some_M_t_implies in Heqruna; eauto.
-        simpl in *; repnd.
-        rewrite Heqruna0 at 3; simpl.
-        assert (sm2level (update_state_m sm (state_of_trusted t)) = sm2level sm) as ee by (autorewrite with comp; auto).
-        apply (implies_equal_trustedSM _ _ _ _ _ _ ee).
-        apply sm2at_update_state_m_as_update_state_sm2at. }
-
-      { exrepnd; simpl in *.
-        exists l'.
-        dands; auto;[].
-        unfold run_sm_on_inputs_trusted; simpl.
-        unfold MkCN in *; rewrite xx0; simpl.
-        clear Heqtsm.
-        ginv; unfold state_of_trusted; simpl; autorewrite with comp; auto. } }
+    introv aps wf fs lvl.
+    apply M_byz_compose_step2; auto.
   Qed.
 
-  Lemma run_sm_on_inputs_trusted_cons :
+  (*Lemma run_sm_on_inputs_trusted_cons :
     forall n k s
            (sm : n_proc n (MkCN k s true))
            i (l  : list (cio_I (fio (MkCN k s true)))),
       sm2level sm = 0
-      -> run_sm_on_inputs_trusted sm (i :: l)
-         = run_sm_on_inputs_trusted
+      -> trusted_run_sm_on_inputs sm (i :: l)
+         = trusted_run_sm_on_inputs
              (update_state_op_m sm (fst (snd (sm2update sm (sm2state sm) i []))))
              l.
   Proof.
@@ -1132,23 +925,23 @@ Section ComponentSM3.
     autorewrite with comp.
     dest_cases w; symmetry in Heqw; repnd; simpl in *.
     erewrite (eq_snd_run_sm_on_inputs_on_diff_subs_if_leaf _ _ _ []); autorewrite with comp; auto.
-  Qed.
+  Qed.*)
 
-  Lemma run_sm_on_inputs_trusted_nil :
+  (*Lemma run_sm_on_inputs_trusted_nil :
     forall n k s
            (sm : n_proc n (MkCN k s true)),
       run_sm_on_inputs_trusted sm [] = sm2state sm.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite run_sm_on_inputs_trusted_nil : minbft.
+  Hint Rewrite run_sm_on_inputs_trusted_nil : minbft.*)
 
-  Lemma M_byz_run_ls_on_event_some_M_t_implies :
+  (*Lemma M_byz_run_ls_on_event_some_M_t_implies :
     forall {eo : EventOrdering} (e : Event)
-           {L S} (ls : MLocalSystem L S)
+           {L S} (ls : LocalSystem L S)
            (t tsm : trustedSM),
-      wf_ls ls
-      -> are_procs_ls ls
+      wf_procs ls
+      -> are_procs_n_procs ls
       -> M_byz_run_ls_on_event ls e = Some (M_t t)
       -> find_trusted (ls_subs ls) = Some tsm
       -> t = updateTrustedSM tsm (state_of_trusted t)
@@ -1179,6 +972,27 @@ Section ComponentSM3.
     revert run1.
     rewrite run0; autorewrite with comp; dands; auto.
     destruct tsm; simpl in *; auto.
+  Qed.*)
+
+  Lemma not_in_M_output_ls_on_this_one_event_empty_ls :
+    forall {n} {s} {eo : EventOrdering} (e : Event) o,
+      ~In o (M_output_ls_on_this_one_event (empty_ls n s) e).
+  Proof.
+    introv out.
+    unfold M_output_ls_on_this_one_event in out; simpl in *.
+    unfold M_run_ls_on_input_out, on_some, map_option in out; simpl in *.
+    dest_cases w.
+  Qed.
+
+  Lemma not_in_M_output_ls_on_event_empty_ls :
+    forall {n} {s} {eo : EventOrdering} (e : Event) o,
+      ~In o (M_output_ls_on_event (empty_ls n s) e).
+  Proof.
+    introv out.
+    unfold M_output_ls_on_event, option_map in out; simpl in *.
+    dest_cases w; simpl in *; tcsp; rev_Some.
+    apply M_run_ls_before_event_empty_ls in Heqw; subst; simpl in *.
+    apply not_in_M_output_ls_on_this_one_event_empty_ls in out; auto.
   Qed.
 
 End ComponentSM3.
@@ -1188,12 +1002,12 @@ Hint Resolve similar_subs_preserves_find_sub : comp.
 Hint Resolve similar_subs_preserves_is_trusted_ls : comp.
 Hint Resolve is_trusted_ls_implies_is_trusted_comp_name : comp.
 Hint Resolve implies_is_proc_n_proc_at : comp.
-Hint Resolve find_trusted_implies_is_proc : comp.
+(*Hint Resolve find_trusted_implies_is_proc : comp.*)
 
 
 Hint Rewrite @sm_state_sm2at : comp.
 Hint Rewrite @update_state_sm_state : comp.
 Hint Rewrite @updateTrustedSM_state_of_trusted : comp.
-Hint Rewrite @state_of_trusted_updateTrustedSM : comp.
-Hint Rewrite @updateTrustedSM_updateTrustedSM : comp.
-Hint Rewrite @run_sm_on_inputs_trusted_nil : minbft.
+(*Hint Rewrite @state_of_trusted_updateTrustedSM : comp.*)
+(*Hint Rewrite @updateTrustedSM_updateTrustedSM : comp.*)
+(*Hint Rewrite @run_sm_on_inputs_trusted_nil : minbft.*)

@@ -1,4 +1,5 @@
 Require Export MicroBFTprops1.
+Require Export ComponentSM9.
 
 
 Section MicroBFTprops2.
@@ -19,7 +20,7 @@ Section MicroBFTprops2.
       _ _ _
       (build_mp_sm USIG_update u).
 
-  Lemma ex_M_byz_run_ls_on_event_MicroBFTlocalSys :
+  (*Lemma ex_M_byz_run_ls_on_event_MicroBFTlocalSys :
     forall {eo : EventOrdering} (e : Event) n,
       (exists u, M_byz_run_ls_on_event (MicroBFTlocalSys n) e = Some (M_t (MkMicroBFTtrustedSM u)))
       \/ (exists s u l, M_byz_run_ls_on_event (MicroBFTlocalSys n) e = Some (M_nt (MicroBFTlocalSys_new n s u l))).
@@ -51,7 +52,7 @@ Section MicroBFTprops2.
       simpl in *; repnd.
       rewrite q0.
       exists (state_of_trusted t); auto. }
-  Qed.
+  Qed.*)
 
   (* FIX this one if need
   Lemma ex_M_byz_state_sys_on_event_of_trusted_MicroBFT :
@@ -87,7 +88,7 @@ Admitted.
 *)
 
 
-  Lemma ex_M_byz_run_ls_before_event_MicroBFTlocalSys :
+  (*Lemma ex_M_byz_run_ls_before_event_MicroBFTlocalSys :
     forall {eo : EventOrdering} (e : Event) n,
       (exists (u : USIG_state),
           M_byz_run_ls_before_event (MicroBFTlocalSys n) e = Some (M_t (MkMicroBFTtrustedSM u)))
@@ -104,9 +105,9 @@ Admitted.
       eexists; eexists; eexists; eauto. }
 
     apply ex_M_byz_run_ls_on_event_MicroBFTlocalSys.
-  Qed.
+  Qed.*)
 
-  Lemma MicroBFT_M_byz_run_ls_on_event_unroll_sp :
+  (*Lemma MicroBFT_M_byz_run_ls_on_event_unroll_sp :
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : MicroBFT_node),
@@ -139,31 +140,131 @@ Admitted.
 
     left.
     eexists; eexists; eexists; eauto.
-  Qed.
+  Qed.*)
 
 
   Lemma USIG_preserves_id :
-    forall {eo : EventOrdering} (e : Event) n l s1 s2,
-      loc e = MicroBFTheader.node2name n
-      -> usig_id s1 = n
-      -> run_sm_on_inputs_trusted (USIG_sm_new s1) l = s2
+    forall n l s1 s2,
+      usig_id s1 = n
+      -> trusted_run_sm_on_inputs s1 (USIG_comp n) l = s2
       -> usig_id s2 = n.
   Proof.
-    induction l; introv eqloc eqid run; simpl in *; tcsp.
+    unfold trusted_run_sm_on_inputs.
+    induction l; introv eqid run; simpl in *; tcsp; subst; tcsp.
+    destruct a; repnd; simpl in *; simpl in *; tcsp.
 
-    { autorewrite with microbft in *; simpl in *; subst; tcsp. }
+    { unfold update_state in *; simpl in *.
+      autorewrite with comp.
+      eapply IHl; simpl in *;[|reflexivity]; simpl; auto. }
 
-    pose proof (run_sm_on_inputs_trusted_cons
-                  _ _ _ (USIG_sm_new s1) a l) as w.
-    simpl in *; rewrite w in run; auto; clear w;[].
-
-    unfold USIG_update in run; destruct a; repnd; simpl in *;
-      [|apply IHl in run; auto];[].
-    apply IHl in run; auto.
+    { unfold update_state in *; simpl in *.
+      autorewrite with comp.
+      eapply IHl; simpl in *;[|reflexivity]; simpl; auto. }
   Qed.
 
 
+(*  Lemma preserves_usig_id_on :
+    forall {eo : EventOrdering} (e : Event) n,
+      loc e = MicroBFTheader.node2name n
+      -> exists u,
+          state_of_component USIGname (M_byz_run_ls_on_event (MicroBFTlocalSys n) e) = Some u
+          /\ usig_id u = n.
+  Proof.
+    introv eql.
+    rewrite M_byz_run_ls_on_event_unroll2.
+
+
+Check M_byz_compose_step_trusted.
+
+    destruct (dec_isFirst e); simpl; tcsp.
+
+    { unfold state_of_component; simpl; eexists; dands; eauto. }
+
+    pose proof (ind (local_pred e)) as ind; autodimp ind hyp; eauto 3 with eo.
+    autorewrite with eo in *.
+    pose proof (ind n) as ind; autodimp ind hyp;[].
+    exrepnd; simpl in *.
+
+    remember (M_byz_run_ls_before_event (MicroBFTlocalSys n) (local_pred e)) as ls.
+    clear Heqls.
+
+Check M_byz_compose_step_trusted.
+
+    pose proof (M_byz_compose_step_trusted e (MicroBFTlocalSys n) (USIG_comp n)) as h.
+    repeat (autodimp h hyp); eauto 3 with comp microbft;[].
+    exrepnd.
+    rewrite eqst in h2; ginv; simpl.
+
+    pose proof (USIG_preserves_id
+                  e n l s1
+                  (run_sm_on_inputs_trusted (USIG_sm_new s1) l)) as q.
+    repeat (autodimp q hyp).
+
+    rewrite unroll_M_byz_state_ls_before_event_of_trusted in h1.
+    destruct (dec_isFirst e) as [d|d].
+
+    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
+      unfold find_trusted_sub in h1; simpl in h1; ginv. }
+
+    apply ind in h1; autorewrite with eo; eauto 2 with eo.
+  Qed.*)
+
+  (*Lemma preserves_usig_id0 :
+    forall {eo : EventOrdering} (e : Event) n,
+      loc e = MicroBFTheader.node2name n
+      -> exists u,
+          state_of_component USIGname (M_byz_run_ls_on_event (MicroBFTlocalSys n) e) = Some u
+          /\ usig_id u = n.
+  Proof.
+    intros eo; induction e as [e ind] using predHappenedBeforeInd;[]; introv eqloc.
+
+    rewrite M_byz_run_ls_on_event_unroll2.
+
+
+    pose proof (M_byz_compose_step_trusted e (MicroBFTlocalSys n) (USIG_comp n)) as h.
+    repeat (autodimp h hyp); eauto 3 with comp microbft;[].
+    exrepnd.
+    rewrite eqst in h2; ginv; simpl.
+
+    pose proof (USIG_preserves_id
+                  e n l s1
+                  (run_sm_on_inputs_trusted (USIG_sm_new s1) l)) as q.
+    repeat (autodimp q hyp).
+
+    rewrite unroll_M_byz_state_ls_before_event_of_trusted in h1.
+    destruct (dec_isFirst e) as [d|d].
+
+    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
+      unfold find_trusted_sub in h1; simpl in h1; ginv. }
+
+    apply ind in h1; autorewrite with eo; eauto 2 with eo.
+  Qed.*)
+
+
   Lemma preserves_usig_id :
+    forall {eo : EventOrdering} (e : Event) n u,
+      loc e = MicroBFTheader.node2name n
+      -> M_byz_state_ls_on_event (MicroBFTlocalSys n) e USIGname = Some u
+      -> usig_id u = n.
+  Proof.
+    intros eo; induction e as [e ind] using predHappenedBeforeInd;[]; introv eqloc eqst.
+    pose proof (M_byz_compose_step_trusted e (MicroBFTlocalSys n) (incr_n_proc (USIG_comp n))) as h.
+    repeat (autodimp h hyp); eauto 3 with comp microbft;[].
+    exrepnd; simpl in *.
+    unfold pre2trusted, USIGname, MkCN in *; simpl in*.
+    rewrite eqst in h2; ginv; microbft_simp.
+    autorewrite with comp in *.
+
+    eapply USIG_preserves_id; eauto.
+    apply option_map_Some in h1; exrepnd; subst; simpl in *.
+    rewrite M_byz_run_ls_before_event_unroll_on in h1.
+    destruct (dec_isFirst e) as [d|d]; simpl in *; microbft_simp; auto.
+    apply (ind (local_pred e)); autorewrite with eo; eauto 2 with eo; auto.
+    unfold M_byz_state_ls_on_event, state_of_component; simpl.
+    allrw; simpl; auto.
+  Qed.
+
+  (*Lemma preserves_usig_id :
     forall {eo : EventOrdering} (e : Event) n u,
       loc e = MicroBFTheader.node2name n
       -> M_byz_state_ls_on_event_of_trusted (MicroBFTlocalSys n) e = Some u
@@ -188,7 +289,8 @@ Admitted.
       unfold find_trusted_sub in h1; simpl in h1; ginv. }
 
     apply ind in h1; autorewrite with eo; eauto 2 with eo.
-  Qed.
+  Qed.*)
+
 
 
   Lemma preserves_usig_id2 :
@@ -200,9 +302,8 @@ Admitted.
   Proof.
     introv eqloc run eqst.
     apply (preserves_usig_id e n u); auto.
-    unfold M_byz_state_ls_on_event_of_trusted; simpl.
-    applydup @M_run_ls_on_event_M_byz_run_ls_on_event in run as z; rewrite z; simpl.
-    apply M_run_ls_on_event_ls_is_microbft in run; exrepnd; subst; simpl in *; tcsp.
+    applydup @M_run_ls_on_event_M_byz_run_ls_on_event in run as z.
+    unfold M_byz_state_ls_on_event; allrw; auto.
   Qed.
 
 

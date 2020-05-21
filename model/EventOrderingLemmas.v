@@ -39,7 +39,7 @@ Section EventOrderingLemmas.
   Context { pm  : @Msg }.
   Context { pda : @DataAuth pd pn }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.
@@ -639,6 +639,17 @@ Section EventOrderingLemmas.
     apply eo_causal_time in eqloc; eauto 3 with eo.
     eapply dt_lt_trans in eqloc;[|eauto].
     apply dt_lt_irrefl in eqloc; tcsp.
+  Qed.
+
+  Lemma decomp_local_le :
+    forall (eo : EventOrdering) (e1 e2 : Event),
+      e1 ⊑ e2
+      -> e1 = e2 \/ ((local_pred e2) ⊂ e2 /\ e1 ⊑ (local_pred e2)).
+  Proof.
+    introv lee.
+    applydup localHappenedBeforeLe_implies_or2 in lee; repndors; subst; tcsp.
+    apply localHappenedBeforeLe_implies_or in lee; repndors; subst; tcsp.
+    right; dands; eauto 3 with eo; tcsp.
   Qed.
 
 End EventOrderingLemmas.

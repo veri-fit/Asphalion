@@ -48,7 +48,7 @@ Section PBFTinstance.
 
   (* ============================================ *)
   (* total_num_faults *)
-  Definition F := 3.
+  Definition F := 1.
 
   (* total_num_clients is C+1 *)
   Definition C := 0.

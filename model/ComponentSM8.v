@@ -17,7 +17,7 @@ Section ComponentSM8.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -25,7 +25,7 @@ Section ComponentSM8.
 
 
   Lemma M_run_ls_before_event_implies_has_correct_trace_before :
-    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : MLocalSystem L S),
+    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : LocalSystem L S),
       ~isFirst e
       -> M_run_ls_before_event ls1 e = Some ls2
       -> has_correct_trace_before (local_pred e) (loc e).

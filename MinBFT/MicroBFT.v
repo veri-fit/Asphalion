@@ -305,6 +305,7 @@ Section MicroBFT.
                    else if CompNameKindDeq (comp_name_kind nm) "LOG" then CIOlog
                         else CIOdef).
 
+  Definition preUSIGname : PreCompName := MkPreCompName "USIG" 0.
   Definition USIGname : CompName := MkCN "USIG" 0 true.
 
   Global Instance MicroBFT_I_baseStateFun : baseStateFun :=
@@ -315,14 +316,16 @@ Section MicroBFT.
                                 then MAIN_state
                                 else unit).
 
-  Global Instance MicroBFT_I_IOTrusted : IOTrusted :=
-    Build_IOTrusted
-      USIG_input_interface
-      USIG_output_interface
-      verify_ui_out_def.
+  Global Instance MicroBFT_I_IOTrustedFun : IOTrustedFun :=
+    MkIOTrustedFun
+      (fun _ =>
+         MkIOTrusted
+           USIG_input_interface
+           USIG_output_interface
+           verify_ui_out_def).
 
   Global Instance MicroBFT_I_trustedStateFun : trustedStateFun :=
-    MkTrustedStateFun USIG_state.
+    MkTrustedStateFun (fun _ => USIG_state).
 
   Definition USIG_update : M_Update 0 USIGname _ :=
     fun (s : USIG_state) (m : USIG_input_interface) =>
@@ -485,8 +488,8 @@ Section MicroBFT.
          | MicroBFT_accept  _ => handle_accept  slf s m
          end).
 
-  Definition MAIN_comp (slf : MicroBFT_node) : n_proc_at 1 MAINname :=
-    build_mp_sm (MAIN_update slf) initial_state.
+  Definition MAIN_comp (slf : MicroBFT_node) : n_proc 2 MAINname :=
+    build_m_sm (MAIN_update slf) initial_state.
 
 
   (*Definition MicroBFT_nstate (n : name) :=
@@ -519,28 +522,24 @@ Section MicroBFT.
       MkPProc LOGname  (build_m_sm LOG_update l)
     ].
 
-  Definition MicroBFT_replicaSM_new (r : MicroBFT_node) (s : MAIN_state) : n_proc_at 1 MAINname :=
-    build_mp_sm (MAIN_update r) s.
+  Definition MicroBFT_replicaSM_new (r : MicroBFT_node) (s : MAIN_state) : n_proc 2 MAINname :=
+    build_m_sm (MAIN_update r) s.
 
-  Definition MicroBFTls := MLocalSystem 1 0.
+  Notation MicroBFTls := (LocalSystem 2 0).
 
   Definition MicroBFTlocalSys (slf : MicroBFT_node) : MicroBFTls :=
-    MkLocalSystem
-      (MAIN_comp slf)
-      (MicroBFTsubs slf).
+    MkPProc _ (MAIN_comp slf) :: incr_n_procs (MicroBFTsubs slf).
 
   Definition MicroBFTlocalSys_new
              (n  : MicroBFT_node)
              (s  : MAIN_state)
              (s1 : USIG_state)
              (s2 : LOG_state) : MicroBFTls :=
-    MkLocalSystem
-      (MicroBFT_replicaSM_new n s)
-      (MicroBFTsubs_new s1 s2).
+    MkPProc _ (MicroBFT_replicaSM_new n s) :: incr_n_procs (MicroBFTsubs_new s1 s2).
 
   Definition MicroBFTfunLevelSpace :=
     MkFunLevelSpace
-      (fun n => 1)
+      (fun n => 2)
       (fun n => 0).
 
   Definition MicroBFTsys : M_USystem MicroBFTfunLevelSpace (*name -> M_StateMachine 2 msg_comp_name*) :=
@@ -571,9 +570,11 @@ Section MicroBFT.
       -> b1 = b2 /\ c1 = c2 /\ d1 = d2.
   Proof.
     introv h.
-    apply decomp_LocalSystem in h; repnd; simpl in *.
-    apply MicroBFTsubs_new_inj in h; repnd; subst.
-    inversion h0; subst; simpl in *; tcsp.
+    apply eq_cons in h; repnd.
+    apply decomp_p_nproc in h0.
+    inversion h0; subst.
+    apply incr_n_procs_inj in h.
+    apply MicroBFTsubs_new_inj in h; repnd; subst; tcsp.
   Qed.
 
   Lemma MicroBFTlocalSys_as_new :
@@ -588,13 +589,15 @@ Section MicroBFT.
     introv; eauto.
   Qed.
 
-  Definition USIGlocalSys (s : USIG_state) : LocalSystem _ _  :=
-    MkLocalSystem (build_mp_sm USIG_update s) [].
+  Definition USIGlocalSys (s : USIG_state) : LocalSystem 1 0 :=
+    [MkPProc _ (build_m_sm USIG_update s)].
 
-  Definition LOGlocalSys (s : LOG_state) : LocalSystem _ _  :=
-    MkLocalSystem (build_mp_sm LOG_update s) [].
+  Definition LOGlocalSys (s : LOG_state) : LocalSystem 1 0 :=
+    [MkPProc _ (build_m_sm LOG_update s)].
 
 End MicroBFT.
 
 
 Hint Rewrite @verify_create_hash_usig : microbft.
+
+Notation MicroBFTls := (LocalSystem 2 0).

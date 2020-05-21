@@ -1,3 +1,5 @@
+(* GENERIC *)
+
 Require Export MinBFTg.
 Require Export ComponentAxiom.
 
@@ -17,13 +19,6 @@ Section MinBFTkn0.
   (* ===============================================================
      Some useful lemmas/definitions
      =============================================================== *)
-
-  Lemma eq_cons :
-    forall {T} (x1 x2 : T) l1 l2,
-      x1 :: l1 = x2 :: l2 -> x1 = x2 /\ l1 = l2.
-  Proof.
-    introv h; inversion h; auto.
-  Qed.
 
   Definition ui_in_log_entry (ui : UI) (e : LOG_state_entry) : bool :=
     if UI_dec ui (request_data2ui (log_entry_request_data e))
@@ -128,7 +123,7 @@ Section MinBFTkn0.
     | _ => []
     end.
 
-  Definition USIG_output_interface2ui (o : USIG_output_interface) : option UI :=
+  Definition USIG_output_interface2ui (cn : PreCompName) (o : USIG_output_interface) : option UI :=
     match o with
     | create_ui_out ui => ui
     | verify_ui_out b => None
@@ -140,7 +135,7 @@ Section MinBFTkn0.
       UI
       auth_data2ui
       USIG_output_interface2ui
-      ui2rep.
+      (fun n => Some (ui2rep n)).
 
   (* === ======================== === *)
 

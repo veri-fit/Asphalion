@@ -1,4 +1,7 @@
+(* GENERIC *)
+
 Require Export MinBFTgen.
+Require Export MinBFTcount_gen_tacs.
 
 
 Section MinBFTcount_gen1.
@@ -24,17 +27,19 @@ Section MinBFTcount_gen1.
            (l   : list name)
            (r   : Rep)
            (s   : MAIN_state)
-           (subs : n_procs _),
+           (subs : n_procs 1),
       In (send_accept (accept req i) l)
          (M_output_ls_on_this_one_event (MinBFTlocalSys_newP r s subs) e)
       -> i = S (cexec s).
   Proof.
     introv h.
-    apply in_M_output_ls_on_this_one_event_implies in h; exrepnd; simpl in *.
+    apply in_M_output_ls_on_this_one_event_implies in h; exrepnd; simpl in *; minbft_simp.
     autorewrite with minbft comp in *.
     Time minbft_dest_msg Case; simpl in *; tcsp; ginv; repeat smash_minbft2;
-      repndors; tcsp; try (complete (inversion h0; subst; GC; eauto 4 with minbft));
-        repeat (gdest; smash_minbft1_at_ h0; repeat hide_break; repnd; simpl in *; repndors; ginv; tcsp; eauto 2 with minbft).
+      repndors; tcsp;
+        try (complete (inversion h0; subst; GC; eauto 4 with minbft));
+        repeat (try gdest; smash_minbft1_at_ h1; repeat hide_break; repnd;
+                simpl in *; repndors; ginv; tcsp; eauto 2 with minbft).
   Qed.
 
 End MinBFTcount_gen1.

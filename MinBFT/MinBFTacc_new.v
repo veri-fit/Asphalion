@@ -31,6 +31,7 @@ Section MinBFTacc_new.
     unfold M_output_ls_on_this_one_event in *.
     remember (trigger_op e) as trig.
     destruct trig; rev_Some; simpl in *; tcsp.
+    unfold M_run_ls_on_input_out, M_run_ls_on_input in *; simpl in *.
     autorewrite with minbft in *.
 
     Time minbft_dest_msg Case;
@@ -63,6 +64,7 @@ Section MinBFTacc_new.
     unfold M_state_ls_before_event in eqst.
     apply map_option_Some in eqst; exrepnd; rev_Some.
     applydup M_run_ls_before_event_ls_is_minbft in eqst1; exrepnd; subst; simpl in *; ginv.
+    autorewrite with minbft in *; minbft_simp.
     rewrite M_output_ls_on_event_as_run_before in out.
     rewrite eqst1 in out.
     apply accepted_implies_new_request_step in out; auto.

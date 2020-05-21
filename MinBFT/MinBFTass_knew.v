@@ -59,9 +59,9 @@ Section MinBFTass_knew.
     simpl; allrw; simpl; dands; eauto 3 with minbft;[].
     unfold MinBFT_ca_verify.
     rewrite prepare2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
     unfold state_of_trusted; simpl.
@@ -83,9 +83,9 @@ Section MinBFTass_knew.
     simpl; allrw; simpl; dands; eauto 3 with minbft;[].
     unfold MinBFT_ca_verify.
     rewrite commit2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
     unfold state_of_trusted; simpl.
@@ -123,8 +123,10 @@ Section MinBFTass_knew.
     introv kn.
     Opaque KE_TKNEW.
     Opaque KE_KNEW.
+    Opaque KE_FALSE.
     simpl in *; repnd.
     rewrite interp_KE_KNEW.
+    rewrite interp_KE_FALSE.
 
     unfold knows_after in kn; exrepnd; simpl in *.
     unfold MinBFT_data_knows in *; simpl in *.
@@ -133,7 +135,7 @@ Section MinBFTass_knew.
     rewrite kn1 in *; simpl in *.
     apply map_option_Some in kn2; exrepnd; rev_Some.
     applydup M_run_ls_on_event_ls_is_minbft in kn2; exrepnd; subst; simpl in *.
-    unfold state_of_subcomponents in *; simpl in *; ginv.
+    unfold state_of_component in *; simpl in *; ginv.
     dup kn2 as runOn; hide_hyp runOn.
     dup kn2 as eqid.
     apply (preserves_usig_id2 _ _ _ s1) in eqid; simpl; tcsp;[].
@@ -141,17 +143,19 @@ Section MinBFTass_knew.
     apply map_option_Some in kn2; exrepnd; rev_Some.
 
     applydup M_run_ls_before_event_ls_is_minbft in kn2; exrepnd; subst; simpl in *.
-    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some.
+    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some; minbft_simp.
     rename kn2 into runBef.
     rename kn1 into eqloc.
 
-    autorewrite with minbft in *.
+    applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as runByzBef.
+
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft in *; simpl in *.
 
     Time minbft_dest_msg Case;
       repeat (simpl in *; autorewrite with minbft in *; smash_minbft2);
-      try (apply MinBFTlocalSys_new_inj in kn4; repnd; subst; simpl in *);
-             try (destruct c; simpl in * );
-             repeat (simpl in *; autorewrite with minbft in *; smash_minbft2);
+      try (destruct c; simpl in * );
+      repeat (simpl in *; autorewrite with minbft in *; smash_minbft2);
              try (complete (left; eexists; simpl; unfold state_before; simpl;
                             rewrite M_state_sys_before_event_unfold;
                               rewrite eqloc; simpl; rewrite runBef; simpl; dands;[eexists;dands|];

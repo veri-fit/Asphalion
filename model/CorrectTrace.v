@@ -43,7 +43,7 @@ Section CorrectTrace.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { gms : @MsgStatus pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.
@@ -634,6 +634,98 @@ Section CorrectTrace.
   Qed.
   Hint Resolve has_correct_trace_bounded_local_pred_implies_lt : eo.
 
+  Lemma implies_has_correct_trace_bounded_lt_local_pred :
+    forall {eo : EventOrdering} (e : Event),
+      has_correct_trace_bounded_lt e
+      -> has_correct_trace_bounded_lt (local_pred e).
+  Proof.
+    introv cor lte.
+    apply cor; eauto 3 with eo.
+  Qed.
+  Hint Resolve implies_has_correct_trace_bounded_lt_local_pred : eo.
+
+  Lemma have_correct_traces_before_left_pair :
+    forall {eo : EventOrdering} nodes (e1 e2 : Event),
+      have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e1].
+  Proof.
+    introv h i j; apply h; simpl in *; tcsp.
+  Qed.
+  Hint Resolve have_correct_traces_before_left_pair : eo.
+
+  Lemma have_correct_traces_before_right_pair :
+    forall {eo : EventOrdering} nodes (e1 e2 : Event),
+      have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e2].
+  Proof.
+    introv h i j; apply h; simpl in *; tcsp.
+  Qed.
+  Hint Resolve have_correct_traces_before_right_pair : eo.
+
+  Lemma have_correct_traces_before_le_left_pair :
+    forall {eo : EventOrdering} nodes (e e1 e2 : Event),
+      e ≼ e1
+      -> have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e].
+  Proof.
+    introv q h i j u v; simpl in *; repndors; subst; tcsp.
+    eapply (h _ _ e1); eauto; simpl; tcsp; eauto 3 with eo.
+  Qed.
+  Hint Resolve have_correct_traces_before_le_left_pair : eo.
+
+  Lemma have_correct_traces_before_le_right_pair :
+    forall {eo : EventOrdering} nodes (e e1 e2 : Event),
+      e ≼ e2
+      -> have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e].
+  Proof.
+    introv q h i j u v; simpl in *; repndors; subst; tcsp.
+    eapply (h _ _ e2); eauto; simpl; tcsp; eauto 3 with eo.
+  Qed.
+  Hint Resolve have_correct_traces_before_le_right_pair : eo.
+
+  Lemma have_correct_traces_before_le_pair_left :
+    forall {eo : EventOrdering} nodes (e e1 e2 : Event),
+      e ≼ e1
+      -> have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e, e2].
+  Proof.
+    introv q h i j u v; simpl in *; repndors; subst; tcsp.
+    { eapply (h _ _ e1); eauto; simpl; tcsp; eauto 3 with eo. }
+    { eapply (h _ _ e3); eauto; simpl; tcsp; eauto 3 with eo. }
+  Qed.
+  Hint Resolve have_correct_traces_before_le_pair_left : eo.
+
+  Lemma have_correct_traces_before_le_pair_right :
+    forall {eo : EventOrdering} nodes (e e1 e2 : Event),
+      e ≼ e2
+      -> have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e1, e].
+  Proof.
+    introv q h i j u v; simpl in *; repndors; subst; tcsp.
+    { eapply (h _ _ e3); eauto; simpl; tcsp; eauto 3 with eo. }
+    { eapply (h _ _ e2); eauto; simpl; tcsp; eauto 3 with eo. }
+  Qed.
+  Hint Resolve have_correct_traces_before_le_pair_right : eo.
+
+  Lemma have_correct_traces_before_dup :
+    forall {eo : EventOrdering} nodes (e : Event),
+      have_correct_traces_before nodes [e]
+      -> have_correct_traces_before nodes [e, e].
+  Proof.
+    introv q h i j; eapply q; eauto; simpl in *; tcsp.
+  Qed.
+  Hint Resolve have_correct_traces_before_dup : eo.
+
+  Lemma have_correct_traces_before_pair_switch :
+    forall {eo : EventOrdering} nodes (e1 e2 : Event),
+      have_correct_traces_before nodes [e1, e2]
+      -> have_correct_traces_before nodes [e2, e1].
+  Proof.
+    introv q h i j. eapply q; eauto; simpl in *; tcsp.
+  Qed.
+  Hint Resolve have_correct_traces_before_pair_switch : eo.
+
 End CorrectTrace.
 
 
@@ -647,6 +739,7 @@ Hint Resolve exists_at_most_f_faulty_twice : eo.
 Hint Resolve implies_atmost_f_faulty_local_pred : eo.
 Hint Resolve implies_atmost_f_faulty_causal : eo.
 Hint Resolve implies_atmost_f_faulty_causal_le : eo.
+Hint Resolve implies_has_correct_trace_bounded_lt_local_pred : eo.
 
 Hint Resolve nodes_have_correct_traces_before_causal_le : eo.
 Hint Resolve nodes_have_correct_traces_before_two_left : eo.
@@ -677,3 +770,12 @@ Hint Resolve in_cut_has_correct_trace_before_implies : eo.
 Hint Resolve in_event_cut_2_left : eo.
 Hint Resolve in_event_cut_2_right : eo.
 Hint Resolve in_cut_has_correct_trace_before_implies_correct_node : eo.
+
+Hint Resolve have_correct_traces_before_left_pair : eo.
+Hint Resolve have_correct_traces_before_right_pair : eo.
+Hint Resolve have_correct_traces_before_le_left_pair : eo.
+Hint Resolve have_correct_traces_before_le_right_pair : eo.
+Hint Resolve have_correct_traces_before_le_pair_left : eo.
+Hint Resolve have_correct_traces_before_le_pair_right : eo.
+Hint Resolve have_correct_traces_before_dup : eo.
+Hint Resolve have_correct_traces_before_pair_switch : eo.

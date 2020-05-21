@@ -40,7 +40,7 @@ Section CorrectKeys.
   Context { pda : @DataAuth pd pn }.
   Context { qc  : @Quorum_context pn }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
   Local Open Scope eo.

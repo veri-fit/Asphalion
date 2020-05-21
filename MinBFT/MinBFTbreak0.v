@@ -1,3 +1,5 @@
+(* USIG instance *)
+
 Require Export MinBFTbreak.
 Require Export MinBFT.
 
@@ -13,6 +15,25 @@ Section MinBFTbreak0.
   Context { u_initial_keys      : USIG_initial_keys   }.
   Context { usig_hash           : USIG_hash           }.
   Context { minbft_auth         : MinBFT_auth         }.
+
+
+  Lemma on_comp_MinBFTlocalSys_new :
+    forall r s u l {A} (F : n_proc 2 (msg_comp_name 0) -> A) (m : A),
+      on_comp (MinBFTlocalSys_new r s u l) F m
+      = F (MinBFT_replicaSM_new r s).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite on_comp_MinBFTlocalSys_new : minbft.
+
+  Lemma decr_n_procs_MinBFTlocalSys_new :
+    forall r s u l,
+      decr_n_procs (MinBFTlocalSys_new r s u l)
+      = MinBFTsubs_new u l.
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite decr_n_procs_MinBFTlocalSys_new : minbft.
 
   Lemma M_break_USIG_update :
     forall {O} s i subs (F : n_procs 0 -> option USIG_state * USIG_output_interface  -> O),
@@ -37,7 +58,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new u l))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new u l)
-                        (fun s => replace_subs (MinBFTsubs_new s l) subs)
+                        (fun s => MinBFTsubs_new s l)
                         (fst out))
                (snd out)).
   Proof.
@@ -58,7 +79,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new u l))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new u l)
-                        (fun s => replace_subs (MinBFTsubs_new u s) subs)
+                        (fun s => MinBFTsubs_new u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -79,7 +100,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs n))
           (fun subs out =>
              F (bind_op (MinBFTsubs n)
-                        (fun s => replace_subs (MinBFTsubs_new_u s) subs)
+                        (fun s => MinBFTsubs_new_u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -100,7 +121,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs n))
           (fun subs out =>
              F (bind_op (MinBFTsubs n)
-                        (fun s => replace_subs (MinBFTsubs_new_l n s) subs)
+                        (fun s => MinBFTsubs_new_l n s)
                         (fst out))
                (snd out)).
   Proof.
@@ -121,7 +142,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new_u u))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new_u u)
-                        (fun s => replace_subs (MinBFTsubs_new_u s) subs)
+                        (fun s => MinBFTsubs_new_u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -142,7 +163,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new_u u))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new_u u)
-                        (fun s => replace_subs (MinBFTsubs_new u s) subs)
+                        (fun s => MinBFTsubs_new u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -163,7 +184,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new_l n l))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new_l n l)
-                        (fun s => replace_subs (MinBFTsubs_new s l) subs)
+                        (fun s => MinBFTsubs_new s l)
                         (fst out))
                (snd out)).
   Proof.
@@ -184,7 +205,7 @@ Section MinBFTbreak0.
           (decr_n_procs (MinBFTsubs_new_l n l))
           (fun subs out =>
              F (bind_op (MinBFTsubs_new_l n l)
-                        (fun s => replace_subs (MinBFTsubs_new_l n s) subs)
+                        (fun s => MinBFTsubs_new_l n s)
                         (fst out))
                (snd out)).
   Proof.
@@ -197,6 +218,9 @@ Section MinBFTbreak0.
 End MinBFTbreak0.
 
 
+Hint Rewrite @on_comp_MinBFTlocalSys_new : minbft.
+Hint Rewrite @decr_n_procs_MinBFTlocalSys_new : minbft.
+Hint Rewrite @M_break_USIG_update : minbft.
 Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new : minbft2.
 Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs_new : minbft2.
 Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs : minbft2.
@@ -205,4 +229,3 @@ Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new_u : minbft2.
 Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs_new_u : minbft2.
 Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new_l : minbft2.
 Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs_new_l : minbft2.
-Hint Rewrite @M_break_USIG_update : minbft.

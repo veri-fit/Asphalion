@@ -14,7 +14,7 @@ Section CalculusSM3.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
   Context { ctp : @ComponentTrust pd pn pat qc iot }.
   Context { cap : @ComponentAuth pd pn pk pat pm dtc iot }.
 
@@ -70,6 +70,52 @@ Section CalculusSM3.
     inst_hyp e' st'.
     apply st'; simpl; tcsp.
     introv h; repndors; subst; simpl in *; auto.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_similar_data_change_event {eo : EventOrdering} e1 e2 R H d1 d2 :=
+    MkRule0
+      [⟬ R ⟭ H ⊢ KE_SIMILAR_DATA d1 d2 @ e2]
+      (⟬ R ⟭ H ⊢ KE_SIMILAR_DATA d1 d2 @ e1).
+
+  Lemma PRIMITIVE_RULE_similar_data_change_event_true :
+    forall {eo : EventOrdering} e1 e2 R H d1 d2,
+      rule_true (PRIMITIVE_RULE_similar_data_change_event e1 e2 R H d1 d2).
+  Proof.
+    start_proving_primitive st ct ht.
+    apply st0 in ht; simpl in *; tcsp.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_similar_data_sym {eo : EventOrdering} e R H d1 d2 :=
+    MkRule0
+      [⟬ R ⟭ H ⊢ KE_SIMILAR_DATA d1 d2 @ e]
+      (⟬ R ⟭ H ⊢ KE_SIMILAR_DATA d2 d1 @ e).
+
+  Lemma PRIMITIVE_RULE_similar_data_sym_true :
+    forall {eo : EventOrdering} e R H d1 d2,
+      rule_true (PRIMITIVE_RULE_similar_data_sym e R H d1 d2).
+  Proof.
+    start_proving_primitive st ct ht.
+    apply st0 in ht; simpl in *; tcsp.
+    apply kc_sim_data_sym; auto.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_data_eq_sym {eo : EventOrdering} e R H t1 t2 :=
+    MkRule0
+      [⟬ R ⟭ H ⊢ KE_DATA_EQ t2 t1 @ e]
+      (⟬ R ⟭ H ⊢ KE_DATA_EQ t1 t2 @ e).
+
+  Lemma PRIMITIVE_RULE_data_eq_sym_true :
+    forall {eo : EventOrdering} e R H t1 t2,
+      rule_true (PRIMITIVE_RULE_data_eq_sym e R H t1 t2).
+  Proof.
+    start_proving_primitive st ct ht.
+    apply st0 in ht; simpl in *; tcsp.
   Qed.
 
 End CalculusSM3.

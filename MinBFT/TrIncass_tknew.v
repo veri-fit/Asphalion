@@ -20,8 +20,10 @@ Section TrIncass_tknew.
     introv kn.
     Opaque KE_TKNEW.
     Opaque KE_KNEW.
+    Opaque KE_FALSE.
     simpl in *; repnd.
     rewrite interp_KE_KNEW.
+    rewrite interp_KE_FALSE.
 
     unfold knows_after in kn; exrepnd; simpl in *.
     unfold MinBFT_data_knows in *; simpl in *.
@@ -30,7 +32,7 @@ Section TrIncass_tknew.
     rewrite kn1 in *; simpl in *.
     apply map_option_Some in kn2; exrepnd; rev_Some.
     applydup M_run_ls_on_event_ls_is_minbft in kn2; exrepnd; subst; simpl in *.
-    unfold state_of_subcomponents in *; simpl in *; ginv.
+    unfold state_of_component in *; simpl in *; ginv.
     dup kn2 as runOn; hide_hyp runOn.
     dup kn2 as eqid.
     apply (preserves_usig_id2 _ _ _ s1) in eqid; simpl; tcsp;[].
@@ -38,11 +40,12 @@ Section TrIncass_tknew.
     apply map_option_Some in kn2; exrepnd; rev_Some.
 
     applydup M_run_ls_before_event_ls_is_minbft in kn2; exrepnd; subst; simpl in *.
-    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some.
+    apply map_option_Some in kn3; exrepnd; subst; simpl in *; rev_Some; minbft_simp.
     rename kn2 into runBef.
     rename kn1 into eqloc.
 
-    autorewrite with minbft in *.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft in *; simpl in *.
 
     Time minbft_dest_msg Case;
       repeat (simpl in *; autorewrite with minbft in *; smash_minbft2);

@@ -76,7 +76,7 @@ Section PrimaryBackup.
 
   Instance PB_I_MsgStatus : MsgStatus := MkMsgStatus PB_msg_status.
 
-  Instance PB_I_IOTrusted : IOTrusted := Build_IOTrusted unit unit tt.
+  Instance PB_I_IOTrustedFun : IOTrustedFun := MkIOTrustedFun (fun _ => MkIOTrusted unit unit tt).
 
   Definition PBinode := PBnode.
 

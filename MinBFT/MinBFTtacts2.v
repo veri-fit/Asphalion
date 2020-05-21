@@ -1,3 +1,5 @@
+(* USIG instance *)
+
 Require Export MinBFT.
 Require Export MinBFTtacts.
 
@@ -25,8 +27,8 @@ Ltac minbft_simplifier_step :=
   | [ H : _ = MinBFTsubs_new _ _ |- _ ] => apply MinBFTsubs_new_inj in H; repnd
   | [ H : MinBFTlocalSys _ = MinBFTlocalSys_new _ _ _ _ |- _ ] => rewrite MinBFTlocalSys_as_new in H
   | [ H : MinBFTlocalSys_new _ _ _ _ = MinBFTlocalSys_new _ _ _ _ |- _ ] => apply MinBFTlocalSys_new_inj in H; repnd
-  | [ H : MkLocalSystem _ _ = MinBFTlocalSys_new _ _ _ _ |- _ ] => apply MinBFTlocalSys_new_inj in H; repnd
-  | [ H : MinBFTlocalSys_new _ _ _ _ = MkLocalSystem _ _ |- _ ] => apply MinBFTlocalSys_new_inj in H; repnd
+  | [ H : _ = MinBFTlocalSys_new _ _ _ _ |- _ ] => apply MinBFTlocalSys_new_inj in H; repnd
+  | [ H : MinBFTlocalSys_new _ _ _ _ = _ |- _ ] => apply MinBFTlocalSys_new_inj in H; repnd
   end.
 
 Ltac minbft_simp := repeat (minbft_simplifier_step; simpl in * ).

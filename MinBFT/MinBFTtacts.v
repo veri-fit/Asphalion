@@ -1,4 +1,7 @@
+(* GENERIC *)
+
 Require Export MinBFTg.
+Require Export MinBFTrw1.
 
 
 Create HintDb minbft.
@@ -24,6 +27,23 @@ Ltac minbft_simplifier_step :=
   | [ H : Some _ = Some _ |- _ ] => apply Some_inj in H
   | [ x : _, H : ?x = _ |- _ ] => subst x
   | [ x : _, H : _ = ?x |- _ ] => subst x
+
+  | [ H : context[update_subs (MinBFTlocalSys_newP ?r ?s ?l) (decr_n_procs (MinBFTlocalSys_newP ?r ?s ?l))] |- _ ] =>
+    rewrite update_subs_MinBFTlocalSys_newP_same in H;auto;[]
+  | [ |- context[update_subs (MinBFTlocalSys_newP ?r ?s ?l) (decr_n_procs (MinBFTlocalSys_newP ?r ?s ?l))] ] =>
+    rewrite update_subs_MinBFTlocalSys_newP_same;auto;[]
+
+  | [ H : context[update_subs (MinBFTlocalSys_newP ?r ?s ?l) ?l] |- _ ] =>
+    rewrite update_subs_MinBFTlocalSys_newP_same2 in H;auto;[]
+  | [ |- context[update_subs (MinBFTlocalSys_newP ?r ?s ?l) ?l] ] =>
+    rewrite update_subs_MinBFTlocalSys_newP_same2;auto;[]
+
+  | [ H : MinBFTlocalSys_newP ?r _ _ = MinBFTlocalSys_newP ?r _ _ |- _ ] =>
+    apply eq_MinBFTlocalSys_newP_implies in H; repnd
+  | [ H : _ :: _ = MinBFTlocalSys_newP ?r _ _ |- _ ] =>
+    apply eq_MinBFTlocalSys_newP_implies in H; repnd
+  | [ H : MinBFTlocalSys_newP ?r _ _ = _ :: _ |- _ ] =>
+    apply eq_MinBFTlocalSys_newP_implies in H; repnd
   end.
 
 Ltac minbft_simp := repeat (minbft_simplifier_step; simpl in * ).
@@ -126,7 +146,14 @@ Ltac smash_minbft_10 := let tac := fun _ => (eauto 10 with minbft) in smash_minb
 
 Ltac smash_minbft := smash_minbft3.
 
-Ltac minbft_dest_msg c :=
+Ltac post_minbft_dest_msg :=
+  simpl in *;
+  autorewrite with comp minbft minbft2 in *; simpl in *;
+  repeat unfold_handler;
+  repeat unfold_handler_concl;
+  smash_minbft.
+
+Ltac pre_minbft_dest_msg c :=
   match goal with
   | [ H : MinBFT_msg |- _ ] =>
     destruct H;
@@ -136,13 +163,12 @@ Ltac minbft_dest_msg c :=
     | Case_aux c "Commit"
     | Case_aux c "Accept"
     | Case_aux c "Debug"
-    ];
-    simpl in *;
-    autorewrite with comp minbft minbft2 in *; simpl in *;
-    repeat unfold_handler;
-    repeat unfold_handler_concl;
-    smash_minbft
+    ]
   end.
+
+Ltac minbft_dest_msg c :=
+  progress (pre_minbft_dest_msg c);
+  post_minbft_dest_msg.
 
 Ltac minbft_finish_eexists :=
   repeat match goal with

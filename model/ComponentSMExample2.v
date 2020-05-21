@@ -17,8 +17,8 @@ Definition bstatefun (cn : CompName) : Type :=
 
 Global Instance EX1baseFunIO : baseFunIO := MkBaseFunIO (fun _ => CIOnat).
 Global Instance EX1baseStateFun : baseStateFun := MkBaseStateFun bstatefun.
-Global Instance EX1IOTrusted : IOTrusted := Build_IOTrusted nat nat 0.
-Global Instance EX1trustedStateFun : trustedStateFun := MkTrustedStateFun nat.
+Global Instance EX1IOTrustedFun : IOTrustedFun := MkIOTrustedFun (fun _ => MkIOTrusted nat nat 0).
+Global Instance EX1trustedStateFun : trustedStateFun := MkTrustedStateFun (fun _ => nat).
 
 
 (* ====== STATE ====== *)
@@ -79,21 +79,22 @@ Definition MAINupdate : M_Update 2 MAINname _ :=
         | TOT  n => [R] n
         end) [>>=] (fun out => [R] (tt, [MkDMsg (TOT out) [] ('0)]))).
 
-Definition MAIN : n_proc_at _ _ :=
-  build_mp_sm MAINupdate tt.
+Definition MAIN : n_proc _ _ :=
+  build_m_sm MAINupdate tt.
 
 
 (* ====== Local System ====== *)
 
 Definition progs : n_procs _ :=
   [
-    MkPProc _ (incr_n_proc STATE),
-    MkPProc _ OP1,
-    MkPProc _ OP2
+    MkPProc _ MAIN,
+    MkPProc _ (lift_n_proc 1 OP1),
+    MkPProc _ (lift_n_proc 1 OP2),
+    MkPProc _ (lift_n_proc 2 STATE)
   ].
 
-Definition ls : _ := MkLocalSystem MAIN progs.
+Definition ls : LocalSystem 3 0 := progs.
 
 
-Definition test1 := M_output_ls_on_inputs ls [ADD1 2, ADD2 3] (ADD1 1).
+Definition test1 := call_procs_out ls MAINname [ADD1 2, ADD2 3] (ADD1 1).
 Eval compute in test1.

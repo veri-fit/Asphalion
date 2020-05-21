@@ -14,6 +14,24 @@ Section MicroBFTbreak.
   Context { microbft_auth       : MicroBFT_auth         }.
 
 
+  Lemma on_comp_MicroBFTlocalSys_new :
+    forall r s u l {A} (F : n_proc 2 (msg_comp_name 0) -> A) (m : A),
+      on_comp (MicroBFTlocalSys_new r s u l) F m
+      = F (MicroBFT_replicaSM_new r s).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite on_comp_MicroBFTlocalSys_new : microbft.
+
+  Lemma decr_n_procs_MicroBFTlocalSys_new :
+    forall r s u l,
+      decr_n_procs (MicroBFTlocalSys_new r s u l)
+      = MicroBFTsubs_new u l.
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite decr_n_procs_MicroBFTlocalSys_new : microbft.
+
   Lemma M_break_MicroBFT_state_update :
     forall {O} r s m subs (F : n_procs 1 -> option MAIN_state * DirectedMsgs -> O),
       M_break (MAIN_update r s m) subs F
@@ -61,7 +79,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new u l))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new u l)
-                        (fun s => replace_subs (MicroBFTsubs_new s l) subs)
+                        (fun s => MicroBFTsubs_new s l)
                         (fst out))
                (snd out)).
   Proof.
@@ -82,7 +100,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new u l))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new u l)
-                        (fun s => replace_subs (MicroBFTsubs_new u s) subs)
+                        (fun s => MicroBFTsubs_new u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -103,7 +121,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs n))
           (fun subs out =>
              F (bind_op (MicroBFTsubs n)
-                        (fun s => replace_subs (MicroBFTsubs_new_u s) subs)
+                        (fun s => MicroBFTsubs_new_u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -124,7 +142,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs n))
           (fun subs out =>
              F (bind_op (MicroBFTsubs n)
-                        (fun s => replace_subs (MicroBFTsubs_new_l n s) subs)
+                        (fun s => MicroBFTsubs_new_l n s)
                         (fst out))
                (snd out)).
   Proof.
@@ -145,7 +163,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new_u u))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new_u u)
-                        (fun s => replace_subs (MicroBFTsubs_new_u s) subs)
+                        (fun s => MicroBFTsubs_new_u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -166,7 +184,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new_u u))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new_u u)
-                        (fun s => replace_subs (MicroBFTsubs_new u s) subs)
+                        (fun s => MicroBFTsubs_new u s)
                         (fst out))
                (snd out)).
   Proof.
@@ -187,7 +205,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new_l n l))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new_l n l)
-                        (fun s => replace_subs (MicroBFTsubs_new s l) subs)
+                        (fun s => MicroBFTsubs_new s l)
                         (fst out))
                (snd out)).
   Proof.
@@ -208,7 +226,7 @@ Section MicroBFTbreak.
           (decr_n_procs (MicroBFTsubs_new_l n l))
           (fun subs out =>
              F (bind_op (MicroBFTsubs_new_l n l)
-                        (fun s => replace_subs (MicroBFTsubs_new_l n s) subs)
+                        (fun s => MicroBFTsubs_new_l n s)
                         (fst out))
                (snd out)).
   Proof.
@@ -266,6 +284,58 @@ Section MicroBFTbreak.
   Qed.
   Hint Rewrite @M_break_call_verify_ui : microbft.
 
+  Definition lower_out_break {n} {A} {B}
+             (l : n_procs (S n))
+             (F : n_procs (S n) -> A -> B) : n_procs n -> A -> B :=
+    fun k a => F (update_subs l k) a.
+
+  Lemma M_break_M_run_sm_on_input_MicroBFT_replicaSM_new :
+    forall {O} r s m subs (F : n_procs 2 -> option MAIN_state * DirectedMsgs -> O),
+      M_break (M_run_sm_on_input (MicroBFT_replicaSM_new r s) m) subs F
+      = match m with
+        | MicroBFT_request _ => M_break (interp_s_proc (handle_request r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MicroBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MicroBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        end.
+  Proof.
+    introv.
+    unfold M_run_sm_on_input.
+    destruct m; introv; simpl; auto;
+      try (complete (unfold M_on_decr, M_break, MAIN_update;
+                     simpl; repeat dest_cases w; ginv)).
+  Qed.
+  Hint Rewrite @M_break_M_run_sm_on_input_MicroBFT_replicaSM_new : microbft.
+
+  Lemma state_of_component_cons_same :
+    forall {cn} {n} (p : n_proc n cn) (l : n_procs n),
+      state_of_component cn (MkPProc cn p :: l) = Some (sm2state p).
+  Proof.
+    introv; unfold state_of_component; simpl; dest_cases w; simpl.
+    rewrite (UIP_refl_CompName _ w); auto.
+  Qed.
+  Hint Rewrite @state_of_component_cons_same : comp.
+
+  Lemma state_of_component_USIGname :
+    forall m (u : n_proc 1 USIGname) l,
+      state_of_component USIGname
+                         [MkPProc (msg_comp_name 0) m,
+                          MkPProc USIGname u,
+                          MkPProc LOGname l] = Some (sm2state u).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite state_of_component_USIGname : microbft.
+
+  Lemma state_of_component_LOGname :
+    forall m u (l : n_proc 1 LOGname),
+      state_of_component LOGname
+                         [MkPProc (msg_comp_name 0) m,
+                          MkPProc USIGname u,
+                          MkPProc LOGname l] = Some (sm2state l).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite state_of_component_LOGname : microbft.
 
 End MicroBFTbreak.
 
@@ -282,3 +352,11 @@ Hint Rewrite @M_break_call_create_ui : microbft.
 Hint Rewrite @M_break_call_verify_ui : microbft.
 Hint Rewrite @M_break_USIG_update : microbft.
 Hint Rewrite @M_break_LOG_update : microbft.
+Hint Rewrite @M_break_M_run_sm_on_input_MicroBFT_replicaSM_new : microbft.
+Hint Rewrite @on_comp_MicroBFTlocalSys_new : microbft.
+Hint Rewrite @decr_n_procs_MicroBFTlocalSys_new : microbft.
+Hint Rewrite @state_of_component_USIGname : microbft.
+Hint Rewrite @state_of_component_LOGname : microbft.
+
+
+Hint Rewrite @state_of_component_cons_same : comp.

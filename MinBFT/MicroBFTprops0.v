@@ -185,77 +185,77 @@ Section MicroBFTprops0.
   Hint Rewrite ui2rep_request2ui_eq : microbft.
 
 
-  Lemma upd_ls_main_state_and_subs_MicroBFTlocalSys_new :
+(*  Lemma upd_ls_main_state_and_subs_MicroBFTlocalSys_new :
     forall n s u l s' u' l',
       upd_ls_main_state_and_subs (MicroBFTlocalSys_new n s u l) s' (MicroBFTsubs_new u' l')
       = MicroBFTlocalSys_new n s' u' l'.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite upd_ls_main_state_and_subs_MicroBFTlocalSys_new : microbft.
+  Hint Rewrite upd_ls_main_state_and_subs_MicroBFTlocalSys_new : microbft.*)
 
-  Lemma state_of_subcomponents_MicroBFTsubs_USIGname :
+  Lemma state_of_component_MicroBFTsubs_USIGname :
     forall r,
-      state_of_subcomponents (MicroBFTsubs r) USIGname
+      state_of_component USIGname (MicroBFTsubs r)
       = Some (USIG_initial r).
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_USIGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_USIGname : microbft.
 
-  Lemma state_of_subcomponents_MicroBFTsubs_new_USIGname :
+  Lemma state_of_component_MicroBFTsubs_new_USIGname :
     forall s l,
-      state_of_subcomponents (MicroBFTsubs_new s l) USIGname
+      state_of_component USIGname (MicroBFTsubs_new s l)
       = Some s.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_new_USIGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_new_USIGname : microbft.
 
-  Lemma state_of_subcomponents_MicroBFTsubs_LOGname :
+  Lemma state_of_component_MicroBFTsubs_LOGname :
     forall r,
-      state_of_subcomponents (MicroBFTsubs r) LOGname
+      state_of_component LOGname (MicroBFTsubs r)
       = Some LOG_initial.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_LOGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_LOGname : microbft.
 
-  Lemma state_of_subcomponents_MicroBFTsubs_new_LOGname :
+  Lemma state_of_component_MicroBFTsubs_new_LOGname :
     forall s l,
-      state_of_subcomponents (MicroBFTsubs_new s l) LOGname
+      state_of_component LOGname (MicroBFTsubs_new s l)
       = Some l.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_new_LOGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_new_LOGname : microbft.
 
-  Lemma state_of_subcomponents_MicroBFTsubs_new_u_LOGname :
+  Lemma state_of_component_MicroBFTsubs_new_u_LOGname :
     forall u,
-      state_of_subcomponents (MicroBFTsubs_new_u u) LOGname
+      state_of_component LOGname (MicroBFTsubs_new_u u)
       = Some LOG_initial.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_new_u_LOGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_new_u_LOGname : microbft.
 
-  Lemma state_of_subcomponents_MicroBFTsubs_new_u_USIGname :
+  Lemma state_of_component_MicroBFTsubs_new_u_USIGname :
     forall u,
-      state_of_subcomponents (MicroBFTsubs_new_u u) USIGname
+      state_of_component USIGname (MicroBFTsubs_new_u u)
       = Some u.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite state_of_subcomponents_MicroBFTsubs_new_u_USIGname : microbft.
+  Hint Rewrite state_of_component_MicroBFTsubs_new_u_USIGname : microbft.
 
-  Lemma upd_ls_main_state_and_subs_MicroBFTlocalSys :
+  (*Lemma upd_ls_main_state_and_subs_MicroBFTlocalSys :
     forall n s u l,
       upd_ls_main_state_and_subs (MicroBFTlocalSys n) s (MicroBFTsubs_new u l)
       = MicroBFTlocalSys_new n s u l.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite upd_ls_main_state_and_subs_MicroBFTlocalSys : microbft.
+  Hint Rewrite upd_ls_main_state_and_subs_MicroBFTlocalSys : microbft.*)
 
   Lemma state_of_component_MicroBFTlocalSys_new_LOGname :
     forall n s u l,
@@ -336,14 +336,14 @@ Hint Rewrite @same_request_deq : microbft.
 Hint Rewrite @Build_HashData_eq_request2hash_data : microbft.
 Hint Rewrite @build_ui_decomp_request_eq : microbft.
 Hint Rewrite @ui2rep_request2ui_eq : microbft.
-Hint Rewrite @upd_ls_main_state_and_subs_MicroBFTlocalSys_new : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_USIGname : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_new_USIGname : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_LOGname : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_new_LOGname : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_new_u_LOGname : microbft.
-Hint Rewrite @state_of_subcomponents_MicroBFTsubs_new_u_USIGname : microbft.
-Hint Rewrite @upd_ls_main_state_and_subs_MicroBFTlocalSys : microbft.
+(*Hint Rewrite @upd_ls_main_state_and_subs_MicroBFTlocalSys_new : microbft.*)
+Hint Rewrite @state_of_component_MicroBFTsubs_USIGname : microbft.
+Hint Rewrite @state_of_component_MicroBFTsubs_new_USIGname : microbft.
+Hint Rewrite @state_of_component_MicroBFTsubs_LOGname : microbft.
+Hint Rewrite @state_of_component_MicroBFTsubs_new_LOGname : microbft.
+Hint Rewrite @state_of_component_MicroBFTsubs_new_u_LOGname : microbft.
+Hint Rewrite @state_of_component_MicroBFTsubs_new_u_USIGname : microbft.
+(*Hint Rewrite @upd_ls_main_state_and_subs_MicroBFTlocalSys : microbft.*)
 Hint Rewrite @state_of_component_MicroBFTlocalSys_new_LOGname : microbft.
 Hint Rewrite @state_of_component_MicroBFTlocalSys_new_USIGname : microbft.
 Hint Rewrite @request_in_log_log_new : microbft.

@@ -744,6 +744,8 @@ Section MinBFTg.
      Trusted info
      =============================================================== *)
 
+  Definition preUSIGname : PreCompName := MkPreCompName "USIG" 0.
+
   Definition USIGname : CompName := MkCN "USIG" 0 true.
 
   Class TrustedInfo :=
@@ -775,15 +777,17 @@ Section MinBFTg.
                                      then MAIN_state
                                      else unit).
 
-  Global Instance MinBFT_I_IOTrusted : IOTrusted :=
-    Build_IOTrusted
-      USIG_input_interface
-      USIG_output_interface
-      verify_ui_out_def.
+  Global Instance MinBFT_I_IOTrustedFun : IOTrustedFun :=
+    MkIOTrustedFun
+      (fun _ =>
+         MkIOTrusted
+           USIG_input_interface
+           USIG_output_interface
+           verify_ui_out_def).
 
   (* This should be either USIG_state or TRINC_state *)
   Global Instance MinBFT_I_trustedStateFun : trustedStateFun :=
-    MkTrustedStateFun trusted_state.
+    MkTrustedStateFun (fun _ => trusted_state).
 
 
   (* ===============================================================
@@ -1391,8 +1395,8 @@ Section MinBFTg.
          | MinBFT_debug   _ => handle_debug   slf s m
          end).
 
-  Definition MAIN_comp (r : Rep) : n_proc_at 1 MAINname :=
-    build_mp_sm (MAIN_update r) (initial_state r).
+  Definition MAIN_comp (r : Rep) : n_proc 2 MAINname :=
+    build_m_sm (MAIN_update r) (initial_state r).
 
 
   (*Definition MinBFT_nstate (n : name) :=
@@ -1401,36 +1405,32 @@ Section MinBFTg.
     | _ => unit
     end.*)
 
-  Definition MinBFT_replicaSM_new (r : Rep) (s : MAIN_state) : n_proc_at 1 MAINname :=
-    build_mp_sm (MAIN_update r) s.
+  Definition MinBFT_replicaSM_new (r : Rep) (s : MAIN_state) : n_proc 2 MAINname :=
+    build_m_sm (MAIN_update r) s.
 
-  Definition MinBFTls := MLocalSystem 1 0.
+  Notation MinBFTls := (LocalSystem 2 0).
 
   (* Parameterized version of [MinBFTlocalSys] *)
-  Definition MinBFTlocalSysP (n : Rep) (subs : n_procs _) : MinBFTls :=
-    MkLocalSystem
-      (MAIN_comp n)
-      subs.
+  Definition MinBFTlocalSysP (n : Rep) (subs : n_procs 1) : MinBFTls :=
+    MkPProc _ (MAIN_comp n) :: incr_n_procs subs.
 
   Definition MinBFTlocalSys_newP
              (n    : Rep)
              (s    : MAIN_state)
-             (subs : n_procs _) : MinBFTls :=
-    MkLocalSystem
-      (MinBFT_replicaSM_new n s)
-      subs.
+             (subs : n_procs 1) : MinBFTls :=
+    MkPProc _ (MinBFT_replicaSM_new n s) :: incr_n_procs subs.
 
   Definition MinBFTfunLevelSpace :=
     MkFunLevelSpace
       (fun n =>
          match n with
-         | MinBFT_replica _ => 1
+         | MinBFT_replica _ => 2
          | _ => 0
          end)
       (fun n =>
          match n with
          | MinBFT_replica _ => 0
-         | _ => 1
+         | _ => 0
          end).
 
   (* Parameterized version of [MinBFTsys] *)
@@ -1438,13 +1438,15 @@ Section MinBFTg.
     fun name =>
       match name with
       | MinBFT_replica n => MinBFTlocalSysP n (subs n)
-      | _ => unit_ls
+      | _ => empty_ls _ _
       end.
 
-  Definition LOGlocalSys (s : LOG_state) : LocalSystem _ _  :=
-    MkLocalSystem (build_mp_sm LOG_update s) [].
+  Definition LOGlocalSys (s : LOG_state) : LocalSystem 1 0 :=
+    [MkPProc _ (build_m_sm LOG_update s)].
 
 End MinBFTg.
 
 
 Hint Rewrite @verify_create_hash_usig : minbft.
+
+Notation MinBFTls := (LocalSystem 2 0).

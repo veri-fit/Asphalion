@@ -1,3 +1,5 @@
+(* USIG instance *)
+
 Require Export MinBFTcount_gen1.
 Require Export MinBFTcount_gen2.
 Require Export MinBFTcount_gen5.
@@ -22,6 +24,69 @@ Section MinBFTcount.
   Context { u_initial_keys      : USIG_initial_keys   }.
   Context { usig_hash           : USIG_hash           }.
   Context { minbft_auth         : MinBFT_auth         }.
+
+
+  Lemma main_not_in_subs :
+    forall s, ~ In MAINname (get_names (MinBFTsubs s)).
+  Proof.
+    introv; simpl; intro xx; repndors; tcsp; inversion xx.
+  Qed.
+  Hint Resolve main_not_in_subs : minbft.
+
+  Lemma wf_minbft_subs :
+    forall s, wf_procs (MinBFTsubs s).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Resolve wf_minbft_subs : minbft.
+
+  Lemma is_proc_n_proc_USIG_comp :
+    forall s, is_proc_n_proc (USIG_comp s).
+  Proof.
+    introv; unfold is_proc_n_proc; simpl; eexists; introv; try reflexivity.
+  Qed.
+  Hint Resolve is_proc_n_proc_USIG_comp : minbft.
+
+  Lemma is_proc_n_proc_LOG_comp :
+    is_proc_n_proc LOG_comp.
+  Proof.
+    introv; unfold is_proc_n_proc; simpl; eexists; introv; try reflexivity.
+  Qed.
+  Hint Resolve is_proc_n_proc_LOG_comp : minbft.
+
+  Lemma are_procs_n_procs_minbft_subs :
+    forall s, are_procs_n_procs (MinBFTsubs s).
+  Proof.
+    introv i; simpl in *; repndors; subst; tcsp;
+      unfold is_proc_n_nproc; simpl; eauto 3 with minbft.
+  Qed.
+  Hint Resolve are_procs_n_procs_minbft_subs : minbft.
+
+
+  Lemma lower_headF_minbft_subs : lower_headF 1 MinBFTsubs.
+  Proof.
+    introv; simpl; auto.
+  Qed.
+  Hint Resolve lower_headF_minbft_subs : minbft.
+
+  Lemma main_not_in_namesF_minbft_subs : not_in_namesF MAINname MinBFTsubs.
+  Proof.
+    introv xx; simpl in *; repndors; tcsp; inversion xx.
+  Qed.
+  Hint Resolve main_not_in_namesF_minbft_subs : minbft.
+
+  Lemma wf_procsF_minbft_subs : wf_procsF MinBFTsubs.
+  Proof.
+    introv; simpl; tcsp.
+  Qed.
+  Hint Resolve wf_procsF_minbft_subs : minbft.
+
+  Lemma are_procs_n_procsF_minbft_subs : are_procs_n_procsF MinBFTsubs.
+  Proof.
+    introv i; simpl in *; repndors; subst; tcsp;
+      unfold is_proc_n_nproc; eauto 3 with minbft.
+  Qed.
+  Hint Resolve are_procs_n_procsF_minbft_subs : minbft.
 
 
   Lemma accepted_if_executed_previous_step :
@@ -60,7 +125,7 @@ Section MinBFTcount.
            /\ In (send_accept (accept r' i) l') (M_output_ls_on_this_one_event ls' e').
   Proof.
     introv eqls out.
-    eapply operation_inc_counter_ls_step; eauto.
+    eapply operation_inc_counter_ls_step; eauto 3 with minbft.
   Qed.
 
   Lemma operation_inc_counter_ls :
@@ -81,7 +146,7 @@ Section MinBFTcount.
           /\ In (send_accept (accept r' i1) l') (M_output_ls_on_this_one_event ls' e').
   Proof.
     introv run i lt1 lt2.
-    eapply operation_inc_counter_ls; eauto.
+    eapply operation_inc_counter_ls; eauto 3 with minbft.
   Qed.
 
   Lemma operation_inc_counter :
@@ -99,7 +164,7 @@ Section MinBFTcount.
           /\ In (send_accept (accept r' i1) l') (M_output_sys_on_event MinBFTsys e').
   Proof.
     introv isr h lti lti0.
-    eapply operation_inc_counter; eauto.
+    eapply operation_inc_counter; eauto 3 with minbft.
   Qed.
 
   Lemma accepted_counter_positive :
@@ -113,13 +178,13 @@ Section MinBFTcount.
       -> 0 < i.
   Proof.
     introv isrep out.
-    eapply accepted_counter_positive; eauto.
+    eapply accepted_counter_positive; eauto 3 with minbft.
   Qed.
   Hint Resolve accepted_counter_positive : minbft.
 
   Lemma M_output_ls_on_input_is_committed_implies :
     forall u c ls,
-      M_output_ls_on_input (LOGlocalSys u) (is_committed_in c) = (ls, log_out true)
+      M_run_ls_on_input (LOGlocalSys u) LOGname (is_committed_in c) = (ls, Some (log_out true))
       -> is_committed c u = true
          /\ ls = LOGlocalSys u.
   Proof.
@@ -216,8 +281,7 @@ Section MinBFTcount.
       -> s = s1 /\ subs = MinBFTsubs_new s2 s3.
   Proof.
     introv h.
-    apply decomp_LocalSystem in h; repnd; simpl in *; subst.
-    inversion h0; subst; simpl in *; tcsp.
+    apply eq_MinBFTlocalSys_newP_implies in h; tcsp.
   Qed.
 
   (* This uses compositional reasoning, but using [LOG_comp]'s spec defined in
@@ -249,8 +313,8 @@ Section MinBFTcount.
     introv h.
 
     pose proof (accepted_counter_if_received_UI_primary e R (MinBFTsubs R) r i l) as q.
-    simpl in q.
-    repeat (autodimp q hyp); eauto 2 with minbft.
+    repeat (autodimp q hyp); eauto 2 with minbft;[].
+    simpl in *.
     rewrite MinBFTlocalSysP_MinBFTsubs_eq in q.
     exrepnd.
     applydup M_run_ls_on_event_ls_is_minbft in q1; exrepnd.
@@ -264,5 +328,14 @@ Section MinBFTcount.
 
 End MinBFTcount.
 
+
+Hint Resolve main_not_in_subs : minbft.
+Hint Resolve wf_minbft_subs : minbft.
+Hint Resolve is_proc_n_proc_USIG_comp : minbft.
+Hint Resolve is_proc_n_proc_LOG_comp : minbft.
+Hint Resolve are_procs_n_procs_minbft_subs : minbft.
+Hint Resolve lower_headF_minbft_subs : minbft.
+Hint Resolve main_not_in_namesF_minbft_subs : minbft.
+Hint Resolve wf_procsF_minbft_subs : minbft.
 
 Hint Resolve accepted_counter_positive : minbft.

@@ -18,7 +18,7 @@ Section RunSM.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io : @baseFunIO }.
   Context { base_state_fun : @baseStateFun }.
@@ -90,30 +90,21 @@ Section RunSM.
 
   Definition M_run_ls_on_this_one_msg
              {L S}
-             (ls : MLocalSystem L S)
-             (m  : msg) : option (MLocalSystem _ _) * DirectedMsgs :=
-    M_break
-      (sm_update (ls_main ls) (sm_state (ls_main ls)) m)
-      (ls_subs ls)
-      (fun subs' out =>
-         let (sop, msgs) := out in
-         (option_map
-            (fun s => upd_ls_main_state_and_subs ls s subs')
-            sop, msgs)).
+             (ls : LocalSystem L S)
+             (m  : msg) : LocalSystem L S * DirectedMsgs :=
+    match M_run_ls_on_input ls (msg_comp_name S) m with
+    | (ls,Some msgs) => (ls, msgs)
+    | (ls,None) => (ls,[])
+    end.
 
   Definition run_ls_with_time {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              (m  : msg)
-             (t  : PosDTime) : MLocalSystem L S * DirectedMsgs * Time_type :=
+             (t  : PosDTime) : LocalSystem L S * DirectedMsgs * Time_type :=
     let t1 := Time_get_time tt in
-    match M_run_ls_on_this_one_msg ls m with
-    | (Some ls', msgs) =>
-      let t2 := Time_get_time tt in
-      (ls', msgs, t2)
-    | (None, msgs) =>
-      let t2 := Time_get_time tt in
-      (ls, msgs, t2)
-    end.
+    let (ls',msgs) := M_run_ls_on_this_one_msg ls m in
+    let t2 := Time_get_time tt in
+    (ls', msgs, t2).
 
   Definition dmsg2one_dst (dm : DirectedMsg) d : DirectedMsg :=
     MkDMsg (dmMsg dm) [d] (dmDelay dm).
@@ -132,8 +123,8 @@ Section RunSM.
           MkSimState
             (ss_fls s)
             (fun name=>
-               match name_dec dst name return MLocalSystem (fls_level (ss_fls s) name) (fls_space (ss_fls s) name) with
-               | left q => eq_rect _ (fun dst => MLocalSystem (fls_level (ss_fls s) dst) (fls_space (ss_fls s) dst)) ls' _ q
+               match name_dec dst name return LocalSystem (fls_level (ss_fls s) name) (fls_space (ss_fls s) name) with
+               | left q => eq_rect _ (fun dst => LocalSystem (fls_level (ss_fls s) dst) (fls_space (ss_fls s) dst)) ls' _ q
                | _ => ss_sys s name
                end)
             (S (ss_step s))
@@ -162,8 +153,8 @@ Section RunSM.
           MkSimState
             (ss_fls s)
             (fun name=>
-               match name_dec dst name return MLocalSystem (fls_level (ss_fls s) name) (fls_space (ss_fls s) name) with
-               | left q => eq_rect _ (fun dst => MLocalSystem (fls_level (ss_fls s) dst) (fls_space (ss_fls s) dst)) ls' _ q
+               match name_dec dst name return LocalSystem (fls_level (ss_fls s) name) (fls_space (ss_fls s) name) with
+               | left q => eq_rect _ (fun dst => LocalSystem (fls_level (ss_fls s) dst) (fls_space (ss_fls s) dst)) ls' _ q
                | _ => ss_sys s name
                end)
             (S (ss_step s))

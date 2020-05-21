@@ -1,3 +1,5 @@
+(* GENERIC *)
+
 Require Export MinBFTtacts.
 
 
@@ -196,6 +198,49 @@ Section MinBFTbreak.
   Qed.
   Hint Rewrite @M_break_call_is_committed : minbft.
 
+  Definition lower_out_break {n} {A} {B}
+             (l : n_procs (S n))
+             (F : n_procs (S n) -> A -> B) : n_procs n -> A -> B :=
+    fun k a => F (update_subs l k) a.
+
+  Lemma M_break_M_run_sm_on_input_MinBFT_replicaSM_new :
+    forall {O} r s m subs (F : n_procs 2 -> option MAIN_state * DirectedMsgs -> O),
+      M_break (M_run_sm_on_input (MinBFT_replicaSM_new r s) m) subs F
+      = match m with
+        | MinBFT_request _ => M_break (interp_s_proc (handle_request r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_prepare _ => M_break (interp_s_proc (handle_prepare r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_reply   _ => M_break (interp_s_proc (handle_reply   r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_debug   _ => M_break (interp_s_proc (handle_debug   r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        end.
+  Proof.
+    introv.
+    unfold M_run_sm_on_input.
+    destruct m; introv; simpl; auto;
+      try (complete (unfold M_on_decr, M_break, MAIN_update;
+                     simpl; repeat dest_cases w; ginv)).
+  Qed.
+  Hint Rewrite @M_break_M_run_sm_on_input_MinBFT_replicaSM_new : minbft.
+
+  Lemma state_of_component_cons_same :
+    forall {cn} {n} (p : n_proc n cn) (l : n_procs n),
+      state_of_component cn (MkPProc cn p :: l) = Some (sm2state p).
+  Proof.
+    introv; unfold state_of_component; simpl; dest_cases w; simpl.
+    rewrite (UIP_refl_CompName _ w); auto.
+  Qed.
+  Hint Rewrite @state_of_component_cons_same : comp.
+
+  Lemma on_comp_MinBFTlocalSys_newP :
+    forall r s subs {A} (F : n_proc 2 (msg_comp_name 0) -> A) (m : A),
+      on_comp (MinBFTlocalSys_newP r s subs) F m
+      = F (MinBFT_replicaSM_new r s).
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite on_comp_MinBFTlocalSys_newP : minbft.
+
 End MinBFTbreak.
 
 
@@ -208,3 +253,8 @@ Hint Rewrite @M_break_call_log_prepare : minbft.
 Hint Rewrite @M_break_call_log_commit : minbft.
 Hint Rewrite @M_break_call_is_committed : minbft.
 Hint Rewrite @M_break_LOG_update : minbft.
+Hint Rewrite @M_break_M_run_sm_on_input_MinBFT_replicaSM_new : minbft.
+Hint Rewrite @on_comp_MinBFTlocalSys_newP : minbft.
+
+
+Hint Rewrite @state_of_component_cons_same : comp.

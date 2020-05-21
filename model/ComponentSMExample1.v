@@ -10,8 +10,8 @@ Global Instance EX1Msg : Msg := MkMsg nat.
 
 Global Instance EX1baseFunIO : baseFunIO := MkBaseFunIO (fun _ => CIOnat).
 Global Instance EX1baseStateFun : baseStateFun := MkBaseStateFun (fun _ => nat).
-Global Instance EX1IOTrusted : IOTrusted := Build_IOTrusted nat nat 0.
-Global Instance EX1trustedStateFun : trustedStateFun := MkTrustedStateFun nat.
+Global Instance EX1IOTrusted : IOTrustedFun := MkIOTrustedFun (fun _ => MkIOTrusted nat nat 0).
+Global Instance EX1trustedStateFun : trustedStateFun := MkTrustedStateFun (fun _ => nat).
 
 
 
@@ -146,31 +146,32 @@ Definition M_update : M_Update 3 Mname nat :=
       ((Cname [C] i)
          [>>=] (fun out => [R] (s, [MkDMsg out [] ('0)]))).
 
-Definition M : n_proc_at _ _ :=
-  build_mp_sm M_update 0.
+Definition M : n_proc _ _ :=
+  build_m_sm M_update 0.
 
-Module SMM <: SMat.
-  Definition level := 3.
+Module SMM <: SM.
+  Definition level := 4.
   Definition name  := Mname.
   Definition sm    := M.
 End SMM.
 
-Module MM := Msmat (SMM).
+Module MM := Msm (SMM).
 
 
 (* ====== Local System ====== *)
 
 Definition progs : n_procs _ :=
   [
-    MkPProc _ (incr_n_proc (incr_n_proc A)),
-    MkPProc _ (incr_n_proc B),
-    MkPProc _ C
+    MkPProc _ M,
+    MkPProc _ (lift_n_proc 1 C),
+    MkPProc _ (lift_n_proc 2 B),
+    MkPProc _ (lift_n_proc 3 A)
   ].
 
-Definition ls : _ := MkLocalSystem M progs.
+Definition ls : LocalSystem 4 2 := progs.
 
 
-Definition test1 := M_output_ls_on_inputs ls [17] 17.
+Definition test1 := call_procs_out ls Mname [17] 17.
 Eval compute in test1.
 
 Definition test2 := MM.run [17, 17].
@@ -207,8 +208,10 @@ Extract Constant M_p "'a" "'b" => "'b".
 Extract Constant bind => "fun _ _ _ _ _ _ _ _ _ m f -> Prelude.SM.bind (m,f)".
 Extract Constant ret => "fun _ _ _ _ _ _ _ _ _ a -> Prelude.SM.ret a".
 Extract Constant M_on_pred => "fun _ _ _ _ _ _ _ _ _ x -> x".
+Extract Constant M_on_sm => "fun _ _ _ _ _ _ _ _ _ _ x f -> f x".
 Extract Constant M_simple_break => "fun _ _ _ _ _ _ _ _ _ sm subs f -> f sm".
 Extract Constant M_break_nil => "fun _ _ _ _ _ _ _ _ _ sm -> sm".
+Extract Constant M_break => "fun _ _ _ _ _ _ _ _ _ sm subs f -> f [] sm".
 
 Extraction Inline interp_s_proc.
 Extraction Inline proc_bind_pair.
@@ -218,31 +221,42 @@ Extract Inlined Constant interp_proc => "(fun _ _ _ _ _ _ _ _ _ x -> x)".
 Extract Inlined Constant M_StateMachine => "n_proc".
 Extract Inlined Constant n_proc_at => "n_proc".
 Extract Inlined Constant n_procs => "((unit mP_StateMachine) p_nproc) list".
+Extract Inlined Constant interp_proc => "(fun _ _ _ _ _ _ _ _ _ x -> x)".
+Extract Inlined Constant build_m_sm => "build_mp_sm".
+Extract Inlined Constant app_m_proc => "app_n_proc_at".
+Extract Inlined Constant sm2update => "(fun _ _ _ _ _ _ _ _ _ _ sm s i -> sm.sm_update s i)".
+Extract Inlined Constant call_proc => "(fun _ _ _ _ _ _ _ _ _ cn i _ -> Prelude.SM.call_proc lookup_table (cn,i))".
 
 
-Extraction "test1.ml" (*MP_SM*) lookup_table MA MB MC MM test1.
+(* TODO: Why can't we get rid of the last argument? *)
+Extraction Implicit lookup_table [1 2 3 4 5].
+
+
+Extraction "test1.ml" (*MP_SM*) lookup_table build_mp_sm MA MB MC MM test1.
 
 (*
   Then:
-    (1) fix [m_run_update_on_list] by removing the extra x/x0 arguments
+    (1) remove [lookup_table]'s extra argument both in test1.ml and test1.mli
     (2) Add this after the test to print the output:
 
 let _ =
   match Obj.magic test1 with
    | {dmMsg = m; dmDst = d; dmDelay = t} :: _ ->
       print_endline (string_of_int (Obj.magic m))
-   | _ -> ()
+   | _ -> print_endline ("#outputs:" ^ string_of_int (List.length l))
 
     (3) Compile using:
           ocamlbuild -tag thread -use-ocamlfind -package batteries test.native
  *)
 
 
-Extraction "test2.ml" (*MP_SM*) lookup_table MA MB MC MM test2.
+Extraction "test2.ml" (*MP_SM*) lookup_table build_mp_sm MA MB MC MM test2.
 
 
 (*
-  For test2, add:
+  Then for test2:
+    (1) remove [lookup_table]'s extra argument both in test1.ml and test1.mli
+    (2) Add this after the test to print the output:
 
 let _ =
   let outs = Obj.magic test2 in
@@ -250,7 +264,7 @@ let _ =
       match o with
       | ({dmMsg = m; dmDst = d; dmDelay = t} :: _) ->
          print_endline (string_of_int (Obj.magic m))
-      | [] -> ())
+      | [] -> print_endline "no outputs")
       outs
 *)
 
@@ -276,3 +290,4 @@ Extraction Implicit foo [1].
 Fixpoint bar (n : nat) : fnat := fun x => x.
 
 Extraction "foo.ml" xxx yyy foo bar.
+

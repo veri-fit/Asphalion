@@ -27,7 +27,7 @@ Section MicroBFTkn.
     | _ => []
     end.
 
-  Definition USIG_output_interface2ui (o : USIG_output_interface) : option UI :=
+  Definition USIG_output_interface2ui (cn : PreCompName) (o : USIG_output_interface) : option UI :=
     match o with
     | create_ui_out ui => Some ui
     | verify_ui_out b => None
@@ -39,7 +39,7 @@ Section MicroBFTkn.
       UI
       auth_data2ui
       USIG_output_interface2ui
-      ui2rep.
+      (fun n => Some (ui2rep n)).
 
   (* === ======================== === *)
 
@@ -51,7 +51,7 @@ Section MicroBFTkn.
   Definition MicroBFT_ca_create (eo : EventOrdering) (e : Event) (a : MicroBFT_Bare_Msg) : list MicroBFT_digest :=
     match a with
     | MicroBFT_msg_bare_request n pui =>
-      match M_byz_state_sys_before_event_of_trusted MicroBFTsys e with
+      match M_byz_state_sys_before_event MicroBFTsys e USIGname with
       | Some u => [ui2digest (snd (create_UI n u))]
       | None => []
       end
@@ -60,7 +60,7 @@ Section MicroBFTkn.
   Definition MicroBFT_ca_verify (eo : EventOrdering) (e : Event) (a : AuthenticatedData) : bool :=
     match a with
     | MkAuthData (MicroBFT_msg_bare_request n pui) [d] =>
-      match M_byz_state_sys_before_event_of_trusted MicroBFTsys e with
+      match M_byz_state_sys_before_event MicroBFTsys e USIGname with
       | Some u =>
         verify_UI n (Build_UI pui d) u
       | None => false
@@ -177,6 +177,11 @@ Section MicroBFTkn.
     | microbft_data_ui    _, microbft_data_ui    _ => True
     | _, _ => False
     end.
+
+  Lemma similar_data_sym : symmetric _ similar_data.
+  Proof.
+    introv sim; unfold similar_data in *; destruct x, y; tcsp.
+  Qed.
 
   Parameter collision_resistant :
     forall (ui : UI) (d1 d2 : MicroBFT_data),
@@ -327,14 +332,17 @@ Section MicroBFTkn.
   Lemma init_counter_cond :
     forall n : node_type,
     exists m,
-      state_of_trusted_in_ls (MicroBFTsys (node2name n)) = Some m
+      state_of_component USIGname (MicroBFTsys (node2name n)) = Some m
       /\ usig_counter m = init_counter.
   Proof.
     introv; simpl.
-    unfold state_of_trusted_in_ls, state_of_trusted; simpl.
+    unfold state_of_component; simpl.
     eexists; dands; eauto.
   Qed.
 
+  Definition ext_prim := True.
+  Definition ext_prim_interp : forall (eo : EventOrdering) (e : Event), ext_prim -> Prop :=
+    fun eo e p => True.
 
   Global Instance MicroBFT_I_KnowledgeComponents : KnowledgeComponents :=
     MkKnowledgeComponents
@@ -343,6 +351,7 @@ Section MicroBFTkn.
       microbft_data_ui_inj
       generated_for
       similar_data
+      similar_data_sym
       collision_resistant
       MicroBFT_data2owner
       same_ui2owner
@@ -351,6 +360,7 @@ Section MicroBFTkn.
       MicroBFT_data2trust_correct
       MicroBFT_auth2trust_correct
       LOGname
+      preUSIGname
       MicroBFT_data_knows
       MicroBFT_data_knows_dec
       MicroBFTfunLevelSpace
@@ -367,8 +377,8 @@ Section MicroBFTkn.
       similar_ui_equivalence
       similar_ui_pres
       usig_counter
-      init_counter
-      init_counter_cond.
+      ext_prim
+      ext_prim_interp.
 
   (* === ======================== === *)
 

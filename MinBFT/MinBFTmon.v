@@ -1,3 +1,5 @@
+(* USIG instance *)
+
 Require Export MinBFTprops0.
 Require Export MinBFTrep.
 Require Export MinBFTstate.
@@ -48,10 +50,11 @@ Section MinBFTmon.
     rewrite M_run_ls_on_event_unroll2 in eqst2.
     rewrite eqst1 in eqst2; simpl in *.
     applydup M_run_ls_before_event_ls_is_minbft in eqst1; exrepnd; subst; simpl in *.
-    unfold state_of_subcomponents in *; simpl in *; ginv.
+    autorewrite with minbft in *; minbft_simp.
     clear eqst1.
 
-    apply map_option_Some in eqst2; exrepnd; rev_Some; simpl in *.
+    apply map_option_Some in eqst2; exrepnd; minbft_simp.
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in eqst0.
     autorewrite with comp minbft in *.
 
     Time minbft_dest_msg Case;

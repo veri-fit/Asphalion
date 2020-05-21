@@ -87,6 +87,11 @@ Section SMknows_choice.
     | _ => []
     end.
 
+  Global Instance SM_I_SysOutput : SysOutput.
+  Proof.
+    exact (MkSysOutput DirectedMsg).
+  Defined.
+
   Global Instance SM_I_LearnAndKnow_pl : LearnAndKnow 0.
   Proof.
     exact (MkLearnAndKnow
@@ -102,7 +107,7 @@ Section SMknows_choice.
              sm_data2main_auth_data
              sm_data2main_auth_data_list
              sm_verify
-             _ _ sm_no_initial_memory_i).
+             _ sm_no_initial_memory_i).
   Defined.
 
   Lemma sm_know_i_dec : lak_know_i_dec.
@@ -262,7 +267,17 @@ Section SMknows_choice.
 
   Global Instance SM_I_Disseminate : Disseminate.
   Proof.
-    exact (MkDisseminate
+    exact (MkDisseminate sm_data2msg).
+  Defined.
+
+  Global Instance SM_I_Memory : Memory.
+  Proof.
+    exact (MkMemory V).
+  Defined.
+
+  Global Instance SM_I_AuthKnowledge : AuthKnowledge.
+  Proof.
+    exact (MkAuthKnowledge
              sm_data2sign
              sm_extend_info
              sm_extend_data
@@ -275,9 +290,6 @@ Section SMknows_choice.
              sm_can_prop_diff
              sm_max_sign
              sm_max_sign_strictly_pos
-             sm_sys
-             (fun mem => V mem)
-             sm_data2msg
              sm_data2data).
   Defined.
 

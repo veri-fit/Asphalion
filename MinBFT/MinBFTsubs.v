@@ -1,9 +1,17 @@
+(* USIG instance *)
+
 Require Export MinBFT.
 Require Export MinBFTtacts.
 Require Export MinBFTbreak0.
 Require Export MinBFTrep.
+Require Export MinBFTsim1.
 Require Export ComponentAxiom.
 Require Export ComponentSM3.
+
+
+(* Move to ComponentSM2 *)
+Hint Resolve are_procs_empty_ls : comp.
+Hint Resolve wf_empty_ls : comp.
 
 
 Section MinBFTsubs.
@@ -29,24 +37,22 @@ Section MinBFTsubs.
     unfold M_output_sys_on_event in *.
     unfold is_replica.
     remember (loc e) as w; destruct w; simpl in *; tcsp; eauto.
-    apply M_output_ls_on_event_implies_run in h; exrepnd.
-    apply M_run_ls_before_event_unit_ls in h1; subst.
-    unfold M_output_ls_on_this_one_event in h0; simpl in *; smash_minbft2.
+    apply not_in_M_output_ls_on_event_empty_ls in h; tcsp.
   Qed.
   Hint Resolve in_output_implies_is_replica : minbft.
 
-  Lemma are_procs_MinBFTls : forall n, are_procs_ls (MinBFTlocalSys n).
+  Lemma are_procs_MinBFTls : forall n, are_procs_n_procs (MinBFTlocalSys n).
   Proof.
-    introv; simpl; split; simpl;
+    introv; simpl;
       try (complete (eexists; introv; unfold proc2upd; simpl; try reflexivity));
       try (complete (introv i; simpl in *; repndors; subst; tcsp; simpl;
                      eexists; introv; unfold proc2upd;  reflexivity)).
   Qed.
   Hint Resolve are_procs_MinBFTls : minbft.
 
-  Lemma wf_MinBFTls : forall n, wf_ls (MinBFTlocalSys n).
+  Lemma wf_MinBFTls : forall n, wf_procs (MinBFTlocalSys n).
   Proof.
-    repeat introv; unfold wf_ls, wf_procs; simpl;
+    repeat introv; unfold wf_procs; simpl;
       dands; try (complete (introv xx; repndors; tcsp; ginv));
         repeat constructor; simpl; tcsp;
           try (complete (introv xx; repndors; tcsp; ginv)).
@@ -94,15 +100,15 @@ Section MinBFTsubs.
     unfold MinBFTsubs_new, build_m_sm, build_mp_sm, at2sm; simpl; eauto.
   Qed.
 
-  Lemma similar_sms_at_minbft_replica :
-    forall r (p : n_proc_at 1 _),
-      similar_sms_at p (MAIN_comp r)
-      -> exists s, p = MinBFT_replicaSM_new r s.
+  Lemma similar_subs_MinBFTlocalSys_implies :
+    forall r (ls : n_procs 2),
+      similar_subs (MinBFTlocalSys r) ls
+      -> exists s s1 s2, ls = MinBFTlocalSys_new r s s1 s2.
   Proof.
     introv sim.
-    unfold similar_sms_at in *; repnd; simpl in *; subst.
-    destruct p as [h upd st]; simpl in *; subst; simpl in *.
-    exists st; auto.
+    apply similar_subs_MinBFTlocalSysP  in sim; exrepnd; subst.
+    apply similar_subs_sym in sim1; apply similar_minbft_implies_subs in sim1; exrepnd; subst.
+    exists s s1 s2; auto.
   Qed.
 
   (* We can also prove some preservation lemmas:
@@ -111,7 +117,7 @@ Section MinBFTsubs.
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : Rep)
-           (ls : MinBFTls),
+           (ls : LocalSystem 2 0),
       M_run_ls_before_event (MinBFTlocalSys r) e = Some ls
       ->
       exists (s : MAIN_state) (s1 : USIG_state) (s2 : LOG_state),
@@ -120,20 +126,14 @@ Section MinBFTsubs.
     introv run.
     apply M_run_ls_before_event_preserves_subs in run; eauto 3 with comp minbft.
     repnd; simpl in *.
-    destruct ls as [main subs]; simpl in *.
-
-    apply similar_subs_sym in run3.
-    apply similar_minbft_implies_subs in run3; exrepnd; subst.
-    apply similar_sms_at_sym in run2.
-    apply similar_sms_at_minbft_replica in run2; exrepnd; subst.
-    eexists; eexists; eexists; try reflexivity.
+    apply similar_subs_MinBFTlocalSys_implies in run2; auto.
   Qed.
 
   Lemma M_run_ls_on_event_ls_is_minbft :
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : Rep)
-           (ls : MinBFTls),
+           (ls : LocalSystem 2 0),
       M_run_ls_on_event (MinBFTlocalSys r) e = Some ls
       ->
       exists (s : MAIN_state) (s1 : USIG_state) (s2 : LOG_state),
@@ -142,13 +142,7 @@ Section MinBFTsubs.
     introv run.
     apply M_run_ls_on_event_preserves_subs in run; eauto 3 with comp minbft.
     repnd; simpl in *.
-    destruct ls as [main subs]; simpl in *.
-
-    apply similar_subs_sym in run3.
-    apply similar_minbft_implies_subs in run3; exrepnd; subst.
-    apply similar_sms_at_sym in run2.
-    apply similar_sms_at_minbft_replica in run2; exrepnd; subst.
-    eexists; eexists; eexists; try reflexivity.
+    apply similar_subs_MinBFTlocalSys_implies in run2; auto.
   Qed.
 
   Lemma similar_minbft_implies_level :
@@ -219,15 +213,15 @@ Section MinBFTsubs.
   Definition USIG_sm_new s :=
     build_m_sm USIG_update s.
 
-  Lemma trusted_run_sm_on_inputs_usig :
+  (*Lemma trusted_run_sm_on_inputs_usig :
     forall s n l,
       trusted_run_sm_on_inputs s (USIG_comp n) l
       = Some (run_sm_on_inputs_trusted (USIG_sm_new s) l).
   Proof.
     tcsp.
-  Qed.
+  Qed.*)
 
-  Lemma run_sm_on_inputs_trusted_usig_preserves_id :
+  (*Lemma run_sm_on_inputs_trusted_usig_preserves_id :
     forall l s,
       usig_id (run_sm_on_inputs_trusted (USIG_sm_new s) l) = usig_id s.
   Proof.
@@ -240,20 +234,17 @@ Section MinBFTsubs.
 
     unfold USIG_update in Heqz.
     destruct a; simpl in *; repnd; simpl in *; inversion Heqz; simpl in *; auto.
-  Qed.
+  Qed.*)
 
   Lemma similar_sms_at_log :
     forall s p,
       similar_sms_at (build_mp_sm LOG_update s) p
       <-> exists s', p = build_mp_sm LOG_update s'.
   Proof.
-    introv; split; intro h; exrepnd; subst; eauto.
-
-    { inversion h; subst.
-      destruct p as [ha up st]; simpl in *; subst; eauto.
-      exists st; auto. }
-
-    { constructor; auto. }
+    introv; split; intro h; exrepnd; subst; simpl in *; tcsp;[].
+    inversion h.
+    destruct p as [up st]; simpl in *; subst; eauto.
+    exists st; auto.
   Qed.
   Hint Rewrite similar_sms_at_log : minbft.
 
@@ -262,13 +253,10 @@ Section MinBFTsubs.
       similar_sms_at (build_mp_sm USIG_update s) p
       <-> exists s', p = build_mp_sm USIG_update s'.
   Proof.
-    introv; split; intro h; exrepnd; subst; eauto.
-
-    { inversion h; subst.
-      destruct p as [ha up st]; simpl in *; subst; eauto.
-      exists st; auto. }
-
-    { constructor; auto. }
+    introv; split; intro h; exrepnd; subst; eauto; tcsp.
+    inversion h; subst.
+    destruct p as [up st]; simpl in *; subst; eauto.
+    exists st; auto.
   Qed.
   Hint Rewrite similar_sms_at_usig : minbft.
 

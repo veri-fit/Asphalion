@@ -33,7 +33,7 @@ Section MicroBFTprops1.
         M_run_ls_on_event (MicroBFTlocalSys R) e = Some (MicroBFTlocalSys_new R s s1 s2)
         /\ kc_knows (microbft_data_rdata rq) s2
         /\ kc_Tknows ui s2
-        /\ kc_trust2owner ui = MicroBFT_primary
+        /\ kc_trust2owner ui = Some MicroBFT_primary
         /\ kc_trust_has_id ui i
         /\ commit_ui rq = ui
         /\ commit_n rq = r
@@ -44,7 +44,7 @@ Section MicroBFTprops1.
     exrepnd.
     exists s s1 s2 ui rq.
     simpl.
-    dands; auto; unfold MicroBFT_data_knows; simpl; subst; eauto 3 with microbft;[].
+    dands; auto; unfold MicroBFT_data_knows; simpl; subst; eauto 3 with microbft; try congruence;[].
     unfold request_in_log; simpl; smash_microbft.
   Qed.
 
@@ -157,8 +157,6 @@ Section MicroBFTprops1.
   Abort.
 *)
 
-
-
   Lemma request_was_verified :
     forall {eo : EventOrdering} (e : Event) (l : LOG_state) (u : USIG_state) r,
       (loc e = MicroBFT_backup1 \/ loc e = MicroBFT_backup2)
@@ -201,8 +199,11 @@ Section MicroBFTprops1.
         applydup M_run_ls_before_event_ls_is_microbft in run1; exrepnd; subst.
 
         unfold M_run_ls_on_this_one_event in run0; simpl in *.
-        apply map_option_Some in run0; exrepnd; rev_Some.
+        apply map_option_Some in run0; exrepnd; rev_Some; microbft_simp.
+
+        unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
         autorewrite with microbft in *.
+        unfold state_of_component in *; simpl in *.
 
         Time microbft_dest_msg Case; repeat(simpl in *; autorewrite with microbft in *; smash_microbft);
           try (complete (rewrite M_run_ls_before_event_unroll_on in run1;
@@ -226,7 +227,10 @@ Section MicroBFTprops1.
 
         unfold M_run_ls_on_this_one_event in run0; simpl in *.
         apply map_option_Some in run0; exrepnd; rev_Some.
+
+        unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
         autorewrite with microbft in *.
+        unfold state_of_component in *; simpl in *.
 
         Time microbft_dest_msg Case; repeat(simpl in *; autorewrite with microbft in *; smash_microbft);
           try (complete (rewrite M_run_ls_before_event_unroll_on in run1;

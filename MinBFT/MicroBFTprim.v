@@ -39,10 +39,10 @@ Section MicroBFTprim.
     unfold MicroBFTsys in *; simpl in *.
     applydup M_run_ls_on_event_ls_is_microbft in kn2; exrepnd; subst; simpl in *.
 
-    unfold state_of_subcomponents in kn3; simpl in *; ginv.
+    apply option_map_Some in kn3; exrepnd; subst; simpl in *; microbft_simp.
 
     remember (loc e) as n; symmetry in Heqn.
-    revert dependent mem.
+    revert dependent s2.
     revert dependent s1.
     revert dependent s.
     induction e as [e ind] using predHappenedBeforeInd;[]; introv run i.
@@ -52,6 +52,8 @@ Section MicroBFTprim.
     apply map_option_Some in run0; exrepnd; rev_Some.
     simpl in *.
     applydup M_run_ls_before_event_ls_is_microbft in run1; exrepnd; subst; simpl in *.
+
+    unfold M_run_ls_on_input_ls, M_run_ls_on_input in *.
     autorewrite with microbft in *.
 
     rewrite M_run_ls_before_event_unroll_on in run1.

@@ -1,3 +1,5 @@
+(* TRINC instance *)
+
 Require Export TrIncprops1.
 Require Export TrIncview.
 Require Export MinBFTkn0.
@@ -34,7 +36,7 @@ Section TrIncprops2.
       _ _ _
       (build_mp_sm USIG_update u).
 
-  Lemma ex_M_byz_run_ls_on_event_MinBFTlocalSys :
+(*  Lemma ex_M_byz_run_ls_on_event_MinBFTlocalSys :
     forall {eo : EventOrdering} (e : Event) n,
       (exists u, M_byz_run_ls_on_event (MinBFTlocalSys n) e = Some (M_t (MkMinBFTtrustedSM u)))
       \/ (exists s u l, M_byz_run_ls_on_event (MinBFTlocalSys n) e = Some (M_nt (MinBFTlocalSys_new n s u l))).
@@ -66,9 +68,9 @@ Section TrIncprops2.
       simpl in *; repnd.
       rewrite q0.
       exists (state_of_trusted t); auto. }
-  Qed.
+  Qed.*)
 
-  Lemma ex_M_byz_state_sys_on_event_of_trusted_MinBFT :
+(*  Lemma ex_M_byz_state_sys_on_event_of_trusted_MinBFT :
     forall {eo : EventOrdering} (e : Event),
       ex_node_e e
       ->
@@ -86,9 +88,9 @@ Section TrIncprops2.
     pose proof (ex_M_byz_run_ls_on_event_MinBFTlocalSys e n) as q.
     repndors; exrepnd; rewrite q0; simpl; eauto.
     unfold state_of_trusted_in_ls; simpl; eauto.
-  Qed.
+  Qed.*)
 
-  Lemma ex_M_byz_run_ls_before_event_MinBFTlocalSys :
+(*  Lemma ex_M_byz_run_ls_before_event_MinBFTlocalSys :
     forall {eo : EventOrdering} (e : Event) n,
       (exists (u : TRINC_state),
           M_byz_run_ls_before_event (MinBFTlocalSys n) e = Some (M_t (MkMinBFTtrustedSM u)))
@@ -105,9 +107,9 @@ Section TrIncprops2.
       eexists; eexists; eexists; eauto. }
 
     apply ex_M_byz_run_ls_on_event_MinBFTlocalSys.
-  Qed.
+  Qed.*)
 
-  Lemma MinBFT_M_byz_run_ls_on_event_unroll_sp :
+(*  Lemma MinBFT_M_byz_run_ls_on_event_unroll_sp :
     forall {eo : EventOrdering}
            (e  : Event)
            (r  : Rep),
@@ -140,53 +142,51 @@ Section TrIncprops2.
 
     left.
     eexists; eexists; eexists; eauto.
-  Qed.
+  Qed.*)
 
   Lemma USIG_preserves_id :
-    forall {eo : EventOrdering} (e : Event) n l s1 s2,
-      loc e = MinBFT_replica n
-      -> trinc_id s1 = n
-      -> run_sm_on_inputs_trusted (USIG_sm_new s1) l = s2
+    forall r n l s1 s2,
+      trinc_id s1 = n
+      -> trusted_run_sm_on_inputs s1 (USIG_comp r) l = s2
       -> trinc_id s2 = n.
   Proof.
-    induction l; introv eqloc eqid run; simpl in *; tcsp.
+    unfold trusted_run_sm_on_inputs.
+    induction l; introv eqid run; simpl in *; tcsp; subst; auto.
+    autorewrite with comp minbft.
+    unfold USIG_update; simpl; destruct a; repnd; simpl in *; tcsp.
 
-    { autorewrite with minbft in *; simpl in *; subst; tcsp. }
+    { unfold update_state in *; simpl in *.
+      autorewrite with comp.
+      eapply IHl; simpl in *;[|reflexivity]; simpl; auto.
+      unfold try_update_TRINC, update_TRINC; simpl; dest_cases w. }
 
-    pose proof (run_sm_on_inputs_trusted_cons
-                  _ _ _ (USIG_sm_new s1) a l) as w.
-    simpl in *; rewrite w in run; auto; clear w;[].
-
-    unfold USIG_update in run; destruct a; repnd; simpl in *;
-      [|apply IHl in run; auto];[].
-    apply IHl in run; autorewrite with minbft; auto.
+    { unfold update_state in *; simpl in *.
+      autorewrite with comp.
+      eapply IHl; simpl in *;[|reflexivity]; simpl; auto. }
   Qed.
 
   Lemma preserves_usig_id :
     forall {eo : EventOrdering} (e : Event) n u,
       loc e = MinBFT_replica n
-      -> M_byz_state_ls_on_event_of_trusted (MinBFTlocalSys n) e = Some u
+      -> M_byz_state_ls_on_event (MinBFTlocalSys n) e USIGname = Some u
       -> trinc_id u = n.
   Proof.
     intros eo; induction e as [e ind] using predHappenedBeforeInd;[]; introv eqloc eqst.
 
-    pose proof (M_byz_compose_step_trusted e (MinBFTlocalSys n) (USIG_comp n)) as h.
+    pose proof (M_byz_compose_step_trusted e (MinBFTlocalSys n) (incr_n_proc (USIG_comp n))) as h.
     repeat (autodimp h hyp); eauto 3 with comp minbft;[].
     exrepnd.
-    rewrite eqst in h2; ginv; simpl.
+    unfold pre2trusted, USIGname, MkCN in *; simpl in*.
+    rewrite eqst in h2; ginv; simpl; minbft_simp.
+    autorewrite with comp in *.
 
-    pose proof (USIG_preserves_id
-                  e n l s1
-                  (run_sm_on_inputs_trusted (USIG_sm_new s1) l)) as q.
-    repeat (autodimp q hyp).
-
-    rewrite unroll_M_byz_state_ls_before_event_of_trusted in h1.
-    destruct (dec_isFirst e) as [d|d].
-
-    { apply option_map_Some in h1; exrepnd; subst; simpl in *.
-      unfold find_trusted_sub in h1; simpl in h1; ginv. }
-
-    apply ind in h1; autorewrite with eo; eauto 2 with eo.
+    eapply USIG_preserves_id; eauto.
+    apply option_map_Some in h1; exrepnd; subst; simpl in *.
+    rewrite M_byz_run_ls_before_event_unroll_on in h1.
+    destruct (dec_isFirst e) as [d|d]; simpl in *; minbft_simp; auto.
+    apply (ind (local_pred e)); autorewrite with eo; eauto 2 with eo; auto.
+    unfold M_byz_state_ls_on_event, state_of_component; simpl.
+    allrw; simpl; auto.
   Qed.
 
   Lemma preserves_usig_id2 :
@@ -198,7 +198,7 @@ Section TrIncprops2.
   Proof.
     introv eqloc run eqst.
     apply (preserves_usig_id e n u); auto.
-    unfold M_byz_state_ls_on_event_of_trusted; simpl.
+    unfold M_byz_state_ls_on_event; simpl.
     applydup @M_run_ls_on_event_M_byz_run_ls_on_event in run as z; rewrite z; simpl.
     apply M_run_ls_on_event_ls_is_minbft in run; exrepnd; subst; simpl in *; tcsp.
   Qed.
@@ -216,9 +216,9 @@ Section TrIncprops2.
     simpl; allrw; simpl; dands; eauto 3 with minbft;[].
     unfold MinBFT_ca_verify.
     rewrite prepare2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
     unfold state_of_trusted; simpl.
@@ -240,9 +240,9 @@ Section TrIncprops2.
     simpl; allrw; simpl; dands; eauto 3 with minbft;[].
     unfold MinBFT_ca_verify.
     rewrite commit2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
     unfold state_of_trusted; simpl.
@@ -264,9 +264,9 @@ Section TrIncprops2.
     simpl; allrw; simpl; dands; eauto 3 with minbft;[].
     unfold MinBFT_ca_verify.
     rewrite commit2auth_data_eq.
-    unfold M_byz_state_sys_before_event_of_trusted; simpl.
+    unfold M_byz_state_sys_before_event; simpl.
     allrw; simpl.
-    unfold M_byz_state_ls_before_event_of_trusted.
+    unfold M_byz_state_ls_before_event.
     applydup @M_run_ls_before_event_M_byz_run_ls_before_event in runBef as byzRunBef.
     allrw; simpl.
     unfold state_of_trusted; simpl.
@@ -274,9 +274,19 @@ Section TrIncprops2.
   Qed.
   Hint Resolve implies_learns_commit2ui_j : minbft.
 
+  Lemma fold_TCN :
+    pre2trusted (MkPreCompName "USIG" 0) = TCN.
+  Proof.
+    tcsp.
+  Qed.
+  Hint Rewrite fold_TCN : minbft.
+
 End TrIncprops2.
 
 
 Hint Resolve implies_learns_prepare2ui : minbft.
 Hint Resolve implies_learns_commit2ui_i : minbft.
 Hint Resolve implies_learns_commit2ui_j : minbft.
+
+
+Hint Rewrite @fold_TCN : minbft.

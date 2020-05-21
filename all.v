@@ -44,6 +44,7 @@ Require Export PBFTall.
 
 (* --------- SM --------- *)
 Require Export SMall.
+Require Export SM2all.
 
 (* --------- MinBFT --------- *)
 Require Export MinBFTall.

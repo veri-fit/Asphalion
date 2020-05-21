@@ -17,7 +17,7 @@ Section ComponentSM4.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn}.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
   Context { base_fun_io       : baseFunIO }.
   Context { base_state_fun    : baseStateFun }.
@@ -27,29 +27,29 @@ Section ComponentSM4.
   Definition op_state_o cn (S : Type) := option (option S * cio_O (fio cn)).
   Definition op_st_o cn := option (option (sf cn) * cio_O (fio cn)).
 
-  Definition M_run_update_on_inputs {S} {n} {cn}
+  (*Definition M_run_update_on_inputs {S} {n} {cn}
              (s    : S)
              (upd  : M_Update n cn S)
              (l    : list (cio_I (fio cn)))
              (i    : cio_I (fio cn))
     : M_n n (op_state_o cn S) :=
     (M_run_update_on_list s upd (map Some l))
-      >>o= fun s => M_op_update upd s (Some i).
+      >>o= fun s => M_op_update upd s (Some i).*)
 
-  Definition M_run_sm_on_inputs {n} {cn}
+  (*Definition M_run_sm_on_inputs {n} {cn}
              (sm : n_proc n cn)
              (l  : list (cio_I (fio cn)))
              (i  : cio_I (fio cn))
     : M_n (sm2level sm) (op_st_o cn) :=
-    M_run_update_on_inputs (sm2state sm) (sm2update sm) l i.
+    M_run_update_on_inputs (sm2state sm) (sm2update sm) l i.*)
 
-  Definition M_output_sm_on_inputs {n} {cn}
+  (*Definition M_output_sm_on_inputs {n} {cn}
              (sm : n_proc n cn)
              (l  : list (cio_I (fio cn)))
              (i  : cio_I (fio cn))
     : M_n (sm2level sm) (option (cio_O (fio cn))) :=
     (M_run_sm_on_inputs sm l i)
-      >>o= fun x => ret _ (Some (snd x)).
+      >>o= fun x => ret _ (Some (snd x)).*)
 
   Definition M_simple_break {n} {S} {O}
              (sm   : M_n n S)
@@ -60,16 +60,28 @@ Section ComponentSM4.
   Definition M_break_nil {n} {S} (sm : M_n n S) : S :=
     snd (sm []).
 
-  Definition M_output_ls_on_inputs
-             {Lv cn}
-             (ls : LocalSystem Lv cn)
+  Fixpoint call_procs
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             (cn : CompName)
+             (l  : list (cio_I (fio cn)))
+    : LocalSystem Lv Sp :=
+    match l with
+    | [] => ls
+    | i :: l =>
+      let ls' := fst (call_proc cn i ls) in
+      call_procs ls' cn l
+    end.
+
+  Definition call_procs_out
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             (cn : CompName)
              (l  : list (cio_I (fio cn)))
              (i  : cio_I (fio cn))
     : cio_O (fio cn) :=
-    M_simple_break
-      (M_output_sm_on_inputs (at2sm (ls_main ls)) l i)
-      (ls_subs ls)
-      (fun o => opt_val o (cio_default_O (fio cn))).
+    let ls' := call_procs ls cn l in
+    snd (call_proc cn i ls').
 
 
   (* None is for the halted process *)

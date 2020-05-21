@@ -18,7 +18,7 @@ Section KnowledgeCalculus.
   Context { pda : @DataAuth pd pn }.
   Context { cad : @ContainedAuthData pd pat pm }.
   Context { dtc : @DTimeContext }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
   Context { ctp : @ComponentTrust pd pn pat qc iot }.
   Context { cap : @ComponentAuth pd pn pk pat pm dtc iot }.
 
@@ -62,13 +62,14 @@ Section KnowledgeCalculus.
         (* relation between data and scrambled/hashed data *)
         kc_generated_for : kc_data -> kc_trust -> Prop;
         kc_sim_data      : kc_data -> kc_data -> Prop;
+        kc_sim_data_sym  : symmetric _ kc_sim_data;
         kc_collision_resistant : forall (t : kc_trust) d1 d2, kc_generated_for d1 t -> kc_generated_for d2 t -> kc_sim_data d1 d2 -> d1 = d2;
 
 
         (* === OWNER === *)
         (* owner of the data *)
         kc_data2owner       : kc_data -> option node_type;
-        kc_same_trust2owner : forall (t : kc_trust), kc_data2owner (kc_trust2data t) = Some (kc_trust2owner t);
+        kc_same_trust2owner : forall (t : kc_trust), kc_data2owner (kc_trust2data t) = kc_trust2owner t;
 
 
         (* === AUTHENTICATED DATA === *)
@@ -81,20 +82,26 @@ Section KnowledgeCalculus.
         (* === MEMORY === *)
         (* name of component holding the knowledge *)
         (* NOTE: This could be generalized to a list of names instead of just one *)
-        kc_mem          : CompName;
+        kc_mem_comp      : CompName;
+
+
+        (* === TRUSTED === *)
+        (* name of the component in charge of generating trusted info *)
+        (* NOTE: This could be generalized to a list of names instead of just one *)
+        kc_trust_comp   : PreCompName;
 
 
         (* === KNOW === *)
         (* express what it means to know some information *)
-        kc_knows        : kc_data  -> sf kc_mem -> Prop;
-        kc_knows_dec    : forall (d : kc_data) (m : sf kc_mem), decidable (kc_knows d m);
+        kc_knows        : kc_data  -> sf kc_mem_comp -> Prop;
+        kc_knows_dec    : forall (d : kc_data) (m : sf kc_mem_comp), decidable (kc_knows d m);
 
 
         (* === STATE MACHINE UPDATING THE MEMORY === *)
         (* outputs of the state machine *)
         kc_funLevelSpace      : funLevelSpace;
         kc_sys                : M_USystem kc_funLevelSpace;
-        kc_no_initial_memory  : forall n i, on_state_of_component kc_mem (kc_sys n) (fun s => ~ kc_knows i s);
+        kc_no_initial_memory  : forall n i, on_state_of_component kc_mem_comp (kc_sys n) (fun s => ~ kc_knows i s);
         kc_msg2data           : msg -> list kc_data;
 
 
@@ -113,13 +120,19 @@ Section KnowledgeCalculus.
         kc_sim_trust_equiv : equivalence _ kc_sim_trust;
         kc_sim_trust_pres  : forall t t' a b, kc_trust_has_id t a -> kc_trust_has_id t b -> kc_sim_trust t t' -> kc_trust_has_id t' a -> kc_trust_has_id t' b;
 
-        kc_getId        : tsf -> kc_id;
+        kc_getId        : tsf (pre2trusted kc_trust_comp) -> kc_id;
 
-        kc_init_id      : kc_id;
-        kc_init_id_cond : forall n, exists m, state_of_trusted_in_ls (kc_sys (node2name n)) = Some m /\ kc_getId m = kc_init_id;
+        (* ******************** *)
+        (* *** EXPERIMENTAL *** *)
+        kc_ExtPrim : Type;
+        kc_ext_prim_interp : forall (eo : EventOrdering) (e : Event), kc_ExtPrim -> Prop;
       }.
 
   Context { pkc : KnowledgeComponents }.
+
+  Definition TCN : CompName := pre2trusted kc_trust_comp.
+  Definition TST : Type := tsf TCN.
+
 
   (* ******************************************************************* *)
   (*  ****** SOME ABSTRACTIONS ****** *)
@@ -253,14 +266,14 @@ Section KnowledgeCalculus.
 
   (* express what it means to know some trusted information *)
   (* input -> trusted -> location *)
-  Definition kc_Tknows (t : kc_trust) (m : sf kc_mem) : Prop :=
+  Definition kc_Tknows (t : kc_trust) (m : sf kc_mem_comp) : Prop :=
     kc_knows (kc_trust2data t) m.
 
-  Definition kc_Tknows_dec (t : kc_trust)  (m : sf kc_mem) : decidable (kc_Tknows t m) :=
+  Definition kc_Tknows_dec (t : kc_trust)  (m : sf kc_mem_comp) : decidable (kc_Tknows t m) :=
     kc_knows_dec (kc_trust2data t) m.
 
   Definition kc_no_initial_Tmemory :
-    forall n t, on_state_of_component kc_mem (kc_sys n) (fun s => ~ kc_Tknows t s)
+    forall n t, on_state_of_component kc_mem_comp (kc_sys n) (fun s => ~ kc_Tknows t s)
     := fun n t => kc_no_initial_memory n (kc_trust2data t).
 
   Ltac simp_eq_step :=
@@ -298,35 +311,35 @@ Section KnowledgeCalculus.
     node_op2name_op (kc_data2owner d).
 
   Definition kc_trust2name (i : kc_trust) : option name :=
-    Some (node2name (kc_trust2owner i)).
+    option_map node2name (kc_trust2owner i).
 
-  Definition state_before {eo : EventOrdering} (e : Event) (mem : sf kc_mem) :=
+  Definition state_before {eo : EventOrdering} (e : Event) (mem : sf kc_mem_comp) :=
     exists n,
       loc e = node2name n
-      /\ M_state_sys_before_event kc_sys e kc_mem = Some mem.
+      /\ M_state_sys_before_event kc_sys e kc_mem_comp = Some mem.
 
-  Definition state_after {eo : EventOrdering} (e : Event) (mem : sf kc_mem) :=
+  Definition state_after {eo : EventOrdering} (e : Event) (mem : sf kc_mem_comp) :=
     exists n,
       loc e = node2name n
-      /\ M_state_sys_on_event kc_sys e kc_mem = Some mem.
+      /\ M_state_sys_on_event kc_sys e kc_mem_comp = Some mem.
 
-  Definition trusted_state_before {eo : EventOrdering} (e : Event) (mem : tsf) :=
+  Definition trusted_state_before {eo : EventOrdering} (e : Event) (mem : TST) :=
     exists n,
       loc e = node2name n
-      /\ M_byz_state_sys_before_event_of_trusted kc_sys e = Some mem.
+      /\ M_byz_state_sys_before_event kc_sys e TCN = Some mem.
 
-  Definition trusted_state_after {eo : EventOrdering} (e : Event) (mem : tsf) :=
+  Definition trusted_state_after {eo : EventOrdering} (e : Event) (mem : TST) :=
     exists n,
       loc e = node2name n
-      /\ M_byz_state_sys_on_event_of_trusted kc_sys e = Some mem.
+      /\ M_byz_state_sys_on_event kc_sys e TCN = Some mem.
 
   Definition id_before {eo : EventOrdering} (e : Event) (c : kc_id) :=
-    exists (mem : tsf),
+    exists (mem : TST),
       trusted_state_before e mem
       /\ kc_getId mem = c.
 
   Definition id_after {eo : EventOrdering} (e : Event) (c : kc_id) :=
-    exists (mem : tsf),
+    exists (mem : TST),
       trusted_state_after e mem
       /\ kc_getId mem = c.
 
@@ -379,7 +392,7 @@ Section KnowledgeCalculus.
     end.
 
   Definition kc_trust_is_owned {eo : EventOrdering} (e : Event) (i : kc_trust) : Prop :=
-    node2name (kc_trust2owner i) = loc e.
+    option_map node2name (kc_trust2owner i) = Some (loc e).
 
   Lemma data_is_owned_local_pred :
     forall {eo : EventOrdering} (e : Event) (d : kc_data),
@@ -418,7 +431,7 @@ Section KnowledgeCalculus.
   Proof.
     introv.
     unfold state_before.
-    remember (M_state_sys_before_event kc_sys e kc_mem) as w; symmetry in Heqw.
+    remember (M_state_sys_before_event kc_sys e kc_mem_comp) as w; symmetry in Heqw.
     remember (name2node (loc e)) as z; symmetry in Heqz.
 
     destruct z, w; try (complete (right; introv h; exrepnd; ginv));[|].
@@ -437,7 +450,7 @@ Section KnowledgeCalculus.
   Proof.
     introv.
     unfold state_after.
-    remember (M_state_sys_on_event kc_sys e kc_mem) as w; symmetry in Heqw.
+    remember (M_state_sys_on_event kc_sys e kc_mem_comp) as w; symmetry in Heqw.
     remember (name2node (loc e)) as z; symmetry in Heqz.
 
     destruct z, w; try (complete (right; introv h; exrepnd; ginv));[|].
@@ -500,7 +513,7 @@ Section KnowledgeCalculus.
     forall {eo : EventOrdering} (e : Event) mem,
       isFirst e
       -> state_before e mem
-      -> state_of_component kc_mem (kc_sys (loc e)) = Some mem.
+      -> state_of_component kc_mem_comp (kc_sys (loc e)) = Some mem.
   Proof.
     introv ni h; unfold state_before in *; exrepnd.
     rewrite M_state_sys_before_event_unfold in h0.
@@ -518,14 +531,11 @@ Section KnowledgeCalculus.
       -> trusted_state_after (local_pred e) mem.
   Proof.
     introv ni h; unfold trusted_state_before, trusted_state_after in *; exrepnd.
-    rewrite M_byz_state_sys_before_event_of_trusted_unfold in h0.
-    apply map_option_Some in h0; exrepnd; rev_Some; simpl in *.
-    rewrite M_byz_run_ls_before_event_unroll_on in h0.
+    apply option_map_Some in h0; exrepnd; subst; simpl in *.
+    rewrite M_byz_run_ls_before_event_as_M_byz_run_ls_on_event_pred in h0; auto.
     autorewrite with eo; eexists; dands; eauto.
-    unfold M_byz_state_sys_on_event_of_trusted; autorewrite with eo.
-    unfold M_byz_state_ls_on_event_of_trusted; autorewrite with eo.
-    destruct (dec_isFirst e); ginv; tcsp;[].
-    allrw; simpl; auto.
+    apply option_map_Some; simpl.
+    autorewrite with eo; allrw; eauto.
   Qed.
   Hint Resolve trusted_state_before_implies_trusted_state_after_not_first : kn.
 
@@ -536,14 +546,12 @@ Section KnowledgeCalculus.
       -> trusted_state_before e mem.
   Proof.
     introv ni h; unfold trusted_state_before, trusted_state_after in *; exrepnd.
-    unfold M_byz_state_sys_on_event_of_trusted in h0; autorewrite with eo in *.
-    unfold M_byz_state_ls_on_event_of_trusted in *.
-    apply map_option_Some in h0; exrepnd; rev_Some.
-    unfold M_byz_state_sys_before_event_of_trusted.
-    unfold M_byz_state_ls_before_event_of_trusted; simpl.
+    apply option_map_Some in h0; exrepnd; subst; simpl in *.
+    revert dependent a.
+    autorewrite with eo in *; eexists; dands; eauto.
+    apply option_map_Some.
     rewrite M_byz_run_ls_before_event_as_M_byz_run_ls_on_event_pred; auto.
-    allrw; simpl.
-    exists n; dands; auto.
+    allrw; simpl; eauto.
   Qed.
   Hint Resolve trusted_state_after_implies_trusted_state_before_not_first : kn.
 
@@ -551,14 +559,13 @@ Section KnowledgeCalculus.
     forall {eo : EventOrdering} (e : Event) mem,
       isFirst e
       -> trusted_state_before e mem
-      -> option_map state_of_trusted (find_trusted_sub (kc_sys (loc e))) = Some mem.
+      -> state_of_component TCN (kc_sys (loc e)) = Some mem.
   Proof.
     introv ni h; unfold trusted_state_before in *; exrepnd.
-    rewrite M_byz_state_sys_before_event_of_trusted_unfold in h0.
-    apply map_option_Some in h0; exrepnd; rev_Some; simpl in *.
+    apply map_option_Some in h0; exrepnd; rev_Some; simpl in *; ginv.
     rewrite M_byz_run_ls_before_event_unroll_on in h0.
     destruct (dec_isFirst e); tcsp; GC; ginv.
-    inversion h0; subst; simpl in *; auto.
+    unfold state_of_component; allrw; simpl; auto.
   Qed.
   Hint Resolve trusted_state_before_implies_trusted_state_after_first : kn.
 
@@ -579,14 +586,35 @@ Section KnowledgeCalculus.
                (fun o => opt2list (kc_out2trust o)) in
     in_no_repeats_id t l.*)
 
+  Lemma data_is_in_out {s} {eo : EventOrdering} {e : Event}
+        (d : kc_data)
+        (o : event2out s e) : Prop.
+  Proof.
+    unfold event2out in o.
+    remember (trigger e) as trig; destruct trig; simpl in *.
+    { exact (In d (flat_map (fun dm => kc_msg2data (dmMsg dm)) o)). }
+    { destruct o. }
+    { exact (In d (opt2list (option_map kc_trust2data (kc_out2trust (it_name i) o)))). }
+  Defined.
+
+  Lemma data_is_in_out_and_dmsgs_are_out_implies :
+    forall {eo : EventOrdering} (e : Event) {s} (o : event2out s e) msgs d,
+      dmsgs_are_out msgs o
+      -> data_is_in_out d o
+      -> In d (flat_map (fun dm => kc_msg2data (dmMsg dm)) msgs).
+  Proof.
+    introv h q.
+    unfold dmsgs_are_out, data_is_in_out, event2out in *; simpl in *.
+    remember (trigger e) as trig; destruct trig; subst; simpl in *; tcsp.
+  Qed.
+
   Definition disseminate_data
              {eo : EventOrdering}
              (e  : Event)
              (d  : kc_data) : Prop :=
-    In d (on_M_trusted_out
-            (M_byz_output_sys_on_event kc_sys e)
-            (fun msgs => flat_map (fun dm => kc_msg2data (dmMsg dm))  msgs)
-            (fun o => opt2list (option_map kc_trust2data (kc_out2trust o)))).
+    exists (o : event2out (fls_space kc_funLevelSpace (loc e)) e),
+      M_byz_output_sys_on_event kc_sys e = Some o
+      /\ data_is_in_out d o.
 
   Definition disseminate_data_own
              {eo : EventOrdering}
@@ -663,7 +691,7 @@ Section KnowledgeCalculus.
 
 
   Lemma state_after_eq_state_after_implies_eq_mem :
-    forall {eo : EventOrdering} (e : Event) (mem mem1 : sf kc_mem),
+    forall {eo : EventOrdering} (e : Event) (mem mem1 : sf kc_mem_comp),
       state_after e mem
       -> state_after e mem1
       -> mem = mem1.
@@ -674,7 +702,7 @@ Section KnowledgeCalculus.
   Hint Resolve state_after_eq_state_after_implies_eq_mem : kn.
 
   Lemma state_before_eq_state_before_implies_eq_mem :
-    forall {eo : EventOrdering} (e : Event) (mem mem1 : sf kc_mem),
+    forall {eo : EventOrdering} (e : Event) (mem mem1 : sf kc_mem_comp),
       state_before e mem
       -> state_before e mem1
       -> mem = mem1.
@@ -685,7 +713,7 @@ Section KnowledgeCalculus.
   Hint Resolve state_before_eq_state_before_implies_eq_mem : kn.
 
   Lemma trusted_state_after_implies_eq_mem :
-    forall {eo : EventOrdering} (e : Event) (mem mem1 : tsf),
+    forall {eo : EventOrdering} (e : Event) (mem mem1 : TST),
       trusted_state_after e mem
       -> trusted_state_after e mem1
       -> mem = mem1.
@@ -696,7 +724,7 @@ Section KnowledgeCalculus.
   Hint Resolve trusted_state_after_implies_eq_mem : kn.
 
   Lemma trusted_state_before_implies_eq_mem :
-    forall {eo : EventOrdering} (e : Event) (mem mem1 : tsf),
+    forall {eo : EventOrdering} (e : Event) (mem mem1 : TST),
       trusted_state_before e mem
       -> trusted_state_before e mem1
       -> mem = mem1.
@@ -841,7 +869,7 @@ Section KnowledgeCalculus.
              (e  : Event)
              (i  : kc_data)
              (t  : kc_trust) :=
-    exists (mem1 mem2 : kc_mem) (c : nat),
+    exists (mem1 mem2 : kc_mem_comp) (c : nat),
       never_Tknew e i t
       /\ state_before e mem1
       /\ state_after e mem2
@@ -874,7 +902,7 @@ Section KnowledgeCalculus.
          (5) data is in our state now
    *)
   Definition generates_data {eo : EventOrdering} (e : Event) (d : kc_data) :=
-    (*      exists( (mem : kc_mem) t d',*)
+    (*      exists( (mem : kc_mem_comp) t d',*)
     never_knew e d                 (*(1)*)
     (*      /\ kc_createTrusted d' mem = t /\ knows_before  e d'    (*(2)*)
       /\ kc_trust_is_owned e t       (*(3)*)
@@ -889,6 +917,76 @@ Section KnowledgeCalculus.
       /\ no_repeats (map kc_data2owner l)
       /\ P l
       /\ forall d, In d l -> knows_after e d.
+
+  Lemma in_M_output_sys_on_event_implies_disseminate :
+    forall {eo : EventOrdering} (e : Event) m dst t d,
+      In (MkDMsg m dst t) (M_output_sys_on_event kc_sys e)
+      -> In d (kc_msg2data m)
+      -> disseminate_data e d.
+  Proof.
+    introv h j.
+    unfold disseminate_data; simpl.
+    apply in_M_output_sys_on_event_implies_in_byz in h; exrepnd.
+    allrw; eexists; dands; eauto.
+    clear h1.
+    unfold dmsg_is_in_out, data_is_in_out, event2out, trigger_info2out in *; simpl in *.
+    remember (trigger e) as trig; destruct trig; simpl in *; tcsp.
+    apply in_flat_map; eexists; dands; eauto.
+  Qed.
+  Hint Resolve in_M_output_sys_on_event_implies_disseminate : kn.
+
+  Definition preserves_knows_step {eo : EventOrdering} (e : Event) (d : kc_data) :=
+    forall ls1 mem1,
+      isCorrect e
+      -> M_run_ls_before_event (kc_sys (loc e)) e = Some ls1
+      -> state_of_component kc_mem_comp ls1 = Some mem1
+      -> kc_knows d mem1
+      -> exists ls2 mem2,
+          M_run_ls_on_this_one_event ls1 e = Some ls2
+          /\ state_of_component kc_mem_comp ls2 = Some mem2
+          /\ kc_knows d mem2.
+
+  Lemma knows_after_preserved_step :
+    forall {eo : EventOrdering} (e1 e2 : Event) d,
+      e1 ⊂ e2
+      -> isCorrect e2
+      -> preserves_knows_step e2 d
+      -> knows_after e1 d
+      -> knows_after e2 d.
+  Proof.
+    introv lte isCor pres ka.
+    unfold knows_after in *; exrepnd.
+    unfold state_after in *; exrepnd.
+    unfold M_state_sys_on_event in *; simpl in *.
+    unfold M_state_ls_on_event in *.
+    apply map_option_Some in ka2; exrepnd; rev_Some; simpl in *.
+    rewrite M_run_ls_on_event_unroll2.
+
+    assert (loc e2 = loc e1) as eqloc by (symmetry; eauto 3 with eo).
+
+    revert dependent a.
+    rewrite <- eqloc.
+    introv run eqst.
+
+    pose proof (pres a mem) as q.
+    repeat (autodimp q hyp).
+    { rewrite M_run_ls_before_event_as_M_run_ls_on_event_pred; eauto 3 with eo.
+      applydup pred_implies_local_pred in lte; subst; auto. }
+    exrepnd.
+
+    exists mem2.
+    dands; auto.
+    exists n; dands; auto; try congruence;[].
+    allrw; simpl in *.
+    rewrite M_run_ls_before_event_as_M_run_ls_on_event_pred; eauto 3 with eo.
+    applydup pred_implies_local_pred in lte; subst; auto.
+    revert dependent a.
+    revert dependent ls2.
+    autorewrite with eo in *; GC.
+    rewrite ka1.
+    introv eqsta eqstb runa runb.
+    repeat (allrw; simpl in *; auto).
+  Qed.
 
   (* ******************************************************************* *)
 
@@ -920,8 +1018,6 @@ Section KnowledgeCalculus.
   Inductive KExpression :=
 
   (* first-order logic *)
-  | KE_TRUE
-  | KE_FALSE
   | KE_AND      (a b : KExpression)
   | KE_OR       (a b : KExpression)
   | KE_IMPLIES  (a b : KExpression)
@@ -929,12 +1025,11 @@ Section KnowledgeCalculus.
   | KE_ALL (T : KType) (f : KVal T -> KExpression)
 
   (* logic of events *)
-  | KE_RIGHT_BEFORE         (f : KExpression)
-  | KE_HAPPENED_BEFORE      (f : KExpression)
-  | KE_FORALL_BEFORE        (f : KExpression)
+  | KE_RIGHT_BEFORE    (f : KExpression)
+  | KE_HAPPENED_BEFORE (f : KExpression)
+  | KE_FORALL_BEFORE   (f : KExpression)
 
   | KE_CORRECT
-  | KE_FIRST
   | KE_AT (n : node_type)
 
   (* data comparison *)
@@ -949,16 +1044,18 @@ Section KnowledgeCalculus.
   | KE_DISS   (d : kc_data) (* dissemination *)
 
   (* trusted knowledge *)
-  | KE_ID_AFTER (c : kc_id)
+  | KE_ID_AFTER     (c : kc_id)
+  | KE_TRUST_HAS_ID (t : kc_trust) (c : kc_id)
+  | KE_HAS_OWNER    (d : kc_data)  (n : node_type)
+  | KE_GEN_FOR      (d : kc_data)  (t : kc_trust)
+  | KE_IN           (t : kc_trust) (d : kc_data)
+  | KE_HAS_INIT_ID  (i : kc_id)
 
-  | KE_TRUST_HAS_ID       (t : kc_trust) (c : kc_id)
-  | KE_HAS_OWNER          (d : kc_data)  (n : node_type)
-  | KE_GEN_FOR            (d : kc_data)  (t : kc_trust)
-  | KE_IN                 (t : kc_trust) (d : kc_data)
-
-
-(*  (* quorum knowledge *)
-  | KE_KNOWS_CERTIFICATE (n : nat) (d : kc_data) (P : list kc_data -> Prop)*).
+  (* ******************** *)
+  (* *** EXPERIMENTAL *** *)
+  (* external knowledge *)
+  | KE_EXT_PRIM (p : kc_ExtPrim)
+  | KE_EXT_KNOW (f : KExpression).
 
   (* ******************************************************************* *)
 
@@ -1018,6 +1115,20 @@ Section KnowledgeCalculus.
     KE_VAL_EQ (KV_TRUST a) (KV_TRUST b).
 
 
+  (* universal quantifiers *)
+  Definition KE_ALL_ID (f : kc_id -> KExpression) : KExpression :=
+    KE_ALL KT_ID (fun i => f (kval2id i)).
+
+  Definition KE_ALL_TRUST (f : kc_trust -> KExpression) : KExpression :=
+    KE_ALL KT_TRUST (fun t => f (kval2trust t)).
+
+  Definition KE_ALL_DATA (f : kc_data -> KExpression) : KExpression :=
+    KE_ALL KT_DATA (fun d => f (kval2data d)).
+
+  Definition KE_ALL_NODE (f : node_type -> KExpression) : KExpression :=
+    KE_ALL KT_NODE (fun n => f (kval2node n)).
+
+
   (* existential quantifiers *)
   Definition KE_EX_ID (f : kc_id -> KExpression) : KExpression :=
     KE_EX KT_ID (fun i => f (kval2id i)).
@@ -1032,18 +1143,18 @@ Section KnowledgeCalculus.
     KE_EX KT_NODE (fun n => f (kval2node n)).
 
 
-  (* universal quantifiers *)
-  Definition KE_ALL_ID (f : kc_id -> KExpression) : KExpression :=
-    KE_ALL KT_ID (fun i => f (kval2id i)).
+  (* True/False *)
+  Definition KE_TRUE  := KE_ALL_ID (fun i => KE_ID_EQ i i).
+  Definition KE_FALSE := KE_EX_ID (fun i => KE_ID_LT i i).
 
-  Definition KE_ALL_TRUST (f : kc_trust -> KExpression) : KExpression :=
-    KE_ALL KT_TRUST (fun t => f (kval2trust t)).
 
-  Definition KE_ALL_DATA (f : kc_data -> KExpression) : KExpression :=
-    KE_ALL KT_DATA (fun d => f (kval2data d)).
+  (* Negation *)
+  Definition KE_NOT (a : KExpression) : KExpression := KE_IMPLIES a KE_FALSE.
 
-  Definition KE_ALL_NODE (f : node_type -> KExpression) : KExpression :=
-    KE_ALL KT_NODE (fun n => f (kval2node n)).
+
+  (* First *)
+  Definition KE_NOT_FIRST : KExpression := KE_RIGHT_BEFORE KE_TRUE.
+  Definition KE_FIRST := KE_NOT KE_NOT_FIRST.
 
 
   (* multi-functions *)
@@ -1241,7 +1352,7 @@ Section KnowledgeCalculus.
   Definition KE_ID_BEFORE (c : kc_id) : KExpression :=
     KE_OR
       (KE_RIGHT_BEFORE (KE_ID_AFTER c))
-      (KE_AND3 KE_FIRST KE_NODE (KE_ID_EQ c kc_init_id)).
+      (KE_AND3 KE_FIRST KE_NODE (KE_HAS_INIT_ID c)).
 
 
   Definition KE_OWNS (d : kc_data) :=
@@ -1289,10 +1400,6 @@ Section KnowledgeCalculus.
 
   Definition KE_ID_LE a b := KE_OR (KE_ID_LT a b) (KE_ID_EQ a b).
 
-  Definition KE_NOT (a : KExpression) : KExpression := KE_IMPLIES a KE_FALSE.
-
-  Definition KE_NOT_FIRST : KExpression := KE_NOT KE_FIRST.
-
   Definition KE_TKNOWS (t : kc_trust) : KExpression :=
     KE_KNOWS (kc_trust2data t).
 
@@ -1318,6 +1425,204 @@ Section KnowledgeCalculus.
 
   (* ******************************************************************* *)
 
+
+
+  (* ******************************************************************* *)
+  (*  ******  ****** *)
+
+  Record kc_same_state
+             (eo  : EventOrdering)
+             (e   : Event)
+             (eo' : EventOrdering)
+             (e'  : Event) :=
+    {
+      kc_same_state_event : trigger e = trigger e';
+      kc_same_state_trig  : map trigger (localPreds e) = map trigger (localPreds e');
+      kc_same_state_loc   : loc e = loc e';
+    }.
+
+  Lemma kc_same_state_refl :
+    forall {eo : EventOrdering} (e : Event),
+      kc_same_state eo e eo e.
+  Proof.
+    introv; tcsp.
+    split; auto.
+  Qed.
+
+  Lemma kc_same_state_sym :
+    forall (eo : EventOrdering) (e : Event)
+           (eo' : EventOrdering) (e' : Event),
+      kc_same_state eo e eo' e'
+      -> kc_same_state eo' e' eo e.
+  Proof.
+    introv h.
+    destruct h as [sse sst ssl].
+    split; auto.
+  Qed.
+
+  Lemma kc_same_state_trans :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event)
+           (eo3 : EventOrdering) (e3 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> kc_same_state eo2 e2 eo3 e3
+      -> kc_same_state eo1 e1 eo3 e3.
+  Proof.
+    introv h q.
+    destruct h as [sse1 sst1 ssl1].
+    destruct q as [sse2 sst2 ssl2].
+    split; try congruence.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_loc :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> loc e1 = loc e2.
+  Proof.
+    introv same.
+    destruct same as [sse sst ssl]; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_trigger :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> trigger e1 = trigger e2.
+  Proof.
+    introv same.
+    destruct same as [sse sst ssl]; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_trigger_op :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> trigger_op e1 = trigger_op e2.
+  Proof.
+    introv same.
+    apply kc_same_state_implies_eq_trigger in same.
+    unfold trigger_op; allrw; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_history :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> map trigger (localPreds e1) = map trigger (localPreds e2).
+  Proof.
+    introv same.
+    destruct same as [sse sst ssl]; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_history_op :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> map trigger_op (localPreds e1) = map trigger_op (localPreds e2).
+  Proof.
+    introv same.
+    apply kc_same_state_implies_eq_history in same.
+    remember (localPreds e1) as L; clear HeqL.
+    remember (localPreds e2) as K; clear HeqK.
+    revert dependent K.
+    induction L; introv h; simpl in *; tcsp.
+    { destruct K; simpl in *; tcsp. }
+    destruct K; simpl in *; ginv.
+    inversion h.
+    rewrite (IHL K); tcsp; f_equal.
+    unfold trigger_op; allrw; auto.
+  Qed.
+
+  Lemma kc_same_state_preserves_loc :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event)
+           (n : node_type),
+      kc_same_state eo1 e1 eo2 e2
+      -> loc e1 = node2name n
+      -> loc e2 = node2name n.
+  Proof.
+    introv same h.
+    apply kc_same_state_implies_eq_loc in same; try congruence.
+  Qed.
+
+  Lemma kc_same_state_preserves_run_ls_on_event :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event)
+           {L S}
+           (ls : LocalSystem L S) m,
+      kc_same_state eo1 e1 eo2 e2
+      -> M_run_ls_on_event ls e1 = Some m
+      -> M_run_ls_on_event ls e2 = Some m.
+  Proof.
+    introv same h.
+    unfold M_run_ls_on_event in *.
+    unfold M_run_ls_before_event in *.
+    applydup kc_same_state_implies_eq_history_op in same.
+    applydup kc_same_state_implies_eq_trigger_op in same.
+    rewrite <- same0, <- same1; auto.
+  Qed.
+
+  Lemma kc_same_state_preserves_state_sys_on_event :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event)
+           m1 m2,
+      kc_same_state eo1 e1 eo2 e2
+      -> M_state_sys_on_event kc_sys e1 m1 = Some m2
+      -> M_state_sys_on_event kc_sys e2 m1 = Some m2.
+  Proof.
+    introv same h.
+
+    unfold M_state_sys_on_event in *; simpl in *.
+    applydup kc_same_state_implies_eq_loc in same as eqloc.
+    rewrite <- eqloc.
+    remember (kc_sys (loc e1)) as ls; clear Heqls.
+
+    unfold M_state_ls_on_event in *.
+    apply map_option_Some in h; exrepnd.
+    apply map_option_Some.
+    exists a; dands; auto.
+
+    eapply kc_same_state_preserves_run_ls_on_event in same; eauto.
+  Qed.
+
+  Lemma same_state_preserves_knows_after :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event)
+           (d : kc_data),
+      kc_same_state eo1 e1 eo2 e2
+      -> knows_after e1 d
+      -> knows_after e2 d.
+  Proof.
+    introv same kn.
+    unfold knows_after in *; exrepnd.
+    exists mem; dands; auto.
+    unfold state_after in *; exrepnd.
+    exists n; dands.
+    { eapply kc_same_state_preserves_loc in same; eauto. }
+    eapply kc_same_state_preserves_state_sys_on_event in same; eauto.
+  Qed.
+
+  Definition has_init_id {eo : EventOrdering} (e : Event) (i : kc_id) : Prop :=
+    exists m,
+      state_of_component (pre2trusted kc_trust_comp) (kc_sys (loc e)) = Some m
+      /\ kc_getId m = i.
+
+  Lemma has_init_id_unique :
+    forall {eo : EventOrdering} (e : Event) (i1 i2 : kc_id),
+      has_init_id e i1
+      -> has_init_id e i2
+      -> i1 = i2.
+  Proof.
+    introv h q.
+    unfold has_init_id in *; exrepnd.
+    rewrite h1 in *; ginv.
+  Qed.
+
+  (* ******************************************************************* *)
+
+
+
   (* ******************************************************************* *)
   (*  ****** SEMANTICS OF CALCULUS ****** *)
 
@@ -1328,99 +1633,58 @@ Section KnowledgeCalculus.
     match exp with
 
     (* first-order logic *)
-
-    | KE_TRUE => True
-    | KE_FALSE => False
-
-    | KE_AND a b =>
-      interpret e a
-      /\ interpret e b
-
-    | KE_OR a b =>
-      interpret e a
-      \/ interpret e b
-
-    | KE_IMPLIES a b =>
-      interpret e a
-      -> interpret e b
+    | KE_AND     a b => interpret e a /\ interpret e b
+    | KE_OR      a b => interpret e a \/ interpret e b
+    | KE_IMPLIES a b => interpret e a -> interpret e b
 
     | KE_EX  T f => exists (c : ktype2type T), interpret e (f (ktype2type2val c))
     | KE_ALL T f => forall (c : ktype2type T), interpret e (f (ktype2type2val c))
 
+    (* logic of events *)
     | KE_RIGHT_BEFORE f =>
       match direct_pred e with
       | Some e' => interpret e' f
       | None => False
       end
 
-(*    | KE_LOCAL_BEFORE f =>
-      exists (e' : EventN),
-      e' ⊏ e
-      /\ interpret e' f*)
-
-    | KE_HAPPENED_BEFORE f =>
-      exists (e' : EventN),
-      e' ≺ e
-      /\ interpret e' f
-
-    | KE_FORALL_BEFORE f =>
-      forall (e' : EventN), e' ≺ e -> interpret e' f
-
-    | KE_AT n => loc e = node2name n
-
-    | KE_SIMILAR_DATA  a b => a ≍ b
-
-    | KE_SIMILAR_TRUST a b => a ≈ b
-    | KE_VAL_EQ        a b => a = b
-    | KE_ID_LT    a b => a ≪ b
-
-    (* non-trusted knowledge *)
-
-    (*| KE_GENS d => generates_data e d*)
-    | KE_LEARNS d => learns_data e d
-    | KE_KNOWS d  => knows_after e d
-    | KE_DISS d   => disseminate_data e d
-
-    | KE_ID_AFTER c => id_after e c
-
-    | KE_TRUST_HAS_ID t c => kc_trust_has_id t c
-    | KE_HAS_OWNER d n => data_is_owned_by n d
-    (*| KE_TRUSTED_OUT_UNIQUE t => trusted_out_unique e t*)
+    | KE_HAPPENED_BEFORE f => exists (e' : EventN), e' ≺ e /\ interpret e' f
+    | KE_FORALL_BEFORE   f => forall (e' : EventN), e' ≺ e -> interpret e' f
 
     | KE_CORRECT => isCorrect e
+    | KE_AT n => loc e = node2name n
 
-(*    | KE_CORRECT_TRACE_BEFORE opname =>
-      match opname with
-      | Some name => has_correct_trace_before e (node2name name)
-      | None => has_correct_trace_before e (loc e)
-      end*)
+    (* data comparison *)
+    | KE_SIMILAR_DATA  a b => a ≍ b
+    | KE_SIMILAR_TRUST a b => a ≈ b
+    | KE_VAL_EQ        a b => a = b
+    | KE_ID_LT         a b => a ≪ b
 
-(*    | KE_LOCAL_CORRECT_TRACE_BEFORE => has_correct_trace_before e (loc e)*)
-
-    | KE_FIRST => isFirst e
-
-
-(*    (* quorum knowledge *)
-    (* :How come [d] is not used? *)
-    | KE_KNOWS_CERTIFICATE n d P => knows_data_certificate e n P*)
-
+    (* non-trusted knowledge *)
+    | KE_LEARNS d => learns_data e d
+    | KE_KNOWS  d => knows_after e d
+    | KE_DISS   d => disseminate_data e d
 
     (* trusted knowledge *)
+    | KE_ID_AFTER     c   => id_after e c
+    | KE_TRUST_HAS_ID t c => kc_trust_has_id t c
+    | KE_HAS_OWNER    d n => data_is_owned_by n d
+    | KE_GEN_FOR      d t => kc_generated_for d t
+    | KE_IN           t d => In t (kc_data2trust d)
+    | KE_HAS_INIT_ID  i   => has_init_id e i
 
-(*    | KE_TGENS t => generates_trusted e t
-
-    | KE_NO_TGENS => no_trusted_generation e
-
-    | KE_EXISTS_TGENS => exists t, generates_trusted e t*)
-
-    | KE_GEN_FOR d t => kc_generated_for d t
-    | KE_IN t d => In t (kc_data2trust d)
+    (* ******************** *)
+    (* *** EXPERIMENTAL *** *)
+    (* external knowledge *)
+    | KE_EXT_PRIM p => kc_ext_prim_interp eo e p
+    | KE_EXT_KNOW f =>
+      forall {eo' : EventOrdering} (e' : Event),
+        kc_same_state eo e eo' e'
+        -> interpret e' f
     end.
 
-
   (* ******************************************************************* *)
 
-  (* ******************************************************************* *)
+
 
   (* ******************************************************************* *)
   (*  ****** RULES + SEMANTICS OF RULES ****** *)
@@ -2124,7 +2388,7 @@ Section KnowledgeCalculus.
 
   Lemma kc_no_initial_memory_implies :
     forall n mem i,
-      state_of_component kc_mem (kc_sys n) = Some mem
+      state_of_component kc_mem_comp (kc_sys n) = Some mem
       -> ~ kc_knows i mem.
   Proof.
     introv eqs.
@@ -2149,6 +2413,63 @@ Section KnowledgeCalculus.
     introv; split; intro h; simpl in *; tcsp.
     { apply h; simpl in *; tcsp. }
     { apply interpret_implies_sequent_true; auto. }
+  Qed.
+
+  Lemma interp_KE_TRUE :
+    forall {eo : EventOrdering} (e : Event),
+      interpret e KE_TRUE <-> True.
+  Proof.
+    introv; simpl; split; intro h; tcsp.
+  Qed.
+  Hint Rewrite @interp_KE_TRUE : kn.
+
+  Opaque KE_TRUE.
+
+  Lemma interp_KE_TRUE_true :
+    forall {eo : EventOrdering} (e : Event),
+      interpret e KE_TRUE.
+  Proof.
+    introv; tcsp; autorewrite with kn; auto.
+  Qed.
+  Hint Resolve interp_KE_TRUE_true : kn.
+
+  Lemma interp_KE_FALSE :
+    forall {eo : EventOrdering} (e : Event),
+      interpret e KE_FALSE <-> False.
+  Proof.
+    introv; simpl; split; intro h; exrepnd; tcsp.
+    apply kc_id_lt_arefl in h0; auto.
+  Qed.
+  Hint Rewrite @interp_KE_FALSE : kn.
+
+  Opaque KE_FALSE.
+
+  Lemma interp_KE_NOT :
+    forall {eo : EventOrdering} (e : Event) a,
+      interpret e (KE_NOT a) <-> ~ (interpret e a).
+  Proof.
+    introv; simpl; split; intro h; tcsp.
+    intro q; autodimp h hyp.
+    allrw interp_KE_FALSE; auto.
+  Qed.
+
+  Lemma interp_KE_NOT_FIRST :
+    forall {eo : EventOrdering} (e : Event),
+      interpret e KE_NOT_FIRST <-> ~ isFirst e.
+  Proof.
+    introv; simpl; split; intro h; tcsp; remember (direct_pred e) as d;
+      symmetry in Heqd; destruct d; tcsp; eauto 2 with kn.
+    apply pred_implies_not_first in Heqd; tcsp.
+  Qed.
+
+  Opaque KE_NOT_FIRST.
+
+  Lemma interp_KE_FIRST :
+    forall {eo : EventOrdering} (e : Event),
+      interpret e KE_FIRST <-> isFirst e.
+  Proof.
+    introv; simpl; allrw interp_KE_NOT_FIRST; allrw interp_KE_FALSE; split; intro h; tcsp.
+    destruct (dec_isFirst e); tcsp.
   Qed.
 
   Lemma interp_KE_LOCAL_BEFORE :
@@ -2251,39 +2572,43 @@ Section KnowledgeCalculus.
     forall {eo : EventOrdering} (e : Event) i,
       interpret e (KE_ID_BEFORE i) <-> id_before e i.
   Proof.
+    Opaque KE_FIRST.
     introv; simpl; unfold id_before, id_after;
       remember (direct_pred e) as w; symmetry in Heqw; destruct w;
-        split; intro h; repndors; exrepnd; ginv; tcsp.
+        split; intro h; repndors; exrepnd; ginv; tcsp; allrw interp_KE_FIRST.
     { pose proof (trusted_state_after_implies_trusted_state_before_not_first e mem) as q.
       unfold local_pred in q; rewrite Heqw in q.
       repeat (autodimp q hyp); eauto 3 with eo. }
     { unfold trusted_state_before; allrw.
-      rewrite M_byz_state_sys_before_event_of_trusted_unfold.
+      unfold M_byz_state_sys_before_event.
+      unfold M_byz_state_ls_before_event.
       rewrite M_byz_run_ls_before_event_unroll_on.
       destruct (dec_isFirst e); tcsp; GC; simpl.
-      pose proof (kc_init_id_cond c) as z; exrepnd; allrw.
+      unfold has_init_id in *; exrepnd.
       exists m; dands; auto.
       exists c; dands; auto. }
     { left.
       apply trusted_state_before_implies_trusted_state_after_not_first in h1; eauto 3 with eo.
       unfold local_pred in h1; rewrite Heqw in h1; eauto. }
     { unfold trusted_state_before; allrw.
-      rewrite M_byz_state_sys_before_event_of_trusted_unfold.
+      unfold M_byz_state_sys_before_event.
+      unfold M_byz_state_ls_before_event.
       rewrite M_byz_run_ls_before_event_unroll_on.
       destruct (dec_isFirst e); tcsp; GC; simpl.
-      pose proof (kc_init_id_cond c) as z; exrepnd; allrw.
+      unfold has_init_id in *; exrepnd.
       exists m; dands; auto.
       exists c; dands; auto. }
     { right.
       unfold trusted_state_before in h1; exrepnd.
-      pose proof (kc_init_id_cond n) as z; exrepnd; allrw.
-      rewrite M_byz_state_sys_before_event_of_trusted_unfold in h2.
+      unfold M_byz_state_sys_before_event in h2.
+      unfold M_byz_state_ls_before_event in h2.
       rewrite M_byz_run_ls_before_event_unroll_on in h2.
       destruct (dec_isFirst e); tcsp; GC; simpl in *.
       rewrite h1 in *; simpl in *.
-      rewrite z1 in *; ginv.
-      rewrite z0.
-      dands; eauto 3 with eo. }
+      dands; eauto 3 with eo.
+      exists mem; simpl.
+      unfold TCN in *; allrw; tcsp. }
+    Transparent KE_FIRST.
   Qed.
 
   Lemma interp_KE_TKNEW :
@@ -2308,7 +2633,7 @@ Section KnowledgeCalculus.
       (forall x, In x l -> interpret e x)
       -> interpret e (KE_ANDS l).
   Proof.
-    induction l; introv h; simpl in *; repndors; subst; tcsp.
+    induction l; introv h; simpl in *; repndors; subst; tcsp; eauto 2 with kn.
   Qed.
   Hint Resolve implies_interpret_KE_ANDS : kn.
 
@@ -2341,12 +2666,14 @@ Section KnowledgeCalculus.
       interpret e (KE_RIGHT_BEFORE_EQ t)
       <-> interpret (local_pred e) t.
   Proof.
+    Opaque KE_FIRST.
     introv; simpl.
     unfold local_pred.
     remember (direct_pred e) as d; destruct d; rev_Some;
-      split; intro h; repndors; repnd; tcsp.
+      split; intro h; repndors; repnd; tcsp; allrw interp_KE_FIRST.
     { eapply pred_implies_not_first in h; eauto; tcsp. }
     { right; dands; auto; symmetry; auto. }
+    Transparent KE_FIRST.
   Qed.
 
   Lemma interp_KE_HAPPENED_BEFORE_EQ :
@@ -2636,8 +2963,9 @@ Section KnowledgeCalculus.
   Proof.
     introv.
     unfold kc_trust_is_owned in *.
-    unfold data_is_owned in *; simpl in *.
+    unfold data_is_owned, option_map in *; simpl in *.
     rewrite kc_same_trust2owner; tcsp.
+    remember (kc_trust2owner t) as o; destruct o; split; intro h; try congruence; tcsp.
   Qed.
 
   Lemma data_is_owned_implies_kc_trust_is_owned :
@@ -2686,7 +3014,7 @@ Section KnowledgeCalculus.
     Opaque KE_ID_BEFORE.
     introv; simpl; unfold generates_trusted; split; introv h; exrepnd;
       try (exists c c0); try (exists c1 c2);
-        dands; allrw interp_towns; allrw interp_KE_ID_BEFORE; auto.
+        dands; allrw interp_towns; allrw interp_KE_ID_BEFORE; autorewrite with kn; auto.
     Transparent KE_ID_BEFORE.
   Qed.
 
@@ -2696,7 +3024,7 @@ Section KnowledgeCalculus.
   Proof.
     Opaque KE_ID_BEFORE.
     introv; simpl; unfold no_trusted_generation; split; introv h; exrepnd;
-      exists c; allrw interp_KE_ID_BEFORE; dands; auto.
+      exists c; allrw interp_KE_ID_BEFORE; autorewrite with kn; auto.
     Transparent KE_ID_BEFORE.
   Qed.
 
@@ -2712,7 +3040,7 @@ Section KnowledgeCalculus.
       pose proof (h t1 t2 i i) as h.
       allrw interp_owns.
       unfold disseminate_trusted_own, disseminate_data_own in *; repnd.
-      repeat (autodimp h hyp); dands; tcsp; eauto 3 with comp; ginv; auto. }
+      repeat (autodimp h hyp); dands; tcsp; eauto 3 with comp kn; ginv; auto. }
     { introv q; repnd; subst; simpl in *; ginv.
       allrw interp_owns; repnd; subst; tcsp.
       rewrite (h c c0); auto; unfold disseminate_trusted_own,disseminate_data_own; dands; auto.
@@ -2759,16 +3087,17 @@ Section KnowledgeCalculus.
     { introv dis1 dis2 id.
       pose proof (h t c1 c2) as h.
       allrw interp_KE_ID_BEFORE.
+      allrw interp_KE_FALSE.
       allrw interp_owns.
       unfold disseminate_trusted_own, disseminate_data_own in *; repnd.
-      repeat (autodimp h hyp); dands; tcsp; eauto 3 with comp.
+      repeat (autodimp h hyp); dands; tcsp; eauto 3 with comp kn.
       exrepnd; autorewrite with kn in *; eexists; dands; eauto. }
     { introv q; repnd; subst; simpl in *.
       allrw interp_KE_ID_BEFORE.
       allrw interp_owns; repnd; subst; tcsp.
       pose proof (h c c0 c1) as h.
       unfold disseminate_trusted_own, disseminate_data_own in *.
-      repeat (autodimp h hyp); exrepnd; eexists; autorewrite with kn in *; dands; eauto. }
+      repeat (autodimp h hyp); exrepnd; eexists; autorewrite with kn in *; allrw interp_KE_FALSE; dands; eauto. }
     Transparent KE_ID_BEFORE.
   Qed.
 
@@ -3546,19 +3875,6 @@ Section KnowledgeCalculus.
   Qed.
 
 
-  (***********************************************************)
-  Definition PRIMITIVE_RULE_true {eo : EventOrdering} e R H :=
-    MkRule0
-      []
-      (⟬R⟭ H ⊢ KE_TRUE @ e).
-
-  Lemma PRIMITIVE_RULE_true_true :
-    forall {eo : EventOrdering} e R H, rule_true (PRIMITIVE_RULE_true e R H).
-  Proof.
-    start_proving_primitive st ct ht; tcsp.
-  Qed.
-
-
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_node_intro c {eo : EventOrdering} e R H f :=
     MkRule0
@@ -3620,23 +3936,6 @@ Section KnowledgeCalculus.
     introv i; apply hyp_in_adds in i; repndors; tcsp.
     { apply ht; apply hyp_in_adds; left; apply hyp_in_add; tcsp. }
     { apply ht; apply hyp_in_adds; tcsp. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition PRIMITIVE_RULE_false_elim x {eo : EventOrdering} e e' R H J a :=
-    MkRule0
-      []
-      (⟬R⟭ H • (x › KE_FALSE @ e') » J ⊢ a @ e).
-
-  Lemma PRIMITIVE_RULE_false_elim_true :
-    forall x {eo : EventOrdering} e e' R H J a,
-      rule_true (PRIMITIVE_RULE_false_elim x e e' R H J a).
-  Proof.
-    start_proving_primitive st ct ht; tcsp.
-    unfold seq_event in *; simpl in *.
-    pose proof (ht (x › KE_FALSE @ e')) as ht; simpl in *.
-    allrw hyp_in_adds; allrw hyp_in_add; autodimp ht hyp; tcsp.
   Qed.
 
 
@@ -3888,22 +4187,6 @@ Section KnowledgeCalculus.
 
 
   (***********************************************************)
-  Definition PRIMITIVE_RULE_first_dec {eo : EventOrdering} e R H :=
-    MkRule0
-      []
-      (⟬R⟭ H ⊢ KE_OR KE_FIRST KE_NOT_FIRST @ e).
-
-  Lemma PRIMITIVE_RULE_first_dec_true :
-    forall {eo : EventOrdering} e R H,
-      rule_true (PRIMITIVE_RULE_first_dec e R H).
-  Proof.
-    start_proving_primitive st ct ht.
-    unfold seq_event in *; simpl in *.
-    destruct (dec_isFirst e); tcsp.
-  Qed.
-
-
-  (***********************************************************)
   Definition PRIMITIVE_RULE_node_eq_dec {eo : EventOrdering} e a b R H :=
     MkRule0
       []
@@ -3917,24 +4200,6 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     destruct (node_deq a b); subst; tcsp.
     right; intro xx; ginv.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition PRIMITIVE_RULE_not_first u {eo : EventOrdering} e1 e2 Q R H :=
-    MkRule0
-      []
-      (⟬ Q ++ (u ⋈ e1 □ e2) :: R ⟭ H ⊢ KE_NOT_FIRST @ e2).
-
-  Lemma PRIMITIVE_RULE_not_first_true :
-    forall u {eo : EventOrdering} e1 e2 Q R H,
-      rule_true (PRIMITIVE_RULE_not_first u e1 e2 Q R H).
-  Proof.
-    start_proving_primitive st ct ht.
-    unfold seq_event in *; simpl in *.
-    introv isF.
-    pose proof (ct (u ⋈ e1 □ e2)) as w; rewrite in_app_iff in w; simpl in *; autodimp w hyp.
-    apply no_local_predecessor_if_first in w; tcsp.
   Qed.
 
 
@@ -3955,45 +4220,6 @@ Section KnowledgeCalculus.
     allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
     pose proof (ct (x ⋈ e' ⋄ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition PRIMITIVE_RULE_introduce_direct_pred u {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_NOT_FIRST @ e,
-       ⟬(u ⋈ local_pred_n e ⋄ e) :: R⟭ H ⊢ a]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma PRIMITIVE_RULE_introduce_direct_pred_true :
-    forall u {eo : EventOrdering} e R H a,
-      rule_true (PRIMITIVE_RULE_introduce_direct_pred u e R H a).
-  Proof.
-    start_proving_primitive st ct ht.
-    applydup st0 in ht; simpl in *; tcsp; clear st0.
-    unfold seq_event in *; simpl in *.
-    apply st1; simpl in *; tcsp.
-    introv i; repndors; subst; simpl; tcsp; eauto 3 with eo.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition PRIMITIVE_RULE_introduce_direct_pred_eq u {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_FIRST @ e,
-       ⟬(u ⋈ local_pred_n e ≡ e) :: R⟭ H ⊢ a]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma PRIMITIVE_RULE_introduce_direct_pred_eq_true :
-    forall u {eo : EventOrdering} e R H a,
-      rule_true (PRIMITIVE_RULE_introduce_direct_pred_eq u e R H a).
-  Proof.
-    start_proving_primitive st ct ht.
-    applydup st0 in ht; simpl in *; tcsp; clear st0.
-    unfold seq_event in *; simpl in *.
-    apply st1; simpl in *; tcsp.
-    introv i; repndors; subst; simpl; tcsp; eauto 3 with eo.
-    unfold local_pred; rewrite ht0; auto.
   Qed.
 
 
@@ -4831,58 +5057,6 @@ Section KnowledgeCalculus.
 
 
   (***********************************************************)
-  Definition PRIMITIVE_RULE_pred_induction x {eo : EventOrdering} e R H a :=
-    MkRule1
-      (fun e' => [⟬(x ⋈ e' ■ e) :: R⟭ H ⊢ KE_IMPLIES KE_FIRST a @ e',
-                  ⟬(x ⋈ e' ■ e) :: R⟭ H ⊢ KE_IMPLIES (KE_RIGHT_BEFORE a) a @ e'])
-      (⟬R⟭ H ⊢ a @ e).
-
-  Lemma PRIMITIVE_RULE_pred_induction_true :
-    forall x {eo : EventOrdering} e R H a,
-      rule_true (PRIMITIVE_RULE_pred_induction x e R H a).
-  Proof.
-    introv hyps; introv; simpl in *; simpl_sem_rule.
-
-    unfold seq_event in *; simpl in *.
-    destruct e as [e exn]; simpl in *.
-    induction e as [e ind] using predHappenedBeforeInd_type.
-
-    introv ct ht; simpl in *.
-    destruct (dec_isFirst e) as [d|d].
-
-    { clear ind.
-      inst_hyp (MkEventN e exn) hyp.
-      apply hyp; tcsp.
-      introv xx; simpl in *; repndors; subst; simpl in *; tcsp; eauto 3 with eo. }
-
-    { pose proof (ind (local_pred e)) as ind.
-      repeat (autodimp ind hyp); eauto 3 with eo kn;[].
-      dup hyps as HS; inst_hyp (MkEventN e exn) hyp.
-      applydup hyp0 in ht as w; clear hyp0 hyp; simpl in *;
-        try (complete (introv xx; simpl in *; repndors; subst; simpl in *; tcsp; eauto 3 with eo));[].
-      apply w; clear w.
-      pose proof (implies_ex_node_e_local_pred exn) as q.
-      unfold isFirst, local_pred in *.
-      remember (direct_pred e) as w; symmetry in Heqw; destruct w; tcsp.
-      apply (ind q); clear ind; auto; simseqs j.
-
-      { introv ct' ht' isF; simpl in *.
-        unfold seq_event in *; simpl in *.
-        inst_hyp e1 st.
-        apply st0; simpl in *; tcsp.
-        introv xx; repndors; subst; simpl in *; tcsp.
-        dLin_hyp ct'; simpl in *; eauto 4 with eo. }
-
-      { introv ct' ht' isF; simpl in *.
-        unfold seq_event in *; simpl in *.
-        inst_hyp e1 st.
-        apply st1; simpl in *; tcsp.
-        introv xx; repndors; subst; simpl in *; tcsp.
-        dLin_hyp ct'; simpl in *; eauto 4 with eo. } }
-  Qed.
-
-
-  (***********************************************************)
   Definition PRIMITIVE_RULE_has_owner_dec {eo : EventOrdering} e d n R H :=
     MkRule0
       []
@@ -4893,7 +5067,7 @@ Section KnowledgeCalculus.
       rule_true (PRIMITIVE_RULE_has_owner_dec e d n R H).
   Proof.
     start_proving_primitive st ct ht.
-    unfold data_is_owned_by.
+    unfold data_is_owned_by, seq_event; simpl; allrw interp_KE_FALSE.
     remember (kc_data2owner d) as o; symmetry in Heqo; destruct o; tcsp.
     destruct (node_deq n0 n); subst; tcsp.
   Qed.
@@ -4943,6 +5117,7 @@ Section KnowledgeCalculus.
       rule_true (PRIMITIVE_RULE_decidable_knows e R H a).
   Proof.
     start_proving_primitive st ct ht.
+    unfold seq_event in *; simpl in *; allrw interp_KE_FALSE.
     apply knows_after_dec.
   Qed.
 
@@ -4992,14 +5167,14 @@ Section KnowledgeCalculus.
 
 
   (****************************************************************)
-  Definition PRIMITIVE_RULE_knows_implies_correct {eo : EventOrdering} e R H (i : kc_data) :=
+  Definition PRIMITIVE_RULE_knows_implies_correct (i : kc_data) {eo : EventOrdering} e R H :=
     MkRule0
       [⟬R⟭ H ⊢ KE_KNOWS i @ e]
       (⟬R⟭ H ⊢ KE_LOCAL_CORRECT_TRACE_BEFORE @ e).
 
   Lemma PRIMITIVE_RULE_knows_implies_correct_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (PRIMITIVE_RULE_knows_implies_correct e R H i).
+    forall (i : kc_data) {eo : EventOrdering} e R H,
+      rule_true (PRIMITIVE_RULE_knows_implies_correct i e R H).
   Proof.
     Opaque KE_CORRECT_TRACE_BEFORE.
     start_proving_primitive st ct ht.
@@ -5648,7 +5823,189 @@ Section KnowledgeCalculus.
   Qed.*)
 
 
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_id_eq_refl {eo : EventOrdering} e R H i :=
+    MkRule0
+      []
+      (⟬ R ⟭ H ⊢ KE_ID_EQ i i @ e).
+
+  Lemma PRIMITIVE_RULE_id_eq_refl_true :
+    forall {eo : EventOrdering} e R H i,
+      rule_true (PRIMITIVE_RULE_id_eq_refl e R H i).
+  Proof.
+    start_proving_primitive st ct ht; auto.
+  Qed.
+
+
+  (***********************************************************)
+  Definition PRIMITIVE_RULE_pred_induction x {eo : EventOrdering} e R H a :=
+    MkRule1
+      (fun e' => [⟬(x ⋈ e' ■ e) :: R⟭ H ⊢ KE_IMPLIES KE_FIRST a @ e',
+                  ⟬(x ⋈ e' ■ e) :: R⟭ H ⊢ KE_IMPLIES (KE_RIGHT_BEFORE a) a @ e'])
+      (⟬R⟭ H ⊢ a @ e).
+
+  Lemma PRIMITIVE_RULE_pred_induction_true :
+    forall x {eo : EventOrdering} e R H a,
+      rule_true (PRIMITIVE_RULE_pred_induction x e R H a).
+  Proof.
+    introv hyps; introv; simpl in *; simpl_sem_rule.
+
+    unfold seq_event in *; simpl in *.
+    destruct e as [e exn]; simpl in *.
+    induction e as [e ind] using predHappenedBeforeInd_type.
+
+    introv ct ht; simpl in *.
+    destruct (dec_isFirst e) as [d|d].
+
+    { clear ind.
+      inst_hyp (MkEventN e exn) hyp.
+      apply hyp; tcsp; allrw interp_KE_FIRST; tcsp.
+      introv xx; simpl in *; repndors; subst; simpl in *; tcsp; eauto 3 with eo. }
+
+    { pose proof (ind (local_pred e)) as ind.
+      repeat (autodimp ind hyp); eauto 3 with eo kn;[].
+      dup hyps as HS; inst_hyp (MkEventN e exn) hyp.
+      applydup hyp0 in ht as w; clear hyp0 hyp; simpl in *;
+        try (complete (introv xx; simpl in *; repndors; subst; simpl in *; tcsp; eauto 3 with eo));[].
+      apply w; clear w.
+      pose proof (implies_ex_node_e_local_pred exn) as q.
+      unfold isFirst, local_pred in *.
+      remember (direct_pred e) as w; symmetry in Heqw; destruct w; tcsp.
+      apply (ind q); clear ind; auto; simseqs j.
+
+      { introv ct' ht' isF; simpl in *.
+        unfold seq_event in *; simpl in *.
+        inst_hyp e1 st.
+        apply st0; simpl in *; tcsp.
+        introv xx; repndors; subst; simpl in *; tcsp.
+        dLin_hyp ct'; simpl in *; eauto 4 with eo. }
+
+      { introv ct' ht' isF; simpl in *.
+        unfold seq_event in *; simpl in *.
+        inst_hyp e1 st.
+        apply st1; simpl in *; tcsp.
+        introv xx; repndors; subst; simpl in *; tcsp.
+        dLin_hyp ct'; simpl in *; eauto 4 with eo. } }
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_introduce_direct_pred u {eo : EventOrdering} e R H a :=
+    MkRule0
+      [⟬R⟭ H ⊢ KE_NOT_FIRST @ e,
+       ⟬(u ⋈ local_pred_n e ⋄ e) :: R⟭ H ⊢ a]
+      (⟬R⟭ H ⊢ a).
+
+  Lemma PRIMITIVE_RULE_introduce_direct_pred_true :
+    forall u {eo : EventOrdering} e R H a,
+      rule_true (PRIMITIVE_RULE_introduce_direct_pred u e R H a).
+  Proof.
+    start_proving_primitive st ct ht.
+    applydup st0 in ht; simpl in *; tcsp; clear st0.
+    unfold seq_event in *; simpl in *; allrw interp_KE_FALSE.
+    allrw interp_KE_NOT_FIRST.
+    apply st1; simpl in *; tcsp.
+    introv i; repndors; subst; simpl; tcsp; eauto 3 with eo.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_introduce_direct_pred_eq u {eo : EventOrdering} e R H a :=
+    MkRule0
+      [⟬R⟭ H ⊢ KE_FIRST @ e,
+       ⟬(u ⋈ local_pred_n e ≡ e) :: R⟭ H ⊢ a]
+      (⟬R⟭ H ⊢ a).
+
+  Lemma PRIMITIVE_RULE_introduce_direct_pred_eq_true :
+    forall u {eo : EventOrdering} e R H a,
+      rule_true (PRIMITIVE_RULE_introduce_direct_pred_eq u e R H a).
+  Proof.
+    Opaque KE_FIRST.
+    start_proving_primitive st ct ht.
+    applydup st0 in ht; simpl in *; tcsp; clear st0.
+    unfold seq_event in *; simpl in *; allrw interp_KE_FIRST.
+    apply st1; simpl in *; tcsp.
+    introv i; repndors; subst; simpl; tcsp; eauto 3 with eo.
+    unfold local_pred; rewrite ht0; auto.
+    Transparent KE_FIRST.
+  Qed.
+
+
+  (* derived? *)
+  (***********************************************************)
+  Definition PRIMITIVE_RULE_first_dec {eo : EventOrdering} e R H :=
+    MkRule0
+      []
+      (⟬R⟭ H ⊢ KE_OR KE_FIRST KE_NOT_FIRST @ e).
+
+  Lemma PRIMITIVE_RULE_first_dec_true :
+    forall {eo : EventOrdering} e R H,
+      rule_true (PRIMITIVE_RULE_first_dec e R H).
+  Proof.
+    Opaque KE_FIRST.
+    start_proving_primitive st ct ht.
+    unfold seq_event in *; simpl in *; allrw interp_KE_NOT_FIRST; allrw interp_KE_FIRST.
+    destruct (dec_isFirst e); tcsp.
+    Transparent KE_FIRST.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_has_init_id_unique {eo : EventOrdering} e i1 i2 R H :=
+    MkRule0
+      [⟬R⟭ H ⊢ KE_HAS_INIT_ID i1 @ e,
+       ⟬R⟭ H ⊢ KE_HAS_INIT_ID i2 @ e]
+      (⟬R⟭ H ⊢ KE_ID_EQ i1 i2 @ e).
+
+  Lemma PRIMITIVE_RULE_has_init_id_unique_true :
+    forall {eo : EventOrdering} e i1 i2 R H,
+      rule_true (PRIMITIVE_RULE_has_init_id_unique e i1 i2 R H).
+  Proof.
+    start_proving_primitive st ct ht.
+    applydup st0 in ht; simpl in *; tcsp; clear st0.
+    applydup st1 in ht; simpl in *; tcsp; clear st1.
+    unfold seq_event in *; simpl in *.
+    eapply has_init_id_unique in ht0; try exact ht1; subst; auto.
+    Transparent KE_FIRST.
+  Qed.
+
+
   (*  ****** SIMPLE DERIVED RULES ****** *)
+
+
+  (***********************************************************)
+  Definition DERIVED_RULE_false_elim x {eo : EventOrdering} e e' R H J a :=
+    MkRule0
+      []
+      (⟬R⟭ H • (x › KE_FALSE @ e') » J ⊢ a @ e).
+
+  Lemma DERIVED_RULE_false_elim_true :
+    forall x {eo : EventOrdering} e e' R H J a,
+      rule_true (DERIVED_RULE_false_elim x e e' R H J a).
+  Proof.
+    Transparent KE_FALSE.
+    start_proving_derived st.
+    apply PRIMITIVE_RULE_exists_id_elim_true; simseqs j.
+    apply PRIMITIVE_RULE_id_lt_elim_true; simseqs j.
+    Opaque KE_FALSE.
+  Qed.
+
+
+  (***********************************************************)
+  Definition DERIVED_RULE_true {eo : EventOrdering} e R H :=
+    MkRule0
+      []
+      (⟬R⟭ H ⊢ KE_TRUE @ e).
+
+  Lemma DERIVED_RULE_true_true :
+    forall {eo : EventOrdering} e R H, rule_true (DERIVED_RULE_true e R H).
+  Proof.
+    Transparent KE_TRUE.
+    start_proving_derived st.
+    apply PRIMITIVE_RULE_all_id_intro_true; simseqs j.
+    apply PRIMITIVE_RULE_id_eq_refl_true; simseqs j.
+    Opaque KE_TRUE.
+  Qed.
 
 
   (***********************************************************)
@@ -5665,6 +6022,27 @@ Section KnowledgeCalculus.
     destruct (implies_ex_node e) as [n cond].
     apply (PRIMITIVE_RULE_exists_node_intro_true n); simseqs j.
     apply PRIMITIVE_RULE_at_true; simseqs j.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition DERIVED_RULE_not_first u {eo : EventOrdering} e1 e2 Q R H :=
+    MkRule0
+      []
+      (⟬ Q ++ (u ⋈ e1 □ e2) :: R ⟭ H ⊢ KE_NOT_FIRST @ e2).
+
+  Lemma DERIVED_RULE_not_first_true :
+    forall u {eo : EventOrdering} e1 e2 Q R H,
+      rule_true (DERIVED_RULE_not_first u e1 e2 Q R H).
+  Proof.
+    Transparent KE_NOT_FIRST.
+    start_proving_derived st.
+    apply (PRIMITIVE_RULE_split_local_before_true u "u"); simseqs j.
+    { apply PRIMITIVE_RULE_unright_before_if_causal_true; simseqs j.
+      apply DERIVED_RULE_true_true; simseqs j. }
+    causal_norm_with "u"; apply PRIMITIVE_RULE_unright_before_if_causal_true; simseqs j.
+    apply DERIVED_RULE_true_true; simseqs j.
+    Opaque KE_NOT_FIRST.
   Qed.
 
 
@@ -5830,7 +6208,7 @@ Section KnowledgeCalculus.
       LOCKapply PRIMITIVE_RULE_at_true
 
     | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_TRUE @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_true_true
+      LOCKapply DERIVED_RULE_true_true
 
     | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_OR KE_FIRST KE_NOT_FIRST @ ?e)] =>
       LOCKapply PRIMITIVE_RULE_first_dec_true
@@ -5841,7 +6219,7 @@ Section KnowledgeCalculus.
         norm_with v; LOCKapply PRIMITIVE_RULE_hypothesis_true
 
       | context[?v › KE_FALSE @ ?e] =>
-        norm_with v; LOCKapply PRIMITIVE_RULE_false_elim_true
+        norm_with v; LOCKapply DERIVED_RULE_false_elim_true
 
       | context[?v › KE_ID_LT ?i ?i @ ?e] =>
         norm_with v; LOCKapply PRIMITIVE_RULE_id_lt_elim_true
@@ -6235,7 +6613,7 @@ Section KnowledgeCalculus.
     LOCKcut "x" (KE_RIGHT_BEFORE a @ e).
     LOCKapply@ "x" (PRIMITIVE_RULE_unright_before_hyp_if_causal_true "u").
     LOCKapply@ "u" PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_not_first_true.
+    LOCKapply@ "u" DERIVED_RULE_not_first_true.
   Qed.
 
 
@@ -7007,6 +7385,22 @@ Section KnowledgeCalculus.
 
 
   (***********************************************************)
+  Definition DERIVED_RULE_not_first_implies_not_first {eo : EventOrdering} e R H :=
+    MkRule0
+      [⟬R⟭ H ⊢ KE_NOT_FIRST @ e]
+      (⟬R⟭ H ⊢ KE_NOT KE_FIRST @ e).
+
+  Lemma DERIVED_RULE_not_first_implies_not_first_true :
+    forall {eo : EventOrdering} e R H,
+      rule_true (DERIVED_RULE_not_first_implies_not_first e R H).
+  Proof.
+    start_proving_derived st.
+    LOCKintro "x".
+    LOCKelim "x"; try LOCKauto.
+  Qed.
+
+
+  (***********************************************************)
   Definition DERIVED_RULE_first_implies_not_knew {eo : EventOrdering} e R H c :=
     MkRule0
       [⟬R⟭ H ⊢ KE_FIRST @ e]
@@ -7017,13 +7411,10 @@ Section KnowledgeCalculus.
       rule_true (DERIVED_RULE_first_implies_not_knew e R H c).
   Proof.
     start_proving_derived st.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_NOT_FIRST @ e)); simseqs j.
-    { apply (DERIVED_RULE_knew_implies_not_first_true c); simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-    norm_with "y"; apply (PRIMITIVE_RULE_implies_elim_true "y"); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    norm_with "y"; apply (PRIMITIVE_RULE_false_elim_true "y"); simseqs j.
+    LOCKcut "y" (KE_FIRST @ e).
+    LOCKintro "x".
+    LOCKelim "y"; try LOCKauto.
+    LOCKapply (DERIVED_RULE_knew_implies_not_first_true c); try LOCKauto.
   Qed.
 
 
@@ -7273,10 +7664,9 @@ Section KnowledgeCalculus.
       norm_with "h"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
     apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
     apply (PRIMITIVE_RULE_implies_intro_true "q"); simseqs j.
-    norm_with "h"; apply PRIMITIVE_RULE_implies_elim_true; simseqs j.
-    { norm_with "q"; apply PRIMITIVE_RULE_unright_before_hyp_true; simseqs j.
-      norm_with "q"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    norm_with "h"; apply PRIMITIVE_RULE_false_elim_true ; simseqs j.
+    LOCKelim "h"; try LOCKauto.
+    norm_with "q"; apply PRIMITIVE_RULE_unright_before_hyp_true; simseqs j.
+    norm_with "q"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
   Qed.
 
 
@@ -7586,14 +7976,14 @@ Section KnowledgeCalculus.
 
 
   (***********************************************************)
-  Definition DERIVED_RULE_trusted_knows_implies_correct {eo : EventOrdering} e R H (t : kc_trust) :=
+  Definition DERIVED_RULE_trusted_knows_implies_correct (t : kc_trust) {eo : EventOrdering} e R H :=
     MkRule0
       [⟬R⟭ H ⊢ KE_TKNOWS t @ e]
       (⟬R⟭ H ⊢ KE_LOCAL_CORRECT_TRACE_BEFORE @ e).
 
   Lemma DERIVED_RULE_trusted_knows_implies_correct_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_knows_implies_correct e R H t).
+    forall (t : kc_trust) {eo : EventOrdering} e R H,
+      rule_true (DERIVED_RULE_trusted_knows_implies_correct t e R H).
   Proof.
     introv; apply PRIMITIVE_RULE_knows_implies_correct_true.
   Qed.
@@ -7903,9 +8293,7 @@ Section KnowledgeCalculus.
     { norm_with "ass"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
     apply (PRIMITIVE_RULE_cut_true "not" (KE_NOT (KE_OWNS i) @ e)); simseqs j.
     { norm_with "ass"; apply PRIMITIVE_RULE_thin_true; simseqs j. }
-    norm_with "not"; apply PRIMITIVE_RULE_implies_elim_true; simseqs j.
-    { norm_with "ass"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    norm_with "not"; apply PRIMITIVE_RULE_false_elim_true; simseqs j.
+    LOCKelim "not"; try LOCKauto.
   Qed.
 
 
@@ -8072,7 +8460,7 @@ Section KnowledgeCalculus.
   Proof.
     start_proving_derived st.
     LOCKcut x (KE_NOT_FIRST @ e2).
-    LOCKapply PRIMITIVE_RULE_not_first_true.
+    LOCKapply DERIVED_RULE_not_first_true.
   Qed.
 
 
@@ -8113,19 +8501,16 @@ Section KnowledgeCalculus.
       LOCKapply (PRIMITIVE_RULE_id_eq_change_event_true e (local_pred_n e)).
       LOCKapply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; try LOCKauto. }
     { LOCKelim "q" "x".
-      LOCKcut "n" (KE_NOT_FIRST @ e).
-      { LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c1)); try LOCKauto. }
-      LOCKelim "n"; try LOCKauto. }
+      LOCKelim "x"; try LOCKauto.
+      LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c1)); try LOCKauto. }
     { LOCKelim "h" "x".
-      LOCKcut "n" (KE_NOT_FIRST @ e).
-      { LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c2)); try LOCKauto. }
-      LOCKelim "n"; try LOCKauto. }
+      LOCKelim "x"; try LOCKauto.
+      LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c2)); try LOCKauto. }
     { LOCKelim "h" "x".
       LOCKelim "h" "y".
       LOCKelim "q" "a".
       LOCKelim "q" "b".
-      LOCKapply (PRIMITIVE_RULE_id_eq_trans_true kc_init_id); try LOCKauto.
-      LOCKapply PRIMITIVE_RULE_id_eq_sym_true; try LOCKauto. }
+      LOCKapply PRIMITIVE_RULE_has_init_id_unique_true; try LOCKauto. }
   Qed.
 
 
@@ -8182,10 +8567,9 @@ Section KnowledgeCalculus.
     { LOCKapply@ u "h" DERIVED_RULE_right_before_elim_true; LOCKauto. }
     LOCKelim "h" "x".
     LOCKelim "h" "y".
-    LOCKcut "n" (KE_NOT_FIRST @ e2).
-    { LOCKapply PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-      LOCKapply PRIMITIVE_RULE_not_first_true. }
-    LOCKelim "n"; try LOCKauto.
+    LOCKelim "x"; try LOCKauto.
+    LOCKapply PRIMITIVE_RULE_direct_pred_if_local_pred_true.
+    LOCKapply DERIVED_RULE_not_first_true.
   Qed.
 
 
@@ -8204,9 +8588,8 @@ Section KnowledgeCalculus.
     LOCKcut "w" (KE_FIRST @ e2).
     LOCKapply@ u PRIMITIVE_RULE_split_local_before_eq2_true.
     { LOCKclear "w". }
-    LOCKcut "z" (KE_NOT_FIRST @ e2).
-    { LOCKapply@ u PRIMITIVE_RULE_not_first_true. }
-    LOCKelim "z"; try LOCKauto.
+    LOCKelim "w"; try LOCKauto.
+    LOCKapply@ u DERIVED_RULE_not_first_true.
   Qed.
 
 
@@ -8408,15 +8791,7 @@ Section KnowledgeCalculus.
       LOCKelim "new" c0.
 
       norm_with "new"; apply (PRIMITIVE_RULE_implies_elim_true "new"); simseqs j.
-      { apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "dis"; apply (PRIMITIVE_RULE_hypothesis_true "dis"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "hid"; apply (PRIMITIVE_RULE_hypothesis_true "hid"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "mon1"; apply (PRIMITIVE_RULE_hypothesis_true "mon1"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "mon2"; apply (PRIMITIVE_RULE_hypothesis_true "mon2"); simseqs j. }
-        apply PRIMITIVE_RULE_true_true; simseqs j. }
+      { repeat (LOCKintro; try LOCKauto). }
 
       norm_with "new"; apply (PRIMITIVE_RULE_and_elim_true "new" "new1"); simseqs j.
 
@@ -8427,42 +8802,23 @@ Section KnowledgeCalculus.
       LOCKelim "mon".
       LOCKelim "mon".
       Opaque KE_TGENS.
-      norm_with "mon"; apply (PRIMITIVE_RULE_and_elim_true "mon" "mon1"); simseqs j.
-      norm_with "mon"; apply (PRIMITIVE_RULE_and_elim_true "mon" "mon2"); simseqs j.
-      norm_with "mon"; apply (PRIMITIVE_RULE_and_elim_true "mon" "mon3"); simseqs j.
+      LOCKelim "mon" "mon1".
+      LOCKelim "mon" "mon2".
+      LOCKelim "mon" "mon3".
 
-      norm_with "new"; apply (PRIMITIVE_RULE_all_trust_elim_true "new" t); simseqs j.
-      norm_with "new"; apply (PRIMITIVE_RULE_all_id_elim_true "new" c); simseqs j.
-      norm_with "new"; apply (PRIMITIVE_RULE_all_id_elim_true "new" c0); simseqs j.
-      norm_with "new"; apply (PRIMITIVE_RULE_all_id_elim_true "new" c1); simseqs j.
+      LOCKelim "new" t.
+      LOCKelim "new" c.
+      LOCKelim "new" c0.
+      LOCKelim "new" c1.
 
-      norm_with "new"; apply (PRIMITIVE_RULE_implies_elim_true "new"); simseqs j.
-      { apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "dis"; apply (PRIMITIVE_RULE_hypothesis_true "dis"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "hid"; apply (PRIMITIVE_RULE_hypothesis_true "hid"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "mon2"; apply (PRIMITIVE_RULE_hypothesis_true "mon2"); simseqs j. }
-        apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-        { norm_with "mon3"; apply (PRIMITIVE_RULE_hypothesis_true "mon3"); simseqs j. }
-        apply PRIMITIVE_RULE_true_true; simseqs j. }
+      LOCKelim "new".
+      { repeat (LOCKintro; try LOCKauto). }
 
-      norm_with "new"; apply (PRIMITIVE_RULE_and_elim_true "new" "new1"); simseqs j.
-      apply (PRIMITIVE_RULE_exists_id_intro_true c0); simseqs j.
-      apply (PRIMITIVE_RULE_exists_id_intro_true c1); simseqs j.
+      LOCKelim "new" "new1".
+      LOCKintro c0.
+      LOCKintro c1.
 
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "mon2"; apply (PRIMITIVE_RULE_hypothesis_true "mon2"); simseqs j. }
-
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "mon3"; apply (PRIMITIVE_RULE_hypothesis_true "mon3"); simseqs j. }
-
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "new1"; apply (PRIMITIVE_RULE_hypothesis_true "new1"); simseqs j. }
-
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "new"; apply (PRIMITIVE_RULE_hypothesis_true "new"); simseqs j. }
-      apply PRIMITIVE_RULE_true_true; simseqs j. }
+      repeat (LOCKintro; try LOCKauto). }
   Qed.
 
 
@@ -9147,12 +9503,8 @@ Section KnowledgeCalculus.
     { apply DERIVED_RULE_same_event_same_output_implies_same_input_true; simseqs j;
         inst_hyp e0 st. }
 
-    apply DERIVED_RULE_implies_elim_true; simseqs j.
-
-    { repeat (apply PRIMITIVE_RULE_and_intro_true; simseqs j;[]).
-      apply PRIMITIVE_RULE_true_true; simseqs j. }
-
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
+    apply DERIVED_RULE_implies_elim_true; simseqs j; try LOCKauto.
+    repeat (LOCKintro;[]); LOCKauto.
   Qed.
 
 
@@ -9344,59 +9696,43 @@ Section KnowledgeCalculus.
       apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
       apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
 
-      norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-      { apply (PRIMITIVE_RULE_cut_true "w" (KE_NOT_FIRST @ e0)); simseqs j.
-        { apply (DERIVED_RULE_knew_implies_not_first_true d); simseqs j.
-          norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-        norm_with "w"; apply (PRIMITIVE_RULE_implies_elim_true "w"); simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-        norm_with "w"; apply (PRIMITIVE_RULE_false_elim_true "w"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-        norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-      { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-        apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-        norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_false_elim_true "z"); simseqs j. }
+      LOCKelim "z"; try LOCKauto.
+      LOCKelim "z".
+      { LOCKelim "x"; try LOCKauto.
+        LOCKapply (DERIVED_RULE_knew_implies_not_first_true d); try LOCKauto. }
+      LOCKelim "z".
+      { LOCKintro 0.
+        LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
+      LOCKelim "z"; try LOCKauto.
+      LOCKintro 1.
+      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
 
     inst_hyp e0 st'.
-    apply (PRIMITIVE_RULE_cut_true "z" (ASSUMPTION_knew_or_learns_or_gen d @ e0)); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "w"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
+    LOCKcut "z" (ASSUMPTION_knew_or_learns_or_gen d @ e0).
+    LOCKintro "x".
+    LOCKintro "w".
+    LOCKintro "y".
 
-    norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-    { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
+    LOCKelim "z"; try LOCKauto.
 
-    norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-    { norm_with "w"; apply (DERIVED_RULE_right_before_over_implies_hyp_true "w"); simseqs j.
-      norm_with "w"; apply (PRIMITIVE_RULE_implies_elim_true "w"); simseqs j.
-      { apply DERIVED_RULE_knew_implies_knows_true; simseqs j.
-        norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      norm_with "w"; apply (DERIVED_RULE_right_before_over_or_hyp_true "w"); simseqs j.
-      norm_with "w"; apply (PRIMITIVE_RULE_or_elim_true "w"); simseqs j.
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        apply DERIVED_RULE_right_before_local_before_eq_implies_true; simseqs j.
-        norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-      apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply DERIVED_RULE_right_before_local_before_eq_implies_true; simseqs j.
-      norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
+    LOCKelim "z".
+    { LOCKapply@ "w" DERIVED_RULE_right_before_over_implies_hyp_true.
+      LOCKelim "w".
+      { LOCKapply DERIVED_RULE_knew_implies_knows_true; try LOCKauto. }
+      LOCKapply@ "w" DERIVED_RULE_right_before_over_or_hyp_true.
+      LOCKelim "w".
+      { LOCKintro 0.
+        LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
+      LOCKintro 1.
+      LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
 
-    norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-      norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
+    LOCKelim "z".
+    { LOCKintro 0.
+      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
 
-    norm_with "z"; apply (PRIMITIVE_RULE_or_elim_true "z"); simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-      norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-
-    norm_with "z"; apply (PRIMITIVE_RULE_false_elim_true "z"); simseqs j.
+    LOCKelim "z"; try LOCKauto.
+    { LOCKintro 1.
+      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
   Qed.
 
 
@@ -9811,9 +10147,7 @@ Section KnowledgeCalculus.
       { inst_hyp e sta.
         repeat (apply DERIVED_RULE_thin_last_true; simseqs j). } }
 
-    norm_with "betweenb4"; apply (PRIMITIVE_RULE_implies_elim_true "betweenb4"); simseqs j.
-    { norm_with "thi3"; apply (PRIMITIVE_RULE_hypothesis_true "thi3"); simseqs j. }
-    norm_with "betweenb4"; apply (PRIMITIVE_RULE_false_elim_true "betweenb4"); simseqs j.
+    LOCKelim "betweenb4"; try LOCKauto.
   Qed.
 
 
@@ -9852,27 +10186,20 @@ Section KnowledgeCalculus.
       { norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
       norm_with "q"; apply (PRIMITIVE_RULE_hypothesis_true "q"); simseqs j. }
 
-    apply (PRIMITIVE_RULE_cut_true "false" (KE_FALSE @ e)); simseqs j.
-    { causal_norm_with "u"; apply (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex_true "u" t1 t2 e0 e e c1); simseqs j.
-      { inst_hyp e1 st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { inst_hyp e1 st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { inst_hyp e1 st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      { apply (PRIMITIVE_RULE_has_id_change_event_true _ e); simseqs j.
-        norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
+    LOCKcut "false" (KE_FALSE @ e); try LOCKauto.
+    LOCKapply@ "u" (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex_true "u" t1 t2 e0 e e c1); try LOCKauto.
+    { inst_hyp e1 st.
+      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
+      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
+    { inst_hyp e1 st.
+      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
+      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
+    { inst_hyp e1 st.
+      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
+      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
+    { LOCKapply (PRIMITIVE_RULE_has_id_change_event_true e0 e); LOCKauto. }
 
-      apply (PRIMITIVE_RULE_trust_has_id_subst_id_true c2); simseqs j.
-      { norm_with "q"; apply (PRIMITIVE_RULE_hypothesis_true "q"); simseqs j. }
-      norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-
-    norm_with "false"; apply (PRIMITIVE_RULE_false_elim_true "false"); simseqs j.
+    LOCKapply (PRIMITIVE_RULE_trust_has_id_subst_id_true c2); try LOCKauto.
   Qed.
 
 
@@ -9901,12 +10228,8 @@ Section KnowledgeCalculus.
     apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_same_event_same_output_implies_same_input t1 t2 c1 c2 @ e)); simseqs j.
     { apply DERIVED_RULE_same_event_same_output_implies_same_input_ex_true; simseqs j; inst_hyp e0 st. }
 
-    apply DERIVED_RULE_implies_elim_true; simseqs j.
-
-    { repeat (apply PRIMITIVE_RULE_and_intro_true; simseqs j;[]).
-      apply PRIMITIVE_RULE_true_true; simseqs j. }
-
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
+    apply DERIVED_RULE_implies_elim_true; simseqs j; try LOCKauto.
+    repeat (apply PRIMITIVE_RULE_and_intro_true; simseqs j;[]); try LOCKauto.
   Qed.
 
 
@@ -10160,6 +10483,7 @@ Hint Resolve assume_eo_ASSUMPTION_monotonicity_implies_monotonicity : kn.
 Hint Resolve disseminate_trusted_own_implies_data_is_owned : kn.
 Hint Resolve same_data_is_owned : kn.
 Hint Resolve knows_before_implies_knows_after : kn.
+Hint Resolve in_M_output_sys_on_event_implies_disseminate : kn.
 
 
 Hint Rewrite @data_is_owned_local_pred : kn.

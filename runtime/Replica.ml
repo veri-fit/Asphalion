@@ -310,7 +310,7 @@ let rec read_inputs mynfo init buffer r (nfos : conn_nfo list) : unit Deferred.t
      let buffer' = init ^ Bytes.to_string buffer in
      let (msgs, rest) = read_messages mynfo (Bytes.of_string buffer') (String.length init + bytes_read) 0 in
      (***PRINTING***)
-     (if debug then print_endline (kCYN ^ "[read: " ^ Batteries.String.of_list (str_concat (map msg2string (Obj.magic msgs))) ^ "]" ^ kNRM) else ());
+     (if debug then print_endline (kCYN ^ "[read: " ^ Batteries.String.of_list (str_concat (List.map (Obj.magic msgs) msg2string)) ^ "]" ^ kNRM) else ());
 
      run_replica_on_inputs mynfo nfos (List.map msgs (fun m -> (m,0)));
 

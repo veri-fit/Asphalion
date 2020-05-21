@@ -105,7 +105,7 @@ Section PBFTheader.
      No trusted component
      =============================================================== *)
 
-  Global Instance PBFT_I_IOTrusted : IOTrusted := Build_IOTrusted unit unit tt.
+  Global Instance PBFT_I_IOTrustedFun : IOTrustedFun := MkIOTrustedFun (fun _ => MkIOTrusted unit unit tt).
 
 
 

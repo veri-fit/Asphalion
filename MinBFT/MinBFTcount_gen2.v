@@ -1,6 +1,11 @@
-Require Export MinBFTcount_gen1.
-Require Export MinBFTrep.
-Require Export MinBFTprep.
+(* GENERIC *)
+
+Require Export MinBFTcount_gen2_request.
+Require Export MinBFTcount_gen2_reply.
+Require Export MinBFTcount_gen2_prepare.
+Require Export MinBFTcount_gen2_commit.
+Require Export MinBFTcount_gen2_accept.
+Require Export MinBFTcount_gen2_debug.
 
 
 Section MinBFTcount_gen2.
@@ -17,65 +22,6 @@ Section MinBFTcount_gen2.
 
   Context { ti : TrustedInfo }.
 
-  Lemma invalid_commit2_false_implies :
-    forall slf km v c pil s,
-      invalid_commit2 slf km v c pil s = false
-      -> valid_commit2 slf km v c pil s = 0.
-  Proof.
-    introv h.
-    unfold invalid_commit2 in *; smash_minbft.
-  Qed.
-  Hint Resolve invalid_commit2_false_implies : minbft.
-
-  Ltac smash_minbft1_ :=
-    let atac := fun _ => (eauto 1  with minbft) in
-    let stac := fun _ => minbft_simplifier_step in
-    let ftac := fun _ => try (fold DirectedMsgs in * ) in
-    let rtac := fun _ => repeat (minbft_rw;simpl) in
-    let x := fresh "x" in
-    simpl in *;
-    dest_all x stac ftac;
-    rtac ();
-    simplifier stac;
-    atac ().
-
-  Ltac sp_minbft_rw :=
-    progress rewrite_strat try outermost (choice
-                                            (choice
-                                               (choice
-                                                  (choice
-                                                     M_break_call_proc_LOGname
-                                                     M_break_call_proc_USIGname)
-                                                  M_break_MinBFT_state_update)
-                                               M_break_bind)
-                                            (choice
-                                               (hints minbft)
-                                               (hints comp))).
-
-  Ltac sp_break :=
-    match goal with
-    | [ H : is_M_break_out ?x ?y _, J : is_M_break_out ?x ?y _ |- _ ] =>
-      unfold is_M_break_out in H, J; rewrite H in J; repeat hide_break; subst; ginv; GC
-    | [ H : is_M_break_mon ?x ?y _, J : is_M_break_mon ?x ?y _ |- _ ] =>
-      unfold is_M_break_mon in H, J; rewrite H in J; repeat hide_break; subst; ginv; GC
-    end.
-
-  Lemma commit2request_mk_auth_commit :
-    forall v r ui1 ui2,
-      commit2request (mk_auth_commit v r ui1 ui2) = r.
-  Proof.
-    tcsp.
-  Qed.
-  Hint Rewrite commit2request_mk_auth_commit : minbft.
-
-  Ltac invalid_prep_imp_count h :=
-    match goal with
-    | [ H : invalid_prepare _ _ _ _ _ = false |- _ ] =>
-      applydup invalid_prepare_false_implies_prepare2counter_eq in H as h
-    | [ H : invalid_commit2 _ _ _ _ _ _ = false |- _ ] =>
-      applydup invalid_commit2_false_implies_commit2counter_i_eq in H as h
-    end.
-
 
   Lemma cexec_increases :
     forall {eo     : EventOrdering}
@@ -85,8 +31,11 @@ Section MinBFTcount_gen2.
            (s2     : _)
            (subs1  : n_procs _)
            (subs2  : n_procs _),
-      M_run_ls_on_this_one_event (MinBFTlocalSys_newP s s1 subs1) e
-      = Some (MinBFTlocalSys_newP s s2 subs2)
+      ~ In MAINname (get_names subs1)
+      -> wf_procs subs1
+      -> are_procs_n_procs subs1
+      -> M_run_ls_on_this_one_event (MinBFTlocalSys_newP s s1 subs1) e
+         = Some (MinBFTlocalSys_newP s s2 subs2)
       -> cexec s1 = cexec s2
          \/
          exists r l,
@@ -94,31 +43,19 @@ Section MinBFTcount_gen2.
            /\ In (send_accept (accept r (cexec s2)) l)
                  (M_output_ls_on_this_one_event (MinBFTlocalSys_newP s s1 subs1) e).
   Proof.
-    introv run.
-    apply map_option_Some in run; exrepnd; rev_Some.
-    unfold M_output_ls_on_this_one_event.
-    rewrite run1.
-    simpl in *.
-    autorewrite with minbft in *.
-
-    Time minbft_dest_msg Case;
-      repeat (autorewrite with minbft comp in *; simpl in *; smash_minbft2);
-      try (complete (apply upd_ls_main_state_and_subs_eq_MinBFTlocalSys_newP_implies in run0;
-                       repnd; subst; tcsp));
-      repeat (gdest;
-                repeat smash_minbft1_at_ run0;
-                repeat smash_minbft1_;
-                repeat hide_break;
-                repnd; simpl in *; repndors; ginv; tcsp; eauto 2 with minbft;
-                  repeat sp_break;
-                  repeat (first [progress rw_is_M_break
-                                |progress allrw
-                                |progress minbft_rw]; simpl in *;auto);
-                try (complete (apply upd_ls_main_state_and_subs_eq_MinBFTlocalSys_newP_implies in run0;
-                               repnd; subst; tcsp;
-                               simpl; right; autorewrite with minbft;
-                               try (invalid_prep_imp_count xx; rewrite xx);
-                               eexists; eexists; dands; tcsp; eauto))).
+    introv ni wf aps h.
+    remember (trigger e) as trig; symmetry in Heqtrig; destruct trig.
+    { destruct d; simpl in *.
+      { eapply cexec_increases_request; eauto. }
+      { eapply cexec_increases_reply; eauto. }
+      { eapply cexec_increases_prepare; eauto. }
+      { eapply cexec_increases_commit; eauto. }
+      { eapply cexec_increases_accept; eauto. }
+      { eapply cexec_increases_debug; eauto. } }
+    { apply map_option_Some in h; exrepnd; rev_Some; minbft_simp.
+      unfold trigger_op in *; rewrite Heqtrig in *; simpl in *; ginv. }
+    { apply map_option_Some in h; exrepnd; rev_Some; minbft_simp.
+      unfold trigger_op in *; rewrite Heqtrig in *; simpl in *; ginv. }
   Qed.
 
   Lemma operation_inc_counter_ls_step :
@@ -130,7 +67,11 @@ Section MinBFTcount_gen2.
            (s     : Rep)
            (ls    : MinBFTls)
            (subs  : n_procs _),
-      M_run_ls_before_event (MinBFTlocalSysP s subs) e = Some ls
+      lower_head 1 subs = true
+      -> ~ In MAINname (get_names subs)
+      -> wf_procs subs
+      -> are_procs_n_procs subs
+      -> M_run_ls_before_event (MinBFTlocalSysP s subs) e = Some ls
       -> In (send_accept (accept r (S i)) l) (M_output_ls_on_this_one_event ls e)
       -> i = 0
          \/
@@ -139,25 +80,27 @@ Section MinBFTcount_gen2.
            /\ M_run_ls_before_event (MinBFTlocalSysP s subs) e' = Some ls'
            /\ In (send_accept (accept r' i) l') (M_output_ls_on_this_one_event ls' e').
   Proof.
-    introv eqls out.
-    applydup M_run_ls_before_event_ls_is_minbftP in eqls; exrepnd; subst.
+    introv low ni wf aps eqls out.
+    applydup M_run_ls_before_event_ls_is_minbftP in eqls; exrepnd; subst; auto.
     applydup accepted_if_executed_previous_step in out; ginv.
 
-    clear r l out.
-    revert s s0 subs' eqls.
+    clear r l out eqls0.
+    revert s s0 subs subs' low ni wf aps eqls.
 
-    induction e as [e ind] using predHappenedBeforeInd;[]; introv eqls.
+    induction e as [e ind] using predHappenedBeforeInd;[]; introv low ni wf aps eqls.
     rewrite M_run_ls_before_event_unroll in eqls.
-    destruct (dec_isFirst e) as [d|d]; ginv.
+    destruct (dec_isFirst e) as [d|d]; ginv; minbft_simp.
 
-    { inversion eqls; subst; GC; simpl; tcsp. }
+    { apply eq_MinBFTlocalSys_newP_implies in eqls; repnd; subst; tcsp. }
 
     apply map_option_Some in eqls; exrepnd; rev_Some.
-    applydup M_run_ls_before_event_ls_is_minbftP in eqls1; exrepnd; subst.
+    applydup M_run_ls_before_event_ls_is_minbftP in eqls1; exrepnd; subst; auto.
 
     dup eqls1 as eqBef.
     eapply ind in eqls1; eauto 3 with eo; clear ind;[].
-    apply cexec_increases in eqls0.
+    applydup similar_subs_preserves_get_names in eqls2.
+    apply cexec_increases in eqls0; eauto 3 with comp minbft;
+      try (complete (rewrite <- eqls3; auto));[].
     repndors; exrepnd; tcsp;
       try (complete (left; congruence));
       try (complete (right; minbft_finish_eexists));[].
@@ -175,7 +118,11 @@ Section MinBFTcount_gen2.
            (s     : Rep)
            (ls    : MinBFTls)
            (subs  : n_procs _),
-      M_run_ls_before_event (MinBFTlocalSysP s subs) e = Some ls
+      lower_head 1 subs = true
+      -> ~ In MAINname (get_names subs)
+      -> wf_procs subs
+      -> are_procs_n_procs subs
+      -> M_run_ls_before_event (MinBFTlocalSysP s subs) e = Some ls
       -> In (send_accept (accept r i2) l) (M_output_ls_on_this_one_event ls e)
       -> i1 < i2
       -> 0 < i1
@@ -185,10 +132,10 @@ Section MinBFTcount_gen2.
           /\ In (send_accept (accept r' i1) l') (M_output_ls_on_this_one_event ls' e').
   Proof.
     intros eo e r i1 i2; revert e r.
-    induction i2; introv eqls out lti lti0; try omega;[].
+    induction i2; introv low ni wf aps eqls out lti lti0; try omega;[].
     apply lt_n_Sm_le in lti.
 
-    eapply operation_inc_counter_ls_step in out; eauto.
+    eapply operation_inc_counter_ls_step in out; eauto;[].
     repndors; subst; try omega.
     exrepnd.
 
@@ -199,6 +146,18 @@ Section MinBFTcount_gen2.
     exists r'0 l'0 e'0 ls'0; dands; auto; eauto 3 with eo.
   Qed.
 
+  Definition lower_headF k {n} (f : Rep -> n_procs n) :=
+    forall r, lower_head k (f r) = true.
+
+  Definition not_in_namesF (cn : CompName) {n} (f : Rep -> n_procs n) :=
+    forall r, ~ In MAINname (get_names (f r)).
+
+  Definition wf_procsF {n} (f : Rep -> n_procs n) :=
+    forall r, wf_procs (f r).
+
+  Definition are_procs_n_procsF {n} (f : Rep -> n_procs n) :=
+    forall r, are_procs_n_procs (f r).
+
   Lemma operation_inc_counter :
     forall {eo    : EventOrdering}
            (e     : Event)
@@ -206,7 +165,11 @@ Section MinBFTcount_gen2.
            (i1 i2 : nat)
            (l     : list name)
            (subs  : Rep -> n_procs _),
-      is_replica e
+      lower_headF 1 subs
+      -> not_in_namesF MAINname subs
+      -> wf_procsF subs
+      -> are_procs_n_procsF subs
+      -> is_replica e
       -> In (send_accept (accept r i2) l) (M_output_sys_on_event (MinBFTsysP subs) e)
       -> i1 < i2
       -> 0 < i1
@@ -214,7 +177,7 @@ Section MinBFTcount_gen2.
           e' ⊏ e
           /\ In (send_accept (accept r' i1) l') (M_output_sys_on_event (MinBFTsysP subs) e').
   Proof.
-    introv isr h lti lti0.
+    introv low ni wf aps isr h lti lti0.
     unfold M_output_sys_on_event in *.
     unfold MinBFTsysP, is_replica in *; exrepnd.
     rewrite isr0 in *; simpl in *.
@@ -238,31 +201,34 @@ Section MinBFTcount_gen2.
            (i     : nat)
            (l     : list name)
            (subs  : Rep -> n_procs _),
-      is_replica e
+      lower_headF 1 subs
+      -> not_in_namesF MAINname subs
+      -> wf_procsF subs
+      -> are_procs_n_procsF subs
+      -> is_replica e
       -> In (send_accept (accept r i) l) (M_output_sys_on_event (MinBFTsysP subs) e)
       -> 0 < i.
   Proof.
-    introv isrep out.
+    introv low ni wf aps isrep out.
     unfold M_output_sys_on_event in *.
     unfold MinBFTsysP, is_replica in *; exrepnd.
     rewrite isrep0 in *; simpl in *.
     apply M_output_ls_on_event_implies_run in out; exrepnd.
-    applydup M_run_ls_before_event_ls_is_minbftP in out1; exrepnd; subst.
+    applydup M_run_ls_before_event_ls_is_minbftP in out1; exrepnd; subst; eauto.
     eapply accepted_if_executed_previous_step in out0; subst; omega.
   Qed.
   Hint Resolve accepted_counter_positive : minbft.
 
   Lemma M_output_ls_on_input_is_committed_implies :
     forall u c ls,
-      M_output_ls_on_input (LOGlocalSys u) (is_committed_in c) = (ls, log_out true)
+      M_run_ls_on_input (LOGlocalSys u) LOGname (is_committed_in c) = (ls, Some (log_out true))
       -> is_committed c u = true
          /\ ls = LOGlocalSys u.
   Proof.
     introv out.
-    unfold M_output_ls_on_input in out; simpl in *.
-    unfold M_run_smat_on_inputs in out; simpl in *.
-    unfold M_run_update_on_inputs in out; simpl in *.
-    unfold M_break in *; simpl in *; ginv.
+    unfold M_run_ls_on_input, on_comp in out; simpl in *.
+    unfold M_run_sm_on_input in out; simpl in *.
+    unfold M_on_decr, M_break in out; simpl in *; minbft_simp.
     inversion out; auto.
   Qed.
 

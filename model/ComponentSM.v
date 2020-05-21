@@ -25,11 +25,10 @@ Section ComponentSM.
   Context { gms : MsgStatus }.
   Context { dtc : @DTimeContext }.
   Context { qc  : @Quorum_context pn }.
-  Context { iot : @IOTrusted }.
+  Context { iot : @IOTrustedFun }.
 
 
-  Definition CompNameKind  := String.string.
-  Definition CompNameSpace := nat.
+  Definition CompNameLevel := nat.
   Definition CompNameState := nat.
   Definition CompNameTrust := bool.
 
@@ -46,8 +45,7 @@ Section ComponentSM.
   Record CompName :=
     MkCompName
       {
-        comp_name_kind  : CompNameKind;
-        comp_name_space : CompNameSpace;
+        comp_name_pre   :> PreCompName;
         comp_name_trust : CompNameTrust (* TrustTag *);
       }.
 
@@ -56,11 +54,11 @@ Section ComponentSM.
              (s : CompNameSpace)
              (t : CompNameTrust)
     : CompName :=
-    MkCompName k s t.
+    MkCompName (MkPreCompName k s) t.
 
   Lemma CompNameDeq : Deq CompName.
   Proof.
-    introv; unfold deceq; destruct x as [n1 s1 b1], y as [n2 s2 b2].
+    introv; unfold deceq; destruct x as [[n1 s1] b1], y as [[n2 s2] b2].
     destruct (CompNameKindDeq n1 n2);
       destruct (CompNameSpaceDeq s1 s2);
       destruct (CompNameTrustDeq b1 b2);
@@ -113,8 +111,11 @@ Section ComponentSM.
   Definition CIOmsg : ComponentIO :=
     MkComponentIO msg DirectedMsgs [].
 
-  Definition CIOtrusted : ComponentIO :=
-    MkComponentIO iot_input iot_output iot_def_output.
+  Definition CIOtrusted (cn : PreCompName) : ComponentIO :=
+    MkComponentIO
+      (iot_input (iot_fun cn))
+      (iot_output (iot_fun cn))
+      (iot_def_output (iot_fun cn)).
 
   (* A default CIO *)
   Definition CIOdef : ComponentIO :=
@@ -148,7 +149,7 @@ Section ComponentSM.
   Class trustedStateFun :=
     MkTrustedStateFun
       {
-        tsf : Type;
+        tsf : PreCompName -> Type;
       }.
 
   Context { trusted_state_fun : trustedStateFun }.
@@ -171,12 +172,12 @@ Section ComponentSM.
 
   (* "MSG" components must have a msg interface *)
   Definition msg_comp_name_kind  : CompNameKind  := "MSG".
-  Definition msg_comp_name_trust : CompNameTrust := false.
   Definition msg_comp_name_state : CompNameState := 0.
-  Definition msg_comp_name n : CompName :=
+  Definition msg_comp_name_trust : CompNameTrust := false.
+  Definition msg_comp_name space : CompName :=
     MkCN
       msg_comp_name_kind
-      n
+      space
       msg_comp_name_trust.
 
   (* "UNIT",0 components must have a unit interface and a [unit] state *)
@@ -225,7 +226,7 @@ Section ComponentSM.
        - trusted components must have the [CIOtrusted] IO interface
    *)
   Definition funIOd_msg_nm (nm : CompName) :=
-    if comp_name_trust nm then CIOtrusted
+    if comp_name_trust nm then CIOtrusted nm
     else if CompNameKindDeq (comp_name_kind nm) msg_comp_name_kind then CIOmsg
          else if CompNameKindDeq (comp_name_kind nm) unit_comp_name_kind then CIOdef
               else if CompNameKindDeq (comp_name_kind nm) nat_comp_name_kind then CIOnat
@@ -245,7 +246,7 @@ Section ComponentSM.
        - trusted components must have a state of type [tsf]
    *)
   Definition statefund_nm (nm : CompName) : Type :=
-    if comp_name_trust nm then tsf
+    if comp_name_trust nm then tsf nm
     else if CompNameSpaceDeq (comp_name_space nm) unit_comp_name_space then unit
          else if CompNameKindDeq (comp_name_kind nm) nat_comp_name_kind then nat
               else if CompNameKindDeq (comp_name_kind nm) bool_comp_name_kind then bool
@@ -276,12 +277,10 @@ Section ComponentSM.
   Record MP_StateMachine (p : CompName -> Type) (cn : CompName) : Type :=
     MkMPSM
       {
-        sm_halted : bool;
         sm_update :> MP_Update p (cio_I (fio cn)) (cio_O (fio cn)) (sf cn);
         sm_state  : sf cn;
       }.
-  Global Arguments MkMPSM    [p] [cn] _ _ _.
-  Global Arguments sm_halted [p] [cn] _.
+  Global Arguments MkMPSM    [p] [cn] _ _.
   Global Arguments sm_update [p] [cn] _ _ _ _.
   Global Arguments sm_state  [p] [cn] _.
 
@@ -357,38 +356,26 @@ Section ComponentSM.
       end
     end.
 
-  Fixpoint replace_name {n:nat} {nm : CompName} (pr : n_proc n nm) (l : n_procs n) : n_procs n :=
-    match l with
-    | [] => []
-    | MkPProc m q :: rest =>
-      if CompNameDeq m nm then MkPProc nm pr :: rest
-      else MkPProc m q :: replace_name pr rest
-    end.
-
   Definition at2sm
              {n  : nat}
              {cn : CompName}
              (p  : n_proc_at n cn) : n_proc (S n) cn :=
     sm_or_at p.
 
-  (* halted state machine as monad -- one level state machine*)
-  Definition MP_haltedSM
+  Definition MP_defSM
              (cn : CompName)
              (n  : nat)
              (d  : sf cn) : n_proc_at n cn :=
     MkMPSM
-      true
       (fun s i p => (p, (None, cio_default_O (fio cn))))
       d.
 
-  (* halted state machine as monad -- state machine can have multiple levels*)
-  Definition M_haltedSM
+  Definition M_defSM
              (nm : CompName)
              (n  : nat)
              (d  : sf nm) : n_proc 1 nm :=
     at2sm
       (MkMPSM
-         true
          (fun s i p => (p, (None, cio_default_O (fio nm))))
          d).
 
@@ -418,7 +405,7 @@ Section ComponentSM.
 
   Definition decr_n_proc {n} {nm} : n_proc n nm -> option (n_proc (Init.Nat.pred n) nm) :=
     match n with
-    | 0 => fun p => Some p
+    | 0 => fun p => match p with end
     | S m => fun p =>
                match p with
                | sm_or_at _ => None
@@ -440,7 +427,7 @@ Section ComponentSM.
 
   Definition incr_pred_n_proc {n} {nm} : n_proc (pred n) nm -> n_proc n nm :=
     match n with
-    | 0 => fun p => p
+    | 0 => fun p => match p with end
     | S m => fun p => sm_or_sm p
     end.
 
@@ -455,28 +442,17 @@ Section ComponentSM.
 
   Definition update_state {n} {cn} (sm : n_proc_at n cn) (s : sf cn) : n_proc_at n cn :=
     MkMPSM
-      (sm_halted sm)
       (sm_update sm)
       s.
-
-  Definition halt_machine {n} {cn} (sm : n_proc_at n cn) : n_proc_at n cn :=
-    MkMPSM
-      true
-      (sm_update sm)
-      (sm_state  sm).
 
   (* lift form state to state machine; here x is sub-component with state and output*)
   Definition app_n_proc_at {n} {nm}
              (sm : n_proc_at n nm)
              (i  : cio_I (fio nm))
-    : M_n n (n_proc_at n nm * cio_O (fio nm)) :=
+    : M_n n (option (n_proc_at n nm) * cio_O (fio nm)) :=
     (sm_update sm (sm_state sm) i)
       >>>=
-      fun ops o =>
-        match ops with
-        | Some s => ret _ (update_state sm s,o)
-        | None => ret _ (halt_machine sm, o)
-        end.
+      fun ops o => ret _ (option_map (update_state sm) ops, o).
 
   Definition lift_M_O {m} {nm} {O}
              (x : M_n m (n_proc_at m nm * O))
@@ -501,50 +477,132 @@ Section ComponentSM.
     : M_n n (n_proc (S n) nm) :=
     M_on_pred m >>= fun sm => ret _ (incr_n_proc sm).
 
-  (* apply process to the input; monad takes care of the sub-levels *)
-  Fixpoint app_m_proc {n} {nm}
-    : n_proc n nm
-      -> cio_I (fio nm)
-      -> M_n (pred n) (n_proc n nm * cio_O (fio nm)) :=
-    match n return n_proc n nm -> cio_I (fio nm) -> M_n (pred n) (n_proc n nm * cio_O (fio nm)) with
-    | 0 =>
-      fun pr i => match pr with end
-    | S m =>
-      fun pr i =>
-        match pr with
-        | sm_or_at sm => lift_M_O (app_n_proc_at sm i)
-        | sm_or_sm pr' => lift_M_O2 (app_m_proc pr' i)
-        end
-    end.
-
-  (* replace subprocess *)
+(*  (* replace subprocess *)
   Fixpoint replace_sub {n} {nm}
            (ps : n_procs n)
-           (p  : n_proc (pred n) nm) : n_procs n :=
+           (p  : n_proc n nm) : n_procs n :=
     match ps with
     | [] => []
     | MkPProc m q :: rest =>
-      if CompNameDeq nm m then MkPProc nm (incr_pred_n_proc p) :: rest
+      if CompNameDeq nm m then MkPProc nm p :: rest
       else MkPProc m q :: replace_sub rest p
     end.
 
-  (* replace subprocesses in a list*)
-  Fixpoint replace_subs {n} (ps : n_procs n) (l : n_procs (pred n)) : n_procs n :=
+  (* replace subprocesses in a list: copy from [l] into [ps] *)
+  Fixpoint replace_subs {n} (ps : n_procs n) (l : n_procs n) : n_procs n :=
     match l with
     | [] => ps
     | p :: rest =>
       match p with
       | MkPProc nm q => replace_subs (replace_sub ps q) rest
       end
+    end.*)
+
+  Fixpoint remove_name {n}
+           (ps : n_procs n)
+           (cn : CompName) : n_procs n :=
+    match ps with
+    | [] => []
+    | p :: rest =>
+      if CompNameDeq cn (pp_name p) then rest
+      else p :: remove_name rest cn
     end.
 
-  (* used in MinBFT *)
+  (* removes subprocesses in a list: removes [l] from [ps] *)
+  Fixpoint remove_names {n} (ps : n_procs n) (l : list CompName) : n_procs n :=
+    match l with
+    | [] => ps
+    | cn :: rest => remove_names (remove_name ps cn) rest
+    end.
+
+  Definition get_names {n} (l : n_procs n) : list CompName :=
+    map (fun p => pp_name p) l.
+
+  Definition remove_subs {n m} (ps : n_procs n) (l : n_procs m) : n_procs n :=
+    remove_names ps (get_names l).
+
+  (* NOTE: The order is going to be preserved if the components
+     are ordered in decreasing order of level *)
+  Definition update_subs {n} (ps : n_procs (S n)) (ps' : n_procs n) : n_procs (S n) :=
+    remove_subs ps ps' ++ incr_n_procs ps'.
+
+  (* Part of the monad *)
+  Definition M_on_decr {n} {O} (m : M_n n O) : M_n (S n) O :=
+    fun (ps : n_procs (S n)) =>
+      let (ps', o') := m (decr_n_procs ps)
+      in (update_subs ps ps', o').
+
+  Fixpoint sm2level {n} {nm} : n_proc n nm -> nat :=
+    match n return n_proc n nm -> nat with
+    | 0 => fun p => match p with end
+    | S m => fun p =>
+               match p with
+               | sm_or_at q => m
+               | sm_or_sm q => sm2level q
+               end
+    end.
+
+  Fixpoint M_on_sm {n} {cn} {A} :
+    forall (sm : n_proc n cn) (f : n_proc_at (sm2level sm) cn -> M_n (sm2level sm) A), M_n n A :=
+    match n with
+    | 0 => fun sm f => match sm with end
+    | S n =>
+      fun sm =>
+        match sm with
+        | sm_or_at p => fun f => M_on_decr (f p)
+        | sm_or_sm q => fun f => M_on_decr (M_on_sm q f)
+        end
+    end.
+
+(*  Definition lift_sm_O {m} {nm} {O}
+             (x : M_n m (n_proc_at m nm * O))
+    : M_n m (n_proc m nm * O) :=
+    x >>>= fun q o => ret _ (at2sm q, o).*)
+
+  Definition lift_M_1 {m} {nm} {O}
+             (x : M_n m (option (n_proc_at m nm) * O))
+    : M_n (S m) (option (n_proc (S m) nm) * O) :=
+    M_on_decr x >>>= fun q o => ret _ (option_map at2sm q, o).
+
+  Definition lift_M_2 {n} {nm} {O} (m : M_n n (option (n_proc n nm) * O))
+    : M_n (S n) (option (n_proc (S n) nm) * O) :=
+    M_on_decr m >>>= fun sm o => ret _ (option_map incr_n_proc sm,o).
+
+  Fixpoint app_m_proc {n} {nm}
+    : n_proc n nm
+      -> cio_I (fio nm)
+      -> M_n n (option (n_proc n nm) * cio_O (fio nm)) :=
+    match n return n_proc n nm -> cio_I (fio nm) -> M_n n (option (n_proc n nm) * cio_O (fio nm)) with
+    | 0 =>
+      fun pr i => match pr with end
+    | S m =>
+      fun pr i =>
+        match pr with
+        | sm_or_at sm => lift_M_1 (app_n_proc_at sm i)
+        | sm_or_sm pr' => lift_M_2 (app_m_proc pr' i)
+        end
+    end.
+
+  Fixpoint replace_name {n:nat} {nm : CompName} (pr : n_proc n nm) (l : n_procs n) : n_procs n :=
+    match l with
+    | [] => []
+    | MkPProc m q :: rest =>
+      if CompNameDeq m nm then MkPProc nm pr :: rest
+      else MkPProc m q :: replace_name pr rest
+    end.
+
+  Definition replace_name_op {n:nat} {cn : CompName} (o : option (n_proc n cn)) (l : n_procs n) : n_procs n :=
+    match o with
+    | Some p => replace_name p l
+    | None => remove_name l cn
+    end.
+
   Definition call_proc {n:nat} (nm : CompName) (i : cio_I (fio nm)) : M_n n (cio_O (fio nm)) :=
     fun (l : n_procs n) =>
       match find_name nm l with
       | Some pr =>
-        match app_m_proc pr i (decr_n_procs l) with
-        | (l',(pr',o)) => (replace_subs (replace_name pr' l) l',o)
+        match app_m_proc pr i l with
+        | (l',(pr',o)) => (replace_name_op pr' l',o)
         end
       | None => (l,cio_default_O (fio nm))
       end.
@@ -554,7 +612,7 @@ Section ComponentSM.
              {nm  : CompName}
              (upd : M_Update n nm (sf nm))
              (s   : sf nm) : n_proc_at n nm :=
-    MkMPSM false upd s.
+    MkMPSM upd s.
 
   Definition build_m_sm {n}
              {nm  : CompName}
@@ -562,9 +620,8 @@ Section ComponentSM.
              (s   : sf nm) : n_proc (S n) nm :=
     at2sm (build_mp_sm upd s).
 
-  (* ??? *)
-  Fixpoint run_n_proc {n} {nm} (p : n_proc n nm) (l : list (cio_I (fio nm)))
-    : M_n (pred n) (list (cio_O (fio nm)) * n_proc n nm) :=
+  (*Fixpoint run_n_proc {n} {nm} (p : n_proc n nm) (l : list (cio_I (fio nm)))
+    : M_n n (list (cio_O (fio nm)) * n_proc n nm) :=
     match l with
     | [] => ret _ ([], p)
     | i :: rest =>
@@ -572,7 +629,7 @@ Section ComponentSM.
         >>>= fun p' o =>
                (run_n_proc p' rest)
                  >>>= fun outs p'' => ret _ (o :: outs, p'')
-    end.
+    end.*)
 
 (*  (* extracts the type of states by going down a state machine until an MP machine *)
   Fixpoint sm2S {n} {nm} : n_proc n nm -> Type :=
@@ -595,63 +652,67 @@ Section ComponentSM.
                end
     end.
 
-  Fixpoint sm2level {n} {nm} : n_proc n nm -> nat :=
-    match n return n_proc n nm -> nat with
-    | 0 => fun p => match p with end
-    | S m => fun p =>
-               match p with
-               | sm_or_at q => m
-               | sm_or_sm q => sm2level q
-               end
-    end.
+  (*Inductive LSstatus :=
+  | ls_is_ok
+  | ls_is_byz.*)
 
-  Record LocalSystem (lvl : nat) (cn : CompName) :=
-    MkLocalSystem
-      {
-        ls_main :> n_proc_at lvl cn;
-        ls_subs : n_procs lvl;
-      }.
-  Global Arguments MkLocalSystem [lvl] [cn] _ _.
-  Global Arguments ls_main [lvl] [cn] _.
-  Global Arguments ls_subs [lvl] [cn] _.
+  (* the [space] is the space of the main component, which should be of kind "MAIN" *)
+  Definition LocalSystem
+             (L : CompNameLevel)
+             (S : CompNameSpace) := n_procs L.
 
-  Definition MLocalSystem lvl space := LocalSystem lvl (msg_comp_name space).
+  Definition defaultLocalSystem : LocalSystem 0 1 := [].
 
-  Definition defaultLocalSystem : MLocalSystem 0 1 :=
-    MkLocalSystem
-      (MP_haltedSM munit_comp_name 0 tt)
-      [].
-
-  Lemma decomp_LocalSystem {L} {S} :
-    forall (ls1 ls2 : LocalSystem L S),
-      ls1 = ls2 -> ls_main ls1 = ls_main ls2 /\ ls_subs ls1 = ls_subs ls2.
-  Proof.
-    introv h; subst; dands; auto.
-  Qed.
-
-  Definition upd_ls_main {L} {S} (ls : LocalSystem L S) (m : n_proc_at _ _) : LocalSystem L S :=
+(*  Definition upd_ls_main {L} {S} (ls : LocalSystem L S) (m : n_proc_at _ _) : LocalSystem L S :=
     MkLocalSystem
       m
-      (ls_subs ls).
+      (ls_subs ls)
+      (ls_status ls).
 
   Definition upd_ls_main_state {L} {S} (ls : LocalSystem L S) (s : sf _) : LocalSystem L S :=
     MkLocalSystem
       (update_state (ls_main ls) s)
-      (ls_subs ls).
+      (ls_subs ls)
+      (ls_status ls).
 
   Definition upd_ls_subs {L} {S} (ls : LocalSystem L S) (ss : n_procs _) : LocalSystem L S :=
     MkLocalSystem
-      (ls_main  ls)
-      ss.
+      (ls_main ls)
+      ss
+      (ls_status ls).*)
 
-  Definition upd_ls_main_state_and_subs
+  Definition is_trusted {n} (comp : n_nproc n) : bool :=
+    comp_name_trust (pp_name comp).
+
+  Fixpoint remove_non_trusted {n} (l : n_procs n) : n_procs n :=
+    match l with
+    | [] => []
+    | comp :: rest =>
+      if is_trusted comp then comp :: remove_non_trusted rest
+      else remove_non_trusted rest
+    end.
+
+(*  Definition upd_ls_byz {L} {S} (ls : LocalSystem L S) : LocalSystem L S :=
+    MkLocalSystem
+      (ls_main ls) (* the main component becomes useless now *)
+      (remove_non_trusted (ls_subs ls))
+      ls_is_byz.*)
+
+(*  Definition upd_ls_main_state_and_subs
              {L} {S}
              (ls : LocalSystem L S)
              (s  : sf _)
              (ss : n_procs _) : LocalSystem _ _ :=
     MkLocalSystem
       (update_state (ls_main ls) s)
-      ss.
+      ss
+      (ls_status ls).*)
+
+(*  Definition if_ls_is_ok_opt {L S} (ls : LocalSystem L S) {A} (a : option A) : option A :=
+    match ls_status ls with
+    | ls_is_ok => a
+    | ls_is_byz => None
+    end.*)
 
 (*  Record message_local_system_constraint (s : LocalSystem) :=
     MkMessageLocalSystemConstratin
@@ -668,12 +729,12 @@ Section ComponentSM.
   Record funLevelSpace :=
     MkFunLevelSpace
       {
-        fls_level : name -> nat;
-        fls_space : name -> nat;
+        fls_level : name -> CompNameLevel;
+        fls_space : name -> CompNameSpace;
       }.
 
   Definition M_USystem (F : funLevelSpace) :=
-    forall (n : name), MLocalSystem (fls_level F n) (fls_space F n).
+    forall (n : name), LocalSystem (fls_level F n) (fls_space F n).
 
 (*  Definition message_system_constraint (sys : M_USystem) :=
     forall nm, message_local_system_constraint (sys nm).*)
@@ -743,7 +804,9 @@ Section ComponentSM.
     end. *)
 
   (* Note: the monad is taking care of calling the lower levels *)
-  Fixpoint M_run_update_on_list {S} {n} {nm}
+  (* TODO: We currently return None either if the input is unavailable or
+       if the machine stops.  We should distinguish the 2. *)
+(*  Fixpoint M_run_update_on_list {S} {n} {nm}
            (s   : S)
            (upd : M_Update n nm S)
            (l   : oplist (cio_I (fio nm))) : M_n n (option S) :=
@@ -755,7 +818,7 @@ Section ComponentSM.
             (upd s a) >>= fun so =>
                             (fst so) >>o>>
                                      fun s' => M_run_update_on_list s' upd l
-    end.
+    end.*)
 
 (*  Definition sm2update {n} {cn} : forall (sm : n_proc n cn), MP_Update (n_proc (sm2level sm)) (cio_I (fio cn)) (cio_O (fio cn)) (sm2S sm).
   Proof.
@@ -781,10 +844,25 @@ Section ComponentSM.
                end
     end.
 
-  Definition M_run_sm_on_list {n} {nm}
+(*  Definition M_run_sm_on_inputs {n} {nm}
              (sm : n_proc n nm)
-             (l  : oplist (cio_I (fio nm))) : M_n (sm2level sm) (option (sf nm)) :=
-    M_run_update_on_list (sm2state sm) (sm2update sm) l.
+             (l  : oplist (cio_I (fio nm))) : M_n n (option (sf nm)) :=
+    M_on_sm
+      sm
+      (fun p => M_run_update_on_list (sm_state p) (sm_update p) l).*)
+
+  Definition M_run_sm_on_input {n} {nm}
+             (sm : n_proc n nm)
+             (i  : cio_I (fio nm)) : M_n n (option (sf nm) * cio_O (fio nm)) :=
+    M_on_sm
+      sm
+      (fun p => (sm_update p (sm_state p) i)).
+
+  Definition M_fst {n} {A} {B} (m : M_n n (A * B)) : M_n n A :=
+    m >>= fun so => ret _ (fst so).
+
+  Definition M_snd {n} {A} {B} (m : M_n n (A * B)) : M_n n B :=
+    m >>= fun so => ret _ (snd so).
 
 (*  Fixpoint M_run_sm_on_list_p {n} {nm}
            (sm : n_proc n nm)
@@ -839,32 +917,38 @@ Section ComponentSM.
 
   Definition op_state_out (S : Type) := option (option S * DirectedMsgs).
 
-  Definition M_run_update_on_event {S} {n} {k}
+(*  Definition M_run_update_on_event {S} {n} {k}
              (s    : S)
-             (upd  : M_Update n (msg_comp_name k) S)
+             (upd  : M_Update n (main_comp_name k) S)
              {eo   : EventOrdering}
              (e    : Event) : M_n n (op_state_out S) :=
     (M_run_update_on_list s upd (map trigger_op (@localPreds pn pk pm _ _ eo e)))
-      >>o= fun s => M_op_update upd s (trigger_op e).
+      >>o= fun s => M_op_update upd s (trigger_op e).*)
 
-  Definition M_run_sm_on_event {n} {k}
-             (sm : n_proc n (msg_comp_name k))
+(*  Definition M_run_sm_on_event {n} {k}
+             (sm : n_proc n (main_comp_name k))
              {eo : EventOrdering}
-             (e  : Event) : M_n (sm2level sm) (op_state_out (sf (msg_comp_name k))) :=
-    M_run_update_on_event (sm2state sm) (sm2update sm) e.
+             (e  : Event) : M_n n (op_state_out (sf (main_comp_name k))) :=
+    M_on_sm sm (fun p => M_run_update_on_event (sm_state p) (sm_update p) e).*)
 
-  Definition M_state_sm_on_event {n} {k}
-             (sm : n_proc n (msg_comp_name k))
+  (*Definition M_run_sm_on_event {n} {k}
+             (sm : n_proc n (main_comp_name k))
              {eo : EventOrdering}
-             (e  : Event) : M_n (sm2level sm) (option (sf (msg_comp_name k))) :=
+             (e  : Event) : M_n (sm2level sm) (op_state_out (sf (main_comp_name k))) :=
+    M_run_update_on_event (sm2state sm) (sm2update sm) e.*)
+
+(*  Definition M_state_sm_on_event {n} {k}
+             (sm : n_proc n (main_comp_name k))
+             {eo : EventOrdering}
+             (e  : Event) : M_n n (option (sf (main_comp_name k))) :=
   (M_run_sm_on_event sm e)
-    >>o= fun p => ret _ (fst p).
+    >>o= fun p => ret _ (fst p).*)
 
-  Definition M_state_sm_before_event {n} {k}
-             (sm : n_proc n (msg_comp_name k))
+(*  Definition M_state_sm_before_event {n} {k}
+             (sm : n_proc n (main_comp_name k))
              {eo : EventOrdering}
-             (e  : Event) : M_n (sm2level sm) (option (sf (msg_comp_name k))) :=
-    M_run_sm_on_list sm (map trigger_op (@localPreds pn pk pm _ _ eo e)).
+             (e  : Event) : M_n n (option (sf (main_comp_name k))) :=
+    M_run_sm_on_inputs sm (map trigger_op (@localPreds pn pk pm _ _ eo e)).*)
 
 
 
@@ -900,31 +984,563 @@ Section ComponentSM.
              (F    : n_procs n -> S -> O) : O :=
     let (subs', out) := sm subs in F subs' out.
 
-  Definition M_run_ls_on_event
-             {L S}
-             (ls : MLocalSystem L S)
-             {eo : EventOrdering}
-             (e  : Event) : option (LocalSystem _ _) :=
-    M_break
-      (M_state_sm_on_event (at2sm (ls_main ls)) e)
-      (ls_subs ls)
-      (fun subs' out =>
-         option_map
-           (fun s => upd_ls_main_state_and_subs ls s subs')
-           out).
+  (* by default main components are not trusted *)
+
+  (* m : missing *)
+  Definition on_comp {n}
+             (l : n_procs n)
+             {cn} {A}
+             (f : n_proc n cn -> A) (m : A) :  A :=
+    match find_name cn l with
+    | Some comp => f comp
+    | None => m
+    end.
+
+  (* m <= n *)
+  Fixpoint select_n_proc {n} {cn} m : n_proc n cn -> option (n_proc m cn) :=
+    match deq_nat n m with
+    | left q => fun p => Some (eq_rect _ (fun n => n_proc n cn) p _ q)
+    | right q =>
+      match n with
+      | 0 => fun p => match p with end
+      | S k =>
+        fun p =>
+          match p with
+          | sm_or_at q => None
+          | sm_or_sm q => select_n_proc m q
+          end
+      end
+    end.
+
+  Definition select_n_nproc {n} m (p : n_nproc n) : option (n_nproc m) :=
+    match p with
+    | MkPProc cn p => option_map (MkPProc cn) (select_n_proc m p)
+    end.
+
+  Definition select_n_procs {n} m (ps : n_procs n) : n_procs m :=
+    mapOption (select_n_nproc m) ps.
+
+  Fixpoint lift_n_proc {n} {cn} j : n_proc n cn -> n_proc (j + n) cn :=
+    match j with
+    | 0 => fun p => p
+    | S k => fun p => incr_n_proc (lift_n_proc k p)
+    end.
+
+  Definition lift_n_nproc {n} j (p : n_nproc n) : n_nproc (j + n) :=
+    match p with
+    | MkPProc cn p => MkPProc cn (lift_n_proc j p)
+    end.
+
+  Definition lift_n_procs {n} j (l : n_procs n) : n_procs (j + n) :=
+    map (lift_n_nproc j) l.
+
+  Lemma select_n_proc_trivial :
+    forall {n} {cn} (p : n_proc n cn),
+      select_n_proc n p = Some p.
+  Proof.
+    introv.
+    destruct n; simpl; auto;[].
+    destruct (deq_nat n n); simpl; tcsp.
+    pose proof (UIP_refl_nat _ e) as q; subst; simpl; auto.
+  Qed.
+  Hint Rewrite @select_n_proc_trivial : comp.
+
+  Lemma select_n_procs_trivial :
+    forall {n} (subs : n_procs n),
+      select_n_procs n subs = subs.
+  Proof.
+    introv; unfold select_n_procs.
+    induction subs; simpl; auto.
+    rewrite IHsubs.
+    destruct a; simpl in *.
+    autorewrite with comp; simpl; auto.
+  Qed.
+  Hint Rewrite @select_n_procs_trivial : comp.
+
+  Lemma lift_n_procs_0 :
+    forall {n} (subs : n_procs n),
+      lift_n_procs 0 subs = subs.
+  Proof.
+    introv; unfold lift_n_procs.
+    induction subs; simpl in *; tcsp.
+    rewrite IHsubs.
+    destruct a; simpl; auto.
+  Qed.
+  Hint Rewrite @lift_n_procs_0 : comp.
+
+  Lemma mapOption_fun_Some :
+    forall {A} (l : list A),
+      mapOption (fun p => Some p) l = l.
+  Proof.
+    induction l; simpl; auto.
+    rewrite IHl; auto.
+  Qed.
+  Hint Rewrite @mapOption_fun_Some : list.
+
+  Lemma mapOption_fun_None :
+    forall {A B} (l : list A),
+      mapOption (fun _ => @None B) l = [].
+  Proof.
+    induction l; simpl; auto.
+  Qed.
+  Hint Rewrite @mapOption_fun_None : list.
+
+  Lemma select_n_proc_lt :
+    forall cn n m (p : n_proc n cn),
+      n < m
+      -> select_n_proc m p = None.
+  Proof.
+    induction n; introv ltm; simpl in *; tcsp.
+    destruct p as [p|p]; simpl in *.
+
+    { destruct m; try omega.
+      destruct (deq_nat n m); subst; try omega; auto. }
+
+    destruct m; try omega.
+    destruct (deq_nat n m); subst; try omega; auto.
+    apply IHn; auto; try omega.
+  Qed.
+
+  Lemma select_n_proc_S_sm_implies :
+    forall cn n m (p : n_proc n cn) (q : n_proc m cn),
+      select_n_proc (S m) p = Some (sm_or_sm q)
+      -> select_n_proc m p = Some q.
+  Proof.
+    induction n; introv sel; simpl in *; tcsp.
+    fold M_StateMachine in *.
+    fold n_proc in *.
+    destruct m; simpl.
+
+    { destruct (deq_nat n 0); subst; simpl in *; tcsp. }
+
+    destruct (deq_nat n (S m)); subst.
+
+    { simpl in sel; inversion sel; subst.
+      destruct (deq_nat (S m) m); try omega.
+      simpl.
+      destruct (deq_nat m m); try omega.
+      pose proof (UIP_refl_nat _ e) as w; subst; simpl; auto. }
+
+    destruct p; ginv.
+    destruct (deq_nat n m); subst; tcsp;[|].
+
+    { rewrite select_n_proc_lt in sel; ginv; try omega. }
+
+    apply IHn in sel; auto.
+  Qed.
+
+  Lemma select_n_proc_select_n_proc_le :
+    forall cn k n m (p : n_proc k cn) q r,
+      n <= m
+      -> select_n_proc m p = Some q
+      -> select_n_proc n q = Some r
+      -> select_n_proc n p = Some r.
+  Proof.
+    induction k; introv le sela selb; simpl in *; tcsp;[].
+    destruct m; simpl in *; tcsp;[].
+    destruct n; simpl in *; tcsp;[].
+    destruct (deq_nat k m); subst; ginv;[].
+    destruct p as [p|p]; ginv;[].
+    destruct (deq_nat m n); subst; ginv; try omega;[|].
+
+    { destruct (deq_nat k n); subst; try omega; auto. }
+
+    destruct q as [q|q]; ginv;[].
+    destruct (deq_nat k n); subst; try omega; auto.
+
+    { simpl in *.
+      apply select_n_proc_S_sm_implies in sela.
+      pose proof (IHk (S n) m p q r) as IHk.
+      repeat (autodimp IHk hyp); try omega;[].
+      destruct r.
+      { rewrite select_n_proc_lt in IHk; ginv; try omega. }
+      apply select_n_proc_S_sm_implies in IHk.
+      rewrite select_n_proc_trivial in IHk.
+      inversion IHk; auto. }
+
+    { apply select_n_proc_S_sm_implies in sela.
+      pose proof (IHk (S n) m p q r) as IHk.
+      repeat (autodimp IHk hyp); try omega. }
+  Qed.
+
+  Lemma select_n_proc_some_at_implies :
+    forall cn k n m (p : n_proc k cn) (q : n_proc_at m cn),
+      n <= m
+      -> select_n_proc (S m) p = Some (sm_or_at q)
+      -> select_n_proc n p = None.
+  Proof.
+    induction k; introv lem sel; simpl in *; tcsp;[].
+    destruct (deq_nat k m); subst.
+
+    { simpl in *; inversion sel; subst; simpl in *; clear sel.
+      destruct n; auto.
+      destruct (deq_nat m n); subst; auto; try omega. }
+
+    destruct p; ginv.
+    destruct n.
+
+    { eapply IHk; eauto. }
+
+    destruct (deq_nat k n); subst; try omega; simpl; auto.
+
+    { rewrite select_n_proc_lt in sel; try omega; ginv. }
+
+    pose proof (IHk (S n) m b q) as IHk.
+    repeat (autodimp IHk hyp).
+  Qed.
+
+  Lemma select_n_proc_select_n_proc_le2 :
+    forall cn k n m (p : n_proc k cn) q,
+      n <= m
+      -> select_n_proc m p = Some q
+      -> select_n_proc n q = None
+      -> select_n_proc n p = None.
+  Proof.
+    induction k; introv le sela selb; simpl in *; tcsp;[].
+    destruct m; simpl in *; tcsp;[].
+    destruct n; simpl in *; tcsp;[|].
+
+    { destruct (deq_nat k m); subst; ginv;[].
+      destruct p; ginv;[].
+      destruct q; ginv.
+      { clear IHk.
+        destruct k; simpl in *; tcsp.
+        destruct (deq_nat k m); subst; try omega; ginv; auto.
+        destruct b; ginv.
+        pose proof (select_n_proc_some_at_implies cn k 0 m b a) as w.
+        repeat (autodimp w hyp); try omega. }
+      apply select_n_proc_S_sm_implies in sela.
+      pose proof (IHk 0 m b b0) as IHk.
+      repeat (autodimp IHk hyp); try omega. }
+
+    destruct (deq_nat k m); subst; try omega; ginv;[].
+    destruct (deq_nat m n); subst; try omega; ginv;[].
+    destruct (deq_nat k n); subst; try omega; ginv.
+
+    { simpl.
+      destruct p; ginv.
+      rewrite select_n_proc_lt in sela; try omega; ginv. }
+
+    destruct p; ginv;[].
+    destruct q; ginv.
+
+    { pose proof (select_n_proc_some_at_implies cn k (S n) m b a) as w.
+      repeat (autodimp w hyp); try omega. }
+
+    pose proof (IHk (S n) (S m) b (sm_or_sm b0)) as IHk.
+    repeat (autodimp IHk hyp).
+    simpl.
+    destruct (deq_nat m n); try omega; auto.
+  Qed.
+
+  Lemma select_n_proc_none_implies :
+    forall cn k n m (p : n_proc k cn),
+      m <= k
+      -> n <= m
+      -> select_n_proc m p = None
+      -> select_n_proc n p = None.
+  Proof.
+    induction k; introv lek lem sel; simpl in *; tcsp;[].
+    destruct m; simpl in *; tcsp.
+
+    { destruct n; auto; try omega. }
+
+    destruct n; simpl in *; tcsp;[|].
+
+    { destruct (deq_nat k m); subst; ginv;[].
+      destruct p; ginv; auto;[].
+      pose proof (IHk 0 (S m) b) as IHk.
+      repeat (autodimp IHk hyp); try omega. }
+
+    destruct (deq_nat k m); subst; try omega; ginv;[].
+    destruct (deq_nat k n); subst; try omega; ginv.
+
+    { simpl.
+      destruct p; ginv; auto.
+      pose proof (IHk (S n) (S m) b) as IHk; repeat (autodimp IHk hyp); try omega. }
+  Qed.
+
+  Lemma select_n_procs_select_n_procs_le :
+    forall n m k (subs : n_procs k),
+      m <= k
+      -> n <= m
+      -> select_n_procs n (select_n_procs m subs)
+         = select_n_procs n subs.
+  Proof.
+    unfold select_n_procs.
+    induction subs; introv ltk lem; simpl in *; auto.
+    repeat (autodimp IHsubs hyp).
+    destruct a as [cn p]; simpl.
+    remember (select_n_proc m p) as w; symmetry in Heqw; destruct w; simpl.
+
+    { remember (select_n_proc n n0) as z; symmetry in Heqz; destruct z; simpl.
+
+      { pose proof (select_n_proc_select_n_proc_le cn k n m p n0 n1) as q.
+        repeat (autodimp q hyp);[].
+        rewrite q; simpl.
+        rewrite IHsubs; auto. }
+
+      rewrite IHsubs.
+      pose proof (select_n_proc_select_n_proc_le2 cn k n m p n0) as q.
+      repeat (autodimp q hyp).
+      rewrite q; simpl; auto. }
+
+    rewrite IHsubs; clear IHsubs.
+
+    remember (select_n_proc n p) as z; symmetry in Heqz; destruct z; simpl; auto;[].
+    pose proof (select_n_proc_none_implies cn k n m p) as q.
+    repeat (autodimp q hyp); try omega.
+    rewrite q in Heqz; ginv.
+  Qed.
+
+  Lemma select_n_nproc_succ :
+    forall {cn} {k} (p : n_proc (S k) cn),
+      select_n_proc k p
+      = match p with
+        | sm_or_at q => None
+        | sm_or_sm q => Some q
+        end.
+  Proof.
+    introv.
+    unfold select_n_proc.
+    destruct (deq_nat (S k) k); try omega.
+    destruct p; auto.
+    destruct k.
+    { simpl; auto. }
+    destruct (deq_nat (S k) (S k)); auto; try omega.
+    pose proof (UIP_refl_nat _ e) as w; subst; simpl; auto.
+  Qed.
+
+  Lemma decr_n_procs_as_select_n_procs :
+    forall {k} (subs : n_procs (S k)),
+      decr_n_procs subs = select_n_procs k subs.
+  Proof.
+    introv; simpl.
+    unfold decr_n_procs, select_n_procs.
+    induction subs; simpl; auto.
+    destruct a as [cn p].
+    unfold select_n_nproc at 1.
+    rewrite select_n_nproc_succ.
+    simpl.
+    destruct p; simpl in *; auto.
+    unfold n_procs in *; rewrite IHsubs; auto.
+  Qed.
+
+  Definition M_run_ls_on_input
+             {n}
+             (ls : n_procs n)
+             cn
+             (i  : cio_I (fio cn)) : n_procs n * option (cio_O (fio cn)) :=
+    on_comp
+      ls
+      (fun main =>
+         M_break
+           (M_run_sm_on_input main i)
+           ls
+           (fun subs out =>
+              (match fst out with
+               | Some s => replace_name (update_state_m main s) subs
+               | None => remove_name subs cn
+               end,
+               Some (snd out))))
+      (* We simply return the local system if we cannot find the component *)
+      (ls, None).
+
+  Definition to_snd_default
+             {A} {cn}
+             (x : A * option (cio_O (fio cn))) : A * cio_O (fio cn) :=
+    match x with
+    | (a, Some o) => (a,o)
+    | (a, None) => (a,cio_default_O _)
+    end.
+
+  Lemma UIP_refl_CompName :
+    forall (n : CompName) (x : n = n), x = eq_refl.
+  Proof.
+    introv; apply UIPReflDeq; auto.
+    apply CompNameDeq.
+  Qed.
+
+  Lemma UIP_refl_CompNameKind :
+    forall (k : CompNameKind) (x : k = k), x = eq_refl.
+  Proof.
+    introv; apply UIPReflDeq; auto.
+    apply CompNameKindDeq.
+  Qed.
+
+  Lemma UIP_refl_CompNameSpace :
+    forall (s : CompNameSpace) (x : s = s), x = eq_refl.
+  Proof.
+    introv; apply UIPReflDeq; auto.
+    apply CompNameSpaceDeq.
+  Qed.
+
+  Lemma UIP_refl_CompNameState :
+    forall (s : CompNameState) (x : s = s), x = eq_refl.
+  Proof.
+    introv; apply UIPReflDeq; auto.
+    apply CompNameStateDeq.
+  Qed.
+
+  Lemma implies_find_name_decr_n_procs :
+    forall {cn} {n} (l : n_procs (S n)) (b : n_proc n cn),
+      find_name cn l = Some (sm_or_sm b)
+      -> find_name cn (decr_n_procs l) = Some b.
+  Proof.
+    induction l; introv h; simpl in *; tcsp.
+    destruct a as [cn' p']; simpl in *; dest_cases w; subst; simpl in *; ginv.
+
+    { inversion h; subst; simpl in *; clear h; dest_cases w.
+      rewrite (UIP_refl_CompName _ w); simpl; auto. }
+
+    {apply IHl in h; clear IHl; unfold decr_n_procs in *; simpl in *.
+     destruct p'; simpl in *; tcsp; dest_cases w. }
+  Qed.
+
+  Definition nested2state
+             {A} {n} {cn} {B}
+             (x : A * (option (n_proc n cn) * B)) : A * (option (sf cn) * B) :=
+    match x with
+    | (a, (pop, b)) => (a,(option_map sm2state pop,b))
+    end.
+
+  Lemma app_m_proc_as_M_on_sm :
+    forall {n} {cn} (p : n_proc n cn) i (l : n_procs n),
+      nested2state (app_m_proc p i l)
+      = M_on_sm p (fun a => sm_update a (sm_state a) i) l.
+  Proof.
+    induction n; introv; simpl in *; tcsp.
+    destruct p; simpl in *; tcsp.
+
+    { unfold lift_M_1, app_n_proc_at, bind_pair, bind, M_on_decr; simpl.
+      remember (sm_update a (sm_state a) i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+      destruct u1; simpl in *; tcsp. }
+
+    unfold lift_M_2, bind_pair, bind, M_on_decr; simpl.
+    pose proof (IHn cn b i (decr_n_procs l)) as IHn.
+    rewrite <- IHn; clear IHn.
+    remember (app_m_proc b i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+    f_equal.
+    f_equal.
+    destruct u1; simpl; tcsp.
+  Qed.
+
+  Lemma update_state_if_app_m_proc :
+    forall {n} {cn} (p : n_proc n cn) i l k q o,
+      app_m_proc p i l = (k, (Some q, o))
+      -> update_state_m p (sm2state q) = q.
+  Proof.
+    induction n; introv h; simpl in *; tcsp.
+    destruct p; simpl in *; tcsp.
+
+    { unfold lift_M_1, bind_pair, bind, M_on_decr in h.
+      remember (app_n_proc_at a i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+      inversion h; subst; simpl in *; clear h.
+      rename_hyp_with @at2sm h.
+      apply option_map_Some in h; exrepnd; subst; simpl in *.
+      unfold app_n_proc_at, bind_pair, bind in Hequ.
+      remember (sm_update a (sm_state a) i (decr_n_procs l)) as z; symmetry in Heqz.
+      repnd; simpl in *; ginv.
+      inversion Hequ; subst; simpl in *; tcsp; clear Hequ.
+      rename_hyp_with @update_state h.
+      apply option_map_Some in h; exrepnd; subst; simpl in *; tcsp. }
+
+    unfold lift_M_2, bind_pair, bind, M_on_decr in h.
+    remember (app_m_proc b i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+    inversion h; subst; simpl in *; clear h.
+    rename_hyp_with @option_map h.
+    apply option_map_Some in h; exrepnd; subst; simpl in *.
+    apply IHn in Hequ; rewrite Hequ; auto.
+  Qed.
+
+  (* TODO: I defined a separate [M_run_ls_on_input] to reason about local system, but
+     it's essentially the same as [call_proc]:
+   *)
+  Lemma M_run_ls_on_input_as_call_proc :
+    forall {n}
+           (ls : n_procs n)
+           cn
+           (i  : cio_I (fio cn)),
+      to_snd_default (M_run_ls_on_input ls cn i)
+      = call_proc cn i ls.
+  Proof.
+    introv.
+    unfold M_run_ls_on_input, call_proc, M_run_sm_on_input, LocalSystem, M_break, on_comp in *; simpl in *.
+    dest_cases w; rev_Some.
+    pose proof (app_m_proc_as_M_on_sm w i ls) as q.
+    simpl in *; rewrite <- q; clear q.
+    remember (app_m_proc w i ls) as u; symmetry in Hequ; repnd; simpl in *.
+    f_equal.
+    destruct u1; simpl in *; tcsp.
+    f_equal.
+    apply update_state_if_app_m_proc in Hequ; auto.
+  Qed.
+
+  Definition on_some
+             {A B}
+             (xop : option A)
+             (f : A -> option B) : option B :=
+    map_option f xop.
+
+  Definition M_run_ls_on_input_ls
+             {n}
+             (ls : n_procs n)
+             cn
+             (i  : cio_I (fio cn)) : n_procs n :=
+    fst (M_run_ls_on_input ls cn i).
+
+  Definition M_run_ls_on_input_out
+             {n}
+             (ls : n_procs n)
+             cn
+             (i  : cio_I (fio cn)) : option (cio_O (fio cn)) :=
+    snd (M_run_ls_on_input ls cn i).
+
+  Fixpoint M_run_ls_on_op_inputs
+           {n}
+           (ls : n_procs n)
+           cn
+           (l  : oplist (cio_I (fio cn))) : option (n_procs n) :=
+    match l with
+    | [] => Some ls
+    | mop :: l =>
+      on_some
+        mop
+        (fun m =>
+           let ls' := M_run_ls_on_input_ls ls cn m in
+           M_run_ls_on_op_inputs ls' cn l)
+    end.
+
+  Fixpoint M_run_ls_on_inputs
+           {n}
+           (ls : n_procs n)
+           cn
+           (l  : list (cio_I (fio cn))) : n_procs n :=
+    match l with
+    | [] => ls
+    | m :: l =>
+      let ls' := M_run_ls_on_input_ls ls cn m in
+      M_run_ls_on_inputs ls' cn l
+    end.
 
   Definition M_run_ls_before_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
-             (e  : Event) : option (LocalSystem _ _) :=
-    M_break
-      (M_state_sm_before_event (at2sm (ls_main ls)) e)
-      (ls_subs ls)
-      (fun subs' out =>
+             (e  : Event) : option (LocalSystem L S) :=
+    M_run_ls_on_op_inputs ls (msg_comp_name S) (map trigger_op (@localPreds pn pk pm _ _ eo e)).
+
+  Definition M_run_ls_on_event
+             {L S}
+             (ls : LocalSystem L S)
+             {eo : EventOrdering}
+             (e  : Event) : option (LocalSystem L S) :=
+    on_some
+      (M_run_ls_before_event ls e)
+      (fun ls' =>
          option_map
-           (fun s => upd_ls_main_state_and_subs ls s subs')
-           out).
+           (M_run_ls_on_input_ls ls' (msg_comp_name S))
+           (trigger_op e)).
 
 
   (*Lemma break_M_run_ls_before_event :
@@ -938,37 +1554,87 @@ Section ComponentSM.
         = (ls_subs ls', Some (sm_state (ls_main ls'))).*)
 
 
-  Definition state_of_subcomponents
-             {n}
-             (procs : n_procs n)
-             (cn : CompName) : option (sf cn) :=
-    option_map sm2state (find_name cn procs).
-
   Definition state_of_component
-             {L S}
+             {L}
              (cn : CompName)
-             (ls : LocalSystem L S) : option (sf cn) :=
-    match ls with
-    | MkLocalSystem main subs =>
-      match CompNameDeq S cn with
-      | left p => Some (eq_rect _ _ (sm_state main) _ p)
-      | right q => state_of_subcomponents subs cn
-      end
-    end.
+             (ls : n_procs L) : option (sf cn) :=
+    option_map sm2state (find_name cn ls).
 
   Definition on_state_of_component
-             {L S}
+             {L}
              (cn : CompName)
-             (ls : LocalSystem L S)
+             (ls : n_procs L)
              (F  : sf cn -> Prop) : Prop :=
     match state_of_component cn ls with
     | Some s => F s
     | None => True
     end.
 
+  Definition cn2space (cn : CompName) : CompNameSpace :=
+    comp_name_space cn.
+
+  Definition sm2ls {n} {cn} (p : n_proc n cn) : LocalSystem n (cn2space cn) :=
+    [MkPProc cn p].
+
+  Definition M_comp_ls_on_op_inputs {n}
+             (ls : n_procs n)
+             cn
+             (l : oplist (cio_I (fio cn))) : option (n_proc n cn) :=
+    on_some
+      (M_run_ls_on_op_inputs ls cn l)
+      (find_name cn).
+
+  Definition M_comp_ls_on_inputs {n}
+             (ls : n_procs n)
+             cn
+             (l : list (cio_I (fio cn))) : option (n_proc n cn) :=
+    find_name cn (M_run_ls_on_inputs ls cn l).
+
+  Definition M_state_ls_on_op_inputs {n}
+             (ls : n_procs n)
+             cn
+             (l : oplist (cio_I (fio cn))) : option (sf cn) :=
+    on_some
+      (M_run_ls_on_op_inputs ls cn l)
+      (state_of_component cn).
+
+  Definition M_state_ls_on_inputs {n}
+             (ls : n_procs n)
+             cn
+             (l : list (cio_I (fio cn))) : option (sf cn) :=
+    state_of_component cn (M_run_ls_on_inputs ls cn l).
+
+  Lemma M_state_ls_on_op_inputs_as_comp :
+    forall {n}
+           (ls : n_procs n)
+           cn
+           (l : oplist (cio_I (fio cn))),
+      M_state_ls_on_op_inputs ls cn l
+      = option_map
+          sm2state
+          (M_comp_ls_on_op_inputs ls cn l).
+  Proof.
+    introv; unfold M_state_ls_on_op_inputs, M_comp_ls_on_op_inputs.
+    remember (M_run_ls_on_op_inputs ls cn l) as x; destruct x; simpl; auto.
+  Qed.
+
+  Lemma M_state_ls_on_inputs_as_comp :
+    forall {n}
+           (ls : n_procs n)
+           cn
+           (l : list (cio_I (fio cn))),
+      M_state_ls_on_inputs ls cn l
+      = option_map
+          sm2state
+          (M_comp_ls_on_inputs ls cn l).
+  Proof.
+    introv; unfold M_state_ls_on_inputs, M_comp_ls_on_inputs.
+    remember (M_run_ls_on_inputs ls cn l) as x; destruct x; simpl; auto.
+  Qed.
+
   Definition M_state_ls_on_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
              (e  : Event)
              (cn : CompName) : option (sf cn) :=
@@ -978,7 +1644,7 @@ Section ComponentSM.
 
   Definition M_state_ls_before_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
              (e  : Event)
              (cn : CompName) : option (sf cn) :=
@@ -1022,18 +1688,11 @@ Section ComponentSM.
 
   Definition M_run_ls_on_this_one_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
-             (e  : Event) : option (LocalSystem _ _) :=
-    map_option
-      (fun i =>
-         M_break
-           (sm_update (ls_main ls) (sm_state (ls_main ls)) i)
-           (ls_subs ls)
-           (fun subs' out =>
-              option_map
-                (fun s => upd_ls_main_state_and_subs ls s subs')
-                (fst out)))
+             (e  : Event) : option (LocalSystem L S) :=
+    option_map
+      (M_run_ls_on_input_ls ls (msg_comp_name S))
       (trigger_op e).
 
   Lemma crazy_bind_option1 :
@@ -1353,9 +2012,55 @@ Section ComponentSM.
             simpl;
             auto).
 
+  Definition bind_some_ret_some_fun2 :
+    forall {n} {T A B} (f : T -> A -> M_n n (option B)) (F : T -> A),
+      (fun a => ((ret n (Some (F a))) >>o= f a)) = fun x => (f x) (F x).
+  Proof.
+    introv.
+    apply functional_extensionality; introv; simpl; autorewrite with comp; auto.
+  Qed.
+  Hint Rewrite @bind_some_ret_some_fun2 : comp.
+
+  Lemma M_on_sm_bind_ret_const :
+    forall {n cn A B}
+           (sm : n_proc n cn)
+           (f  : n_proc_at (sm2level sm) cn -> M_n (sm2level sm) A)
+           (g  :  A -> B),
+      M_on_sm sm (fun x => (f x) >>= (fun y => ret _ (g y)))
+      = ((M_on_sm sm f) >>= fun y => ret _ (g y)).
+  Proof.
+    induction n; introv; simpl; tcsp; destruct sm; simpl; auto.
+
+    { unfold M_on_decr, bind; simpl.
+      apply functional_extensionality; introv; simpl.
+      destruct (f a (decr_n_procs x)); auto. }
+
+    rewrite IHn.
+    unfold M_on_decr, bind; simpl.
+    apply functional_extensionality; introv; simpl.
+    destruct (M_on_sm b f (decr_n_procs x)); auto.
+  Qed.
+  Hint Rewrite @M_on_sm_bind_ret_const : comp.
+
+(*  Lemma M_break_map_option_M_on_sm_ret_None :
+    forall {n cn A B}
+           (sm : n_proc n cn)
+           subs
+           (f : n_procs n -> A -> option B),
+      M_break (M_on_sm sm (fun x => ret _ None)) subs (fun subs' x => map_option (f subs') x)
+      = None.
+  Proof.
+    induction n; introv; simpl; tcsp; destruct sm; simpl; auto.
+    unfold M_break, M_on_decr in *; simpl in *.
+    pose proof (IHn _ _ _ b (decr_n_procs subs) (fun ps a => f (incr_n_procs ps) a)) as IHn.
+    dest_cases w; auto.
+    destruct w1; simpl in *; auto.
+  Qed.
+  Hint Rewrite @M_break_map_option_M_on_sm_ret_None : comp.*)
+
   Lemma M_run_ls_on_event_unroll :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_run_ls_on_event ls e
@@ -1367,33 +2072,11 @@ Section ComponentSM.
             (M_run_ls_before_event ls e).
   Proof.
     introv.
-    unfold M_run_ls_on_event, M_run_ls_before_event; simpl.
-    destruct ls; simpl.
-    unfold M_state_sm_on_event, M_state_sm_before_event.
-    unfold M_run_sm_on_event.
-    unfold M_run_update_on_event; simpl.
-    unfold M_run_sm_on_list; simpl.
-    unfold M_run_ls_on_this_one_event; simpl.
-
-    destruct (dec_isFirst e) as [d|d].
-
-    {
-      rewrite isFirst_implies_localPreds_eq; simpl; auto.
-      unfold M_op_update; simpl.
-      destruct (trigger_op e); simpl; auto;[].
-      auto_rw_bind.
-    }
-
-    auto_rw_bind.
-    rewrite M_break_bind_some; simpl; tcsp.
-    rewrite map_option_M_break.
-    apply eq_M_break; introv.
-    rewrite map_option_option_map; unfold compose; simpl.
-    apply equal_map_options; introv eqs; subst; simpl in *.
-    unfold M_op_update; rewrite M_break_M_on_some_option_map; simpl; auto;[].
-    apply equal_map_options; introv eqs; subst; simpl in *.
-    rewrite M_break_bind.
-    apply eq_M_break; introv; autorewrite with comp; auto.
+    unfold M_run_ls_on_event; simpl.
+    destruct (dec_isFirst e); simpl.
+    { unfold M_run_ls_before_event.
+      rewrite isFirst_implies_localPreds_eq; simpl; auto. }
+    remember (M_run_ls_before_event ls e) as x; destruct x; simpl; auto.
   Qed.
 
   Lemma M_on_some_ret_some :
@@ -1524,7 +2207,7 @@ Section ComponentSM.
     rewrite imp; auto.
   Qed.
 
-  Lemma M_run_update_on_list_snoc :
+(*  Lemma M_run_update_on_list_snoc :
     forall {S} {n} {nm}
            (upd : M_Update n nm S)
            (l : oplist (cio_I (fio nm)))
@@ -1546,11 +2229,42 @@ Section ComponentSM.
     apply eq_bind; introv.
     rewrite M_on_some_bind_some.
     apply eq_M_on_some; introv; auto.
+  Qed.*)
+
+  Lemma M_run_ls_on_op_inputs_snoc :
+    forall {L S}
+           (ls : LocalSystem L S)
+           {cn}
+           (i  : option (cio_I (fio cn)))
+           (l  : oplist (cio_I (fio cn))),
+      M_run_ls_on_op_inputs ls cn (snoc l i)
+      = on_some
+          (M_run_ls_on_op_inputs ls cn l)
+          (fun ls' => option_map (M_run_ls_on_input_ls ls' cn) i).
+  Proof.
+    introv; revert ls; induction l; introv; simpl; auto.
+    unfold on_some.
+    rewrite map_option_map_option.
+    destruct a; simpl in *; auto.
+    rewrite IHl; auto.
+  Qed.
+
+  Lemma M_run_ls_on_inputs_snoc :
+    forall {L S}
+           (ls : LocalSystem L S)
+           {cn}
+           (i  : cio_I (fio cn))
+           (l  : list (cio_I (fio cn))),
+      M_run_ls_on_inputs ls cn (snoc l i)
+      = let ls' := M_run_ls_on_inputs ls cn l
+        in M_run_ls_on_input_ls ls' cn i.
+  Proof.
+    introv; revert ls; induction l; introv; simpl; auto.
   Qed.
 
   Lemma M_run_ls_before_event_unroll :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_run_ls_before_event ls e
@@ -1561,32 +2275,21 @@ Section ComponentSM.
                (M_run_ls_before_event ls (local_pred e)).
   Proof.
     introv.
-    unfold M_run_ls_before_event; destruct ls; simpl.
-    unfold M_state_sm_before_event.
-
+    unfold M_run_ls_before_event.
     destruct (dec_isFirst e) as [d|d].
 
-    { rewrite isFirst_implies_localPreds_eq; simpl; auto.
-      destruct ls_main0; simpl; auto. }
+    { rewrite isFirst_implies_localPreds_eq; simpl; auto. }
 
     rewrite (localPreds_unroll e) at 1; auto; simpl.
-    unfold M_run_sm_on_list; simpl.
     rewrite map_snoc; simpl.
+    rewrite M_run_ls_on_op_inputs_snoc.
 
-    rewrite @M_run_update_on_list_snoc.
-    rewrite map_option_M_break.
-    rewrite M_break_bind_some; simpl; tcsp;[].
-    apply eq_M_break; introv; simpl.
-    rewrite map_option_option_map; unfold compose; simpl.
-    apply equal_map_options; introv; introv eqs; subst; simpl in *.
-
-    unfold M_run_ls_on_this_one_event; simpl.
-    rewrite M_break_M_op_state; simpl; auto.
+    unfold on_some, map_option; dest_cases w.
   Qed.
 
   Lemma M_run_ls_before_event_as_M_run_ls_on_event_pred :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       ~ isFirst e
@@ -1605,7 +2308,7 @@ Section ComponentSM.
 
   Lemma M_run_ls_before_event_unroll_on :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_run_ls_before_event ls e
@@ -1684,16 +2387,13 @@ Section ComponentSM.
   Qed.
 
   Lemma M_run_ls_before_event_is_first :
-    forall {L S} {eo : EventOrdering} (e : Event) (ls : MLocalSystem L S),
+    forall {L S} {eo : EventOrdering} (e : Event) (ls : LocalSystem L S),
       isFirst e
       -> M_run_ls_before_event ls e = Some ls.
   Proof.
     introv isf.
     unfold M_run_ls_before_event;simpl.
-    destruct ls; simpl.
-    unfold M_state_sm_before_event; simpl.
     rewrite isFirst_implies_localPreds_eq; auto; simpl.
-    destruct ls_main0; simpl; auto.
   Qed.
 
   Lemma M_state_sys_on_event_unfold_before :
@@ -1744,14 +2444,101 @@ Section ComponentSM.
 
 
 
+  Definition remove_proc
+             (cn : CompName)
+             {n} {A}
+             (x : M_n n A) : M_n n A :=
+    fun ps => x (remove_name ps cn).
+
+  Definition spawn_proc
+             {n}
+             (p : n_nproc n)
+             {A}
+             (x : M_n n A) : M_n n A :=
+    fun ps => x (p :: ps).
+
+  Definition spawn_proc_once
+             {n}
+             (p : n_nproc n)
+             {A}
+             (x : M_n n A) : M_n n A :=
+    fun ps => x (match find_name (pp_name p) ps with
+                 | Some _ => ps
+                 | None => p :: ps
+                 end).
+
+
+
+  (******************************************)
+  (* ====== A ====== *)
+  Definition Aname : CompName := MkCN "NAT" 2 false.
+  Definition A_update : M_Update 0 Aname _ :=
+    fun (s : nat) (i : nat) =>
+        (ret _ (Some (s + i), s + i)).
+  Definition A : n_proc 1 _ := build_m_sm A_update 0.
+
+  (* ====== B ====== *)
+  Definition Bname : CompName := MkCN "NAT" 3 false.
+  Definition B_update : M_Update 1 Bname _ :=
+    fun s i =>
+      spawn_proc_once
+        (MkPProc _ A)
+        (*remove_proc Aname*)
+        ((call_proc Aname i)
+           >>= fun out =>
+                 ret _ (Some (s + out + 1), s + out + 1)).
+  Definition B : n_proc _ _ := build_m_sm B_update 0.
+
+  (* ====== C ====== *)
+  Definition Cname : CompName := MkCN "NAT" 4 false.
+  Definition C_update : M_Update 2 Cname _ :=
+    fun s i =>
+      (call_proc Bname i)
+        >>= fun out1 =>
+              (call_proc Bname i)
+                >>= fun out2 =>
+                      ret _ (Some (s + out1 + out2 + 2), s + out1 + out2 + 2).
+  Definition C : n_proc _ _ := build_m_sm C_update 0.
+
+  (* ====== Main ====== *)
+  Definition Mname : CompName := MkCN "NAT" 5 false.
+  Definition M_update : M_Update 3 Mname nat :=
+    fun s i =>
+      (call_proc Cname i)
+        >>= (fun out => ret _ (Some s, out)).
+  Definition M : n_proc _ _ := build_m_sm M_update 0.
+
+
+  (* ====== Local System ====== *)
+
+  Definition ex_ls : LocalSystem 4 5 :=
+    [
+      (*MkPProc _ (incr_n_proc (incr_n_proc (incr_n_proc A))),*)
+      MkPProc _ (incr_n_proc (incr_n_proc B)),
+      MkPProc _ (incr_n_proc C),
+      MkPProc _ M
+    ].
+
+
+  Definition ex_test1 := M_run_ls_on_input_out ex_ls Mname 17.
+  Eval compute in (ex_test1 = Some 73).
+
+  Definition ex_test2 := let ls := M_run_ls_on_input_ls ex_ls Mname 17 in
+                         M_run_ls_on_input_out ls Mname 17.
+  Eval compute in (ex_test2 = Some 354).
+  (******************************************)
+
+
+
+
   (***************************)
 
-  Definition M_output_sm_on_event {n} {k}
-             (sm : n_proc n (msg_comp_name k))
+(*  Definition M_output_sm_on_event {n} {k}
+             (sm : n_proc n (main_comp_name k))
              {eo : EventOrdering}
              (e  : Event) : M_n (sm2level sm) (option DirectedMsgs) :=
     (M_run_sm_on_event sm e)
-      >>o= fun x => ret _ (Some (snd x)).
+      >>o= fun x => ret _ (Some (snd x)).*)
 
 (*  Definition system2level
              {eo : EventOrdering}
@@ -1766,7 +2553,7 @@ Section ComponentSM.
              (e   : Event)
              {F}
              (sys : M_USystem F)
-    : MLocalSystem (fls_level F (loc e)) (fls_space F (loc e)) :=
+    : LocalSystem (fls_level F (loc e)) (fls_space F (loc e)) :=
     sys (loc e).
 
 (*  Fixpoint app_m_proc_to_subs {n} {nm}
@@ -1923,10 +2710,10 @@ Section ComponentSM.
 
 
 
-  Fixpoint find_state_machine_with_name {n}
-           (L  : n_procs n)
-           (nm : CompName) : option (sf nm) :=
-    state_of_subcomponents L nm.
+  Definition find_state_machine_with_name {n}
+             (L  : n_procs n)
+             (cn : CompName) : option (sf cn) :=
+    state_of_component cn L.
 
 (*  Definition M_state_system_on_event_sub
            (sys : M_USystem)
@@ -2102,7 +2889,7 @@ Section ComponentSM.
     rewrite app_snoc; auto.
   Qed.
 
-  Lemma M_run_update_on_list_app :
+(*  Lemma M_run_update_on_list_app :
     forall {S} {n} {nm}
            (upd : M_Update n nm S)
            (l k : oplist (cio_I (fio nm)))
@@ -2118,7 +2905,7 @@ Section ComponentSM.
     apply eq_bind; introv.
     rewrite M_on_some_bind_some.
     apply eq_M_on_some; introv; auto.
-  Qed.
+  Qed.*)
 
   Lemma local_happened_before_implies_history_app2 :
     forall {eo : EventOrdering} (e1 e2 : Event),
@@ -2158,7 +2945,7 @@ Section ComponentSM.
     apply M_on_some_bind_M_on_some.
   Qed.*)
 
-  Lemma M_run_update_on_list_snoc_fun :
+(*  Lemma M_run_update_on_list_snoc_fun :
     forall {S} {n} {nm}
            (upd : M_Update n nm S)
            (l : oplist (cio_I (fio nm)))
@@ -2169,11 +2956,10 @@ Section ComponentSM.
   Proof.
     introv; apply functional_extensionality; introv.
     apply M_run_update_on_list_snoc.
-  Qed.
+  Qed.*)
 
   Definition similar_sms_at {cn} {k} (p1 p2 : n_proc_at k cn) : Prop :=
-    sm_halted p1 = sm_halted p2
-    /\ sm_update p1 = sm_update p2.
+    sm_update p1 = sm_update p2.
 
   Lemma similar_sms_at_refl :
     forall cn k (p : n_proc_at k cn),
@@ -2403,9 +3189,9 @@ Section ComponentSM.
       -> (forall subs' out ls,
              F subs' out = Some ls
              -> similar_subs subs subs'
-             -> similar_subs subs' (ls_subs ls))
+             -> similar_subs subs' ls)
       -> M_break sm subs F = Some ls
-      -> similar_subs subs (ls_subs ls).
+      -> similar_subs subs ls.
   Proof.
     introv impsm impF h.
     unfold M_break in h.
@@ -2413,7 +3199,7 @@ Section ComponentSM.
     apply impsm in Heqk; eauto 3 with comp.
   Qed.
 
-  Lemma M_run_update_on_list_preserves_subs :
+(*  Lemma M_run_update_on_list_preserves_subs :
     forall {n : nat} {nm : CompName} {S : Type} {Lv Sp}
            (l  : oplist (cio_I (fio nm)))
            (s  : S)
@@ -2424,7 +3210,7 @@ Section ComponentSM.
       -> (forall subs' out ls, F subs' out = Some ls -> similar_subs subs subs' -> similar_subs subs' (ls_subs ls))
       -> (forall subs, F subs None = None)
       -> M_break (M_run_update_on_list s sm l) subs F = Some ls
-      -> similar_subs subs (ls_subs ls).
+      -> similar_subs subs ls.
   Proof.
     induction l; introv impsm impF fnone h; simpl in *; autorewrite with comp in *; simpl in *; ginv;
       simpl in *; eauto 3 with comp;[].
@@ -2450,74 +3236,87 @@ Section ComponentSM.
     { introv h q; eapply impsm; eauto; eauto 3 with comp. }
 
     { introv h q; eapply impF; eauto; eauto 3 with comp. }
-  Qed.
+  Qed.*)
 
   Lemma similar_subs_preserves_find_name :
     forall {n} cn (subs1 subs2 : n_procs n) s,
       similar_subs subs1 subs2
       -> find_name cn subs1 = Some s
-      -> exists s', find_name cn subs2 = Some s'.
+      -> exists s', find_name cn subs2 = Some s' /\ similar_sms s s'.
   Proof.
     induction subs1; introv sim h; simpl in *; ginv;[].
     inversion sim; subst; clear sim.
-    destruct a, p2; simpl in *; repeat dest_cases w; subst; simpl in *; ginv; eauto.
-    inversion simp; subst; clear simp; tcsp.
+    inversion simp; clear simp; auto; subst; simpl in *.
+    match goal with
+    | [ H : context[p1] |- _ ] => rename H into h1
+    end.
+    match goal with
+    | [ H : context[p2] |- _ ] => rename H into h2
+    end.
+    apply Eqdep.EqdepTheory.inj_pair2 in h1; subst; simpl in *; auto.
+    apply Eqdep.EqdepTheory.inj_pair2 in h2; subst; simpl in *; auto.
+    dest_cases w; subst; simpl in *; ginv; eauto.
   Qed.
 
-  Lemma state_of_subcomponents_if_similar :
+  Lemma state_of_component_if_similar :
     forall {n} cn (subs1 subs2 : n_procs n) s,
       similar_subs subs1 subs2
-      -> state_of_subcomponents subs1 cn = Some s
-      -> exists s', state_of_subcomponents subs2 cn = Some s'.
+      -> state_of_component cn subs1 = Some s
+      -> exists s', state_of_component cn subs2 = Some s'.
   Proof.
     introv sim h.
-    unfold state_of_subcomponents in *.
+    unfold state_of_component in *.
     apply option_map_Some in h; exrepnd; subst.
     eapply similar_subs_preserves_find_name in h1;[|eauto].
-    exrepnd; rewrite h0; simpl; eauto.
+    exrepnd; rewrite h1; simpl; eauto.
   Qed.
-  Hint Resolve state_of_subcomponents_if_similar : comp.
+  Hint Resolve state_of_component_if_similar : comp.
 
-  Definition ls_preserves_subs {L S} (ls : LocalSystem L S) :=
-    forall s i subs1,
-      similar_subs (ls_subs ls) subs1
-      -> M_break
-           (sm_update (ls_main ls) s i)
-           subs1
-           (fun subs2 _ => similar_subs subs1 subs2).
+  (* TODO: why is that just for the main component? *)
+  Definition ls_preserves_subs {n} (ls : n_procs n) :=
+    forall (cn : CompName) (i : cio_I (fio cn)) (ls0 : n_procs n),
+      similar_subs ls ls0
+      -> similar_subs ls0 (M_run_ls_on_input_ls ls0 cn i).
 
   Definition sys_preserves_subs {F} (sys : M_USystem F) :=
     forall cn, ls_preserves_subs (sys cn).
 
-  Lemma ls_preserves_subs_implies_M_run_update_on_list :
-    forall {Lv Sp} (ls : LocalSystem Lv Sp) L s subs1,
+  Lemma M_run_ls_on_input_preserves_ls_preserves_subs :
+    forall {n} (ls : n_procs n) cn i,
       ls_preserves_subs ls
-      -> similar_subs (ls_subs ls) subs1
-      -> M_break
-           (M_run_update_on_list
-              s
-              (sm_update (ls_main ls))
-              L)
-           subs1
-           (fun subs2 _ => similar_subs (ls_subs ls) subs2).
+      -> ls_preserves_subs (M_run_ls_on_input_ls ls cn i).
   Proof.
-    induction L; introv pres q; simpl in *; autorewrite with comp; tcsp.
-    destruct a; simpl; autorewrite with comp; tcsp.
-    unfold M_break, M_on_some; repeat (dest_cases w); repnd; simpl in *;
-      subst; simpl in *; ginv; unfold ret in *; simpl in *; ginv;[|].
+    introv pres sim.
+    apply pres; eauto 3 with comp.
+  Qed.
 
-    { pose proof (IHL w w0) as IHL.
-      pose proof (pres s c subs1 q) as pres'.
-      unfold M_break in *; simpl in *; repeat (dest_cases z); ginv.
-      repeat (autodimp IHL hyp); eauto 3 with comp. }
+  Lemma M_run_ls_on_inputs_preserves_ls_preserves_subs :
+    forall {n} cn l (ls1 ls2 : n_procs n),
+      M_run_ls_on_op_inputs ls1 cn l = Some ls2
+      -> ls_preserves_subs ls1
+      -> ls_preserves_subs ls2.
+  Proof.
+    induction l; introv run1 pres sim; simpl in *; tcsp; ginv; eauto 3 with comp.
+    apply map_option_Some in run1; exrepnd; subst; rev_Some.
+    apply IHl in run0; eauto 3 with comp.
+    eapply M_run_ls_on_input_preserves_ls_preserves_subs; eauto.
+  Qed.
 
-    { pose proof (pres s c subs1 q) as pres'.
-      unfold M_break in *; simpl in *; repeat (dest_cases z); ginv.
-      eauto 3 with comp. }
+  Lemma ls_preserves_subs_implies_M_run_update_on_list :
+    forall {n} cn L (ls : n_procs n) ls',
+      ls_preserves_subs ls
+      -> M_run_ls_on_op_inputs ls cn L = Some ls'
+      -> similar_subs ls ls'.
+  Proof.
+    induction L; introv pres q; simpl in *; autorewrite with comp;
+      tcsp; ginv; eauto 3 with comp.
+    apply map_option_Some in q; exrepnd; subst; simpl in *; rev_Some.
+    apply IHL in q0; eauto 4 with comp.
+    eapply M_run_ls_on_input_preserves_ls_preserves_subs; eauto.
   Qed.
   Hint Resolve ls_preserves_subs_implies_M_run_update_on_list : comp.
 
-  Lemma ls_preserves_subs_implies_M_run_update_on_list2 :
+(*  Lemma ls_preserves_subs_implies_M_run_update_on_list2 :
     forall {Lv Sp} (ls : LocalSystem Lv Sp) L s,
       ls_preserves_subs ls
       -> M_break
@@ -2532,7 +3331,37 @@ Section ComponentSM.
     pose proof (ls_preserves_subs_implies_M_run_update_on_list ls L s (ls_subs ls) pres) as q.
     unfold M_break in *; dest_cases w; apply q; eauto 3 with comp.
   Qed.
-  Hint Resolve ls_preserves_subs_implies_M_run_update_on_list2 : comp.
+  Hint Resolve ls_preserves_subs_implies_M_run_update_on_list2 : comp.*)
+
+  Lemma M_run_ls_on_op_inputs_app :
+    forall {n}
+           (ls : n_procs n)
+           {cn}
+           (l k : oplist (cio_I (fio cn))),
+      M_run_ls_on_op_inputs ls cn (l ++ k)
+      = on_some
+          (M_run_ls_on_op_inputs ls cn l)
+          (fun ls' => M_run_ls_on_op_inputs ls' cn k).
+  Proof.
+    introv; revert ls k; induction l; introv; simpl; auto.
+    unfold on_some.
+    rewrite map_option_map_option.
+    destruct a; simpl; auto.
+    unfold option_compose2; simpl.
+    rewrite IHl; auto.
+  Qed.
+
+  Lemma M_run_ls_on_inputs_app :
+    forall {n}
+           (ls : n_procs n)
+           {cn}
+           (l k : list (cio_I (fio cn))),
+      M_run_ls_on_inputs ls cn (l ++ k)
+      = let ls' := M_run_ls_on_inputs ls cn l in
+        M_run_ls_on_inputs ls' cn k.
+  Proof.
+    introv; revert ls k; induction l; introv; simpl; auto.
+  Qed.
 
   Lemma M_state_sys_on_event_some_between :
     forall {eo : EventOrdering} (e1 e2 : Event) {F} (sys : M_USystem F) cn (s : sf cn),
@@ -2556,9 +3385,11 @@ Section ComponentSM.
 
     unfold M_state_ls_on_event in *; simpl in *.
     unfold M_run_ls_on_event in *; simpl in *.
-    unfold M_state_sm_on_event in *; simpl in *.
-    unfold M_run_sm_on_event in *; simpl in *.
-    unfold M_run_update_on_event in *; simpl in *.
+    unfold M_run_ls_before_event in *; simpl in *.
+
+    apply map_option_Some in eqs; exrepnd; rev_Some.
+    apply map_option_Some in eqs1; exrepnd; rev_Some.
+    apply map_option_Some in eqs2; exrepnd; rev_Some; ginv.
 
     pose proof (local_happened_before_implies_history_app2 _ _ lte) as q; exrepnd.
 
@@ -2567,73 +3398,49 @@ Section ComponentSM.
       rewrite snoc_as_app.
       rewrite <- app_assoc; simpl; auto. }
     rewrite eqx in q0; clear eqx.
-    rewrite q0 in eqs; clear q0.
+    rewrite q0 in eqs1; clear q0.
 
-    rewrite map_app in eqs.
-    rewrite map_snoc in eqs.
+    rewrite map_app in eqs1.
+    rewrite map_snoc in eqs1.
+    rewrite M_run_ls_on_op_inputs_app in eqs1.
+    rewrite M_run_ls_on_op_inputs_snoc in eqs1.
+    apply map_option_Some in eqs1; exrepnd; rev_Some.
+    apply map_option_Some in eqs1; exrepnd; rev_Some.
+    apply map_option_Some in eqs4; exrepnd; rev_Some; ginv.
 
-    rewrite @M_run_update_on_list_app in eqs.
-    rewrite @M_run_update_on_list_snoc in eqs.
-    rewrite (crazy_bind_option2 _ (sm_update (ls_main ls))).
-    rewrite (crazy_bind_option2 _ (sm_update (ls_main ls))) in eqs.
+    allrw; simpl in *.
 
-    fold (M_StateMachine (fls_level F (loc e1))) in *.
-    fold (n_proc (fls_level F (loc e1))) in *.
-    simpl in *.
-    match goal with
-    | [ |- context[M_break ?x] ] => remember x as w
-    end.
+    applydup @M_run_ls_on_inputs_preserves_ls_preserves_subs in eqs1 as pres1; auto;[].
+    pose proof (M_run_ls_on_input_preserves_ls_preserves_subs a2 (msg_comp_name (fls_space F (loc e1))) a3) as pres2; autodimp pres2 hyp.
+    applydup @M_run_ls_on_inputs_preserves_ls_preserves_subs in eqs3 as pres3; auto;[].
 
-    rewrite <- M_run_update_on_list_snoc in Heqw.
-    assert (M_break w (ls_subs ls) (fun subs _ => similar_subs (ls_subs ls) subs)) as sub1.
-    { subst; eauto 3 with comp. }
+    applydup @ls_preserves_subs_implies_M_run_update_on_list in eqs3 as sim1; auto;[].
+    pose proof (pres3 (msg_comp_name (fls_space F(loc e1))) a1 a0) as sim2; autodimp sim2 hyp; eauto 3 with comp.
 
-    clear Heqw.
-    repeat rewrite bind_some_bind_some in eqs.
-    rewrite <- M_run_update_on_list_snoc_fun in eqs.
-    rewrite M_break_bind_some in eqs; simpl; tcsp;[].
-
-    erewrite eq_M_break in eqs;
-      [|introv;rewrite @M_break_M_on_some_option_map;[reflexivity|];simpl;auto].
-
-    apply map_option_Some in eqs; exrepnd.
-    symmetry in eqs0.
-
-
-    (* REDO WITHOUT UNFOLDING  *)
-    unfold M_break in eqs1 at 1; unfold M_break.
-    remember (w (ls_subs ls)) as q; repnd; symmetry in Heqq.
-    Opaque CompNameDeq.
-    destruct q; simpl in *; ginv;[].
-    repnd.
-    apply M_run_update_on_list_preserves_subs in eqs1; simpl; auto;
-      try (complete (introv z; destruct out; simpl; ginv; simpl; eauto 3 with comp));[|].
-
-    { dest_cases w; eauto.
-      unfold state_of_component in eqs0.
-      destruct a; simpl in *; subst.
-      dest_cases w; GC; eauto 3 with comp. }
-
-    { introv eqls sim.
-      pose proof (pres s1 i subs1) as pres.
-      unfold M_break in pres;rewrite eqls in pres; apply pres.
-      unfold M_break in sub1; rewrite Heqq in sub1; eauto 3 with comp. }
+    eapply similar_subs_trans in sim2;[|exact sim1].
+    apply similar_subs_sym in sim2.
+    eapply state_of_component_if_similar in eqs0; try exact sim2; auto.
   Qed.
 
+  Definition M_output_ls_on_this_one_event
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             {eo : EventOrdering}
+             (e  : Event) : DirectedMsgs :=
+    olist2list
+      (on_some
+         (trigger_op e)
+         (M_run_ls_on_input_out ls (msg_comp_name Sp))).
 
   Definition M_output_ls_on_event
              {Lv Sp}
-             (ls : MLocalSystem Lv Sp)
+             (ls : LocalSystem Lv Sp)
              {eo : EventOrdering}
              (e  : Event) : DirectedMsgs :=
-    M_break
-      (M_output_sm_on_event (at2sm (ls_main ls)) e)
-      (ls_subs ls)
-      (fun subs' out =>
-         match out with
-         | Some msgs => msgs
-         | None => []
-         end).
+    olist2list
+      (option_map
+         (fun ls' => M_output_ls_on_this_one_event ls' e)
+         (M_run_ls_before_event ls e)).
 
   Definition M_output_sys_on_event
              {F}
@@ -2642,24 +3449,10 @@ Section ComponentSM.
              (e   : Event) : DirectedMsgs :=
     M_output_ls_on_event (sys (loc e)) e.
 
-  Definition M_output_ls_on_this_one_event
-             {Lv Sp}
-             (ls : MLocalSystem Lv Sp)
-             {eo : EventOrdering}
-             (e  : Event) : DirectedMsgs :=
-    match trigger_op e with
-    | Some i =>
-      M_break
-        (sm_update (ls_main ls) (sm_state (ls_main ls)) i)
-        (ls_subs ls)
-        (fun subs' out => snd out)
-    | None => []
-    end.
-
   (* REDO WITHOUT UNFOLDING MONAD *)
   Lemma M_output_ls_on_event_as_run_before :
     forall {Lv Sp}
-           (ls : MLocalSystem Lv Sp)
+           (ls : LocalSystem Lv Sp)
            {eo : EventOrdering}
            (e  : Event),
       M_output_ls_on_event ls e
@@ -2669,30 +3462,13 @@ Section ComponentSM.
         end.
   Proof.
     introv.
-    unfold M_output_ls_on_event, M_break in *.
-    unfold M_output_sm_on_event, M_on_some, bind in *.
-    unfold M_run_sm_on_event in *.
-    unfold M_run_ls_before_event.
-    unfold M_state_sm_before_event.
-    unfold M_run_update_on_event.
-    unfold M_run_sm_on_list.
-    remember (M_run_update_on_list
-                (sm2state (at2sm ls))
-                (sm2update (at2sm ls))
-                (map trigger_op History( e))) as q.
-    unfold M_output_ls_on_this_one_event.
-    unfold M_op_update.
-    unfold bind_some, bind, M_on_some, M_break; simpl.
-
-    fold (M_StateMachine Lv) in *.
-    fold (n_proc Lv) in *.
-    repeat (dest_cases w; subst; repnd; simpl in *; ginv);[].
-    inversion Heqw1; subst; auto.
+    unfold M_output_ls_on_event.
+    remember (M_run_ls_before_event ls e) as run; destruct run; simpl; auto.
   Qed.
 
   Lemma M_output_ls_on_event_as_run :
     forall {Lv Sp}
-           (ls : MLocalSystem Lv Sp)
+           (ls : LocalSystem Lv Sp)
            {eo : EventOrdering}
            (e  : Event)
            (m  : DirectedMsg),
@@ -2711,7 +3487,7 @@ Section ComponentSM.
 
   Lemma M_output_ls_on_event_implies_run :
     forall {Lv Sp}
-           (ls : MLocalSystem Lv Sp)
+           (ls : LocalSystem Lv Sp)
            {eo : EventOrdering}
            (e  : Event)
            (m  : DirectedMsg),
@@ -2821,37 +3597,38 @@ Section ComponentSM.
         tsm_sm    : n_proc_at tsm_level (MkCN tsm_kind tsm_space true);
       }.
 
-  Definition state_of_trusted (tsm : trustedSM) : tsf :=
+  Definition tsm2pcn (tsm : trustedSM) : PreCompName :=
+    MkPreCompName (tsm_kind tsm) (tsm_space tsm).
+  Coercion tsm2pcn : trustedSM >-> PreCompName.
+
+  Definition state_of_trusted (tsm : trustedSM) : tsf tsm :=
     sm_state (tsm_sm tsm).
 
-  Definition updateTrustedSM (tsm : trustedSM) (new : tsf) : trustedSM :=
+  Definition updateTrustedSM (tsm : trustedSM) : tsf tsm -> trustedSM :=
     match tsm with
-    | MktrustedSM l k s sm => MktrustedSM l k s (update_state sm new)
+    | MktrustedSM l k s sm => fun new => MktrustedSM l k s (update_state sm new)
     end.
 
-  Definition haltTrustedSM (tsm : trustedSM) : trustedSM :=
+(*  Definition haltTrustedSM (tsm : trustedSM) : trustedSM :=
     match tsm with
     | MktrustedSM l k s sm => MktrustedSM l k s (halt_machine sm)
-    end.
+    end.*)
 
-  Fixpoint find_trusted {n:nat} (l : n_procs n) : option trustedSM :=
+  Fixpoint find_trusted {n:nat} (l : n_procs n) : n_procs n :=
     match l with
-    | [] => None
-    | MkPProc (MkCompName k s true) pr :: rest =>
-      Some (MktrustedSM (sm2level pr) k s (sm2at pr))
-    | _ :: rest => find_trusted rest
+    | [] => []
+    | comp :: rest =>
+      if is_trusted comp then comp :: find_trusted rest
+      else find_trusted rest
     end.
 
-  Definition find_trusted_sub {L S} (ls : LocalSystem L S) : option trustedSM :=
-    find_trusted (ls_subs ls).
-
-  Definition state_of_trusted_in_ls {L S} (ls : LocalSystem L S) : option tsf :=
-    option_map state_of_trusted (find_trusted_sub ls).
+  Definition find_trusted_sub {L S} (ls : LocalSystem L S) : n_procs L :=
+    find_trusted ls.
 
   (* We run the trusted with no subcomponents *)
-  Definition run_trustedSM_on_trigger_info {D}
+(*  Definition run_trustedSM_on_trigger_info {D}
              (tsm : trustedSM)
-             (ti  : trigger_info D) : trustedSM * iot_output :=
+             (ti  : trigger_info D) : trustedSM * iot_output (iot_fun tsm) :=
     match ti with
     | trigger_info_data d => (tsm, iot_def_output)
     | trigger_info_arbitrary => (tsm, iot_def_output)
@@ -2860,9 +3637,9 @@ Section ComponentSM.
       | (_, (Some s, out)) => (updateTrustedSM tsm s, out)
       | (_, (None, out)) => (haltTrustedSM tsm, out)
       end
-    end.
+    end.*)
 
-  Fixpoint run_trustedSM_on_trigger_info_list {D}
+(*  Fixpoint run_trustedSM_on_trigger_info_list {D}
            (tsm : trustedSM)
            (l   : list (trigger_info D)) : trustedSM :=
     match l with
@@ -2871,17 +3648,17 @@ Section ComponentSM.
       run_trustedSM_on_trigger_info_list
         (fst (run_trustedSM_on_trigger_info tsm ti))
         l
-    end.
+    end.*)
 
-  Definition M_find_trusted {n} : M_n n (option trustedSM) :=
-    fun subs => ([], find_trusted subs).
+(*  Definition M_find_trusted {n} : M_n n (option trustedSM) :=
+    fun subs => ([], find_trusted subs).*)
 
-  Definition run_trusted_on_trigger_info_list {n} {D}
+(*  Definition run_trusted_on_trigger_info_list {n} {D}
              (l : list (trigger_info D)) : M_n n (option trustedSM) :=
     M_find_trusted
-      >>o= fun tsm => ret _ (Some (run_trustedSM_on_trigger_info_list tsm l)).
+      >>o= fun tsm => ret _ (Some (run_trustedSM_on_trigger_info_list tsm l)).*)
 
-  Definition M_trusted (T : Type) := T [+] trustedSM.
+(*  Definition M_trusted (T : Type) := T [+] trustedSM.
   Definition M_trusted_with_out (T : Type) := (option T * DirectedMsgs) [+] (trustedSM * iot_output).
   Definition M_trusted_out (T : Type) := T [+] iot_output.
   Definition M_trusted_msgs := M_trusted_out DirectedMsgs.
@@ -2943,9 +3720,9 @@ Section ComponentSM.
   Definition M_run_trusted_on_trigger_info_list {n} {S} {D}
              (l : list (trigger_info D)) : M_n n (option (M_trusted S)) :=
     (run_trusted_on_trigger_info_list l)
-      >>o= fun tsm => ret _ (Some (M_t tsm)).
+      >>o= fun tsm => ret _ (Some (M_t tsm)).*)
 
-  (* As opposed to [M_run_update_on_list] below, this one starts running the (first)
+(*  (* As opposed to [M_run_update_on_list] below, this one starts running the (first)
      trusted component as soon as we encounter an abnormal event, discarding the
      other subcomponents (meaning that a trusted component cannot use other components
      with this simple implementation).  Once we start running the trusted component,
@@ -3007,26 +3784,210 @@ Section ComponentSM.
     match op with
     | Some t => f t
     | None => M_nt_o []
+    end.*)
+
+  (*Definition to_opt_snd
+             {A B}
+             (x : A * B)
+    : A * option B :=
+    let (a,b) := x in (a, Some b).*)
+
+(*  Definition M_byz_run_ls_on_input
+             {lvl Sp}
+             (ls : LocalSystem lvl Sp)
+             cn
+             (i  : cio_I (fio cn)) : option (LocalSystem lvl cn) * option (cio_O (fio cn)) :=
+    match ls_status ls with
+    | ls_is_ok  => to_opt_snd (M_run_ls_on_input ls i)
+    | ls_is_byz => (Some (upd_ls_byz ls), None)
+    end.*)
+
+  Definition pre2trusted (p : PreCompName) : CompName :=
+    MkCompName p true.
+
+  Definition trigger_info2out {A} cn (i : trigger_info A) : Type :=
+    match i with
+    | trigger_info_data _ => cio_O (fio cn)
+    | trigger_info_arbitrary => False
+    | trigger_info_trusted j => iot_output (iot_fun (it_name j))
     end.
 
-  Definition M_byz_output_ls_on_event
+  Definition event2out space {eo : EventOrdering} (e : Event) : Type :=
+    trigger_info2out (msg_comp_name space) (trigger e).
+
+  Inductive M_byz_output {A} cn (i : trigger_info A) :=
+  | m_byz_output_msg   (m : cio_O (fio cn))
+  | m_byz_output_event (j : trigger_info2out cn i)
+  | m_byz_output_no.
+
+  Definition event2M_byz_output space {eo : EventOrdering} (e : Event) :=
+    M_byz_output (msg_comp_name space) (trigger e).
+
+(*  Definition event2out_to_byz {Sp} {eo : EventOrdering} {e}
+             (x : event2out Sp e) : event2M_byz_output Sp e.
+  Proof.
+    unfold event2out, event2M_byz_output in *.
+    destruct (trigger e).
+    { exact (m_byz_output_msg _ _ x). }
+    { destruct x. }
+    { exact (m_byz_output_event _ _ x). }
+  Defined.
+
+  Definition op_event2out_to_byz {Sp} {eo : EventOrdering} {e}
+             (x : option (event2out Sp e))
+    : event2M_byz_output Sp e :=
+    match x with
+    | Some z => event2out_to_byz z
+    | None => m_byz_output_no _ _
+    end.*)
+
+(*  Definition trigger_info2state {A} cn (i : trigger_info A) : Type :=
+    match i with
+    | trigger_info_data d => sf cn
+    | trigger_info_arbitrary => False
+    | trigger_info_trusted j => sf (pre2trusted (it_name j))
+    end.
+
+  Definition event2state cn {eo : EventOrdering} (e : Event) : Type :=
+    trigger_info2out cn (trigger e).*)
+
+  Fixpoint procs2byz {n} (ls : n_procs n) : n_procs n :=
+    match ls with
+    | [] => []
+    | comp :: rest =>
+      if is_trusted comp then comp :: procs2byz rest
+      else procs2byz rest
+    end.
+
+  Definition M_run_ls_on_trusted
+             {n}
+             (ls : n_procs n)
+             (i  : ITrusted) : n_procs n * option (cio_O (fio (pre2trusted (it_name i)))) :=
+    M_run_ls_on_input ls (pre2trusted (it_name i)) (it_input i).
+
+  Definition M_byz_run_ls_on_input
+             {n}
+             (ls : n_procs n)
+             cn
+             (i  : trigger_info (cio_I (fio cn)))
+    : n_procs n * option (trigger_info2out cn i) :=
+    match i with
+    | trigger_info_data d => M_run_ls_on_input ls cn d
+    | trigger_info_arbitrary => (procs2byz ls, None)
+    | trigger_info_trusted j => M_run_ls_on_trusted (procs2byz ls) j
+    end.
+
+  Definition to_snd_byz_msg
+             {A} {B} {i : trigger_info B} {cn}
+             (x : A * option (cio_O (fio cn)))
+  : A * M_byz_output cn i :=
+    match x with
+    | (a,Some o) => (a,m_byz_output_msg _ _ o)
+    | (a,None) => (a,m_byz_output_msg _ _ (cio_default_O (fio cn)))
+    end.
+
+  Lemma mk_ti2out_trusted
+        {A : Type} {cn : CompName} {t : ITrusted}
+        (x : iot_output (iot_fun (it_name t)))
+    : @trigger_info2out A cn (trigger_info_trusted t).
+  Proof.
+    exact x.
+  Defined.
+
+  Lemma to_snd_byz_event
+        {I A : Type} {cn : CompName}{t : ITrusted}
+        (x : A * option (iot_output (iot_fun (it_name t))))
+    : A * @M_byz_output I cn (trigger_info_trusted t).
+  Proof.
+    destruct x as [a o]; simpl in *.
+    destruct o as [o|].
+    { exact (a,m_byz_output_event _ _ (mk_ti2out_trusted o)). }
+    { exact (a,m_byz_output_no _ _). }
+  Defined.
+
+  (*(* Similar to [M_byz_run_ls_on_trig], but tags the output here *)
+  Definition M_byz_run_ls_on_input_B
              {Lv Sp}
-             (ls : MLocalSystem Lv Sp)
+             (ls : LocalSystem Lv Sp)
+             cn
+             (i  : trigger_info (cio_I (fio cn)))
+    : LocalSystem Lv Sp * M_byz_output cn i :=
+    match i with
+    | trigger_info_data d => to_snd_byz_msg (M_run_ls_on_input ls cn d)
+    | trigger_info_arbitrary => (ls2byz ls, m_byz_output_no _ _)
+    | trigger_info_trusted j => to_snd_byz_event (M_run_ls_on_trusted (ls2byz ls) j)
+    end.*)
+
+  Definition M_byz_run_ls_on_one_event
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
              {eo : EventOrdering}
-             (e  : Event) : M_trusted_msgs :=
-    M_break
-      (M_byz_output_sm_on_event (at2sm (ls_main ls)) e)
-      (ls_subs ls)
-      (fun subs' out => on_Some_t_o out (fun x => x)).
+             (e  : Event)
+    : LocalSystem Lv Sp * option (event2out Sp e) :=
+    M_byz_run_ls_on_input ls (msg_comp_name Sp) (trigger e).
+
+  (*Definition M_byz_run_ls_on_one_event_B
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             {eo : EventOrdering}
+             (e  : Event)
+    : LocalSystem Lv Sp * event2M_byz_output Sp e :=
+    M_byz_run_ls_on_input_B ls (msg_comp_name Sp) (trigger e).*)
+
+  Fixpoint M_byz_run_ls_on_inputs
+           {n}
+           (ls : n_procs n)
+           cn
+           (l  : list (trigger_info (cio_I (fio cn))))
+    : n_procs n :=
+    match l with
+    | [] => ls
+    | i :: rest =>
+      let ls' := fst (M_byz_run_ls_on_input ls cn i) in
+      M_byz_run_ls_on_inputs ls' cn rest
+    end.
+
+  Definition M_byz_run_ls_before_event
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             {eo : EventOrdering}
+             (e  : Event) : LocalSystem Lv Sp :=
+    M_byz_run_ls_on_inputs
+      ls
+      (msg_comp_name Sp)
+      (map trigger (@localPreds pn pk pm _ _ eo e)).
+
+  Definition M_byz_output_ls_on_event
+             {L S}
+             (ls : LocalSystem L S)
+             {eo : EventOrdering}
+             (e  : Event) : option (event2out S e) :=
+    let ls' := M_byz_run_ls_before_event ls e in
+    snd (M_byz_run_ls_on_one_event ls' e).
+
+  (*Definition M_byz_output_ls_on_event_B
+             {L S}
+             (ls : LocalSystem L S)
+             {eo : EventOrdering}
+             (e  : Event) : event2M_byz_output S e :=
+    let ls' := M_byz_run_ls_before_event ls e in
+    snd (M_byz_run_ls_on_one_event_B ls' e).*)
 
   Definition M_byz_output_sys_on_event
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
-             (e   : Event) : M_trusted_msgs :=
+             (e   : Event) : option (event2out _ e) :=
     M_byz_output_ls_on_event (sys (loc e)) e.
 
-  Definition M_byz_output_sys_on_event_to_byz
+  (*Definition M_byz_output_sys_on_event_B
+             {F}
+             (sys : M_USystem F)
+             {eo  : EventOrdering}
+             (e   : Event) : event2M_byz_output _ e :=
+    M_byz_output_ls_on_event_B (sys (loc e)) e.*)
+
+(*  Definition M_byz_output_sys_on_event_to_byz
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
@@ -3034,45 +3995,45 @@ Section ComponentSM.
     on_M_trusted_out
       (M_byz_output_sys_on_event sys e)
       (fun _ => iot_def_output)
-      (fun out => out).
+      (fun out => out).*)
 
-  Definition M_byz_run_sm_on_list {n} {cn}
+(*  Definition M_byz_run_sm_on_list {n} {cn}
              (sm : n_proc n cn)
              (l  : list (trigger_info (cio_I (fio cn))))
     : M_n (sm2level sm) (option (M_trusted (sf cn))) :=
-    M_byz_run_update_on_list (sm2state sm) (sm2update sm) l.
+    M_byz_run_update_on_list (sm2state sm) (sm2update sm) l.*)
 
-  Definition M_byz_state_sm_before_event {n} {k}
+(*  Definition M_byz_state_sm_before_event {n} {k}
              (sm : n_proc n (msg_comp_name k))
              {eo : EventOrdering}
              (e  : Event)
     : M_n (sm2level sm) (option (M_trusted (sf (msg_comp_name k)))) :=
-    M_byz_run_sm_on_list sm (map trigger (@localPreds pn pk pm _ _ eo e)).
+    M_byz_run_sm_on_list sm (map trigger (@localPreds pn pk pm _ _ eo e)).*)
 
-  Definition map_untrusted {T} {A}
+(*  Definition map_untrusted {T} {A}
              (x : M_trusted T)
              (F : T -> A) : M_trusted A :=
-    on_M_trusted x (fun t => M_nt (F t)) M_t.
+    on_M_trusted x (fun t => M_nt (F t)) M_t.*)
 
-  Definition map_untrusted_op {T} {A}
+(*  Definition map_untrusted_op {T} {A}
              (x : M_trusted T)
              (F : T -> option A) : option (M_trusted A) :=
     on_M_trusted
       x
       (fun t => option_map M_nt (F t))
-      (fun tsm => Some (M_t tsm)).
+      (fun tsm => Some (M_t tsm)).*)
 
-  Definition map_op_untrusted {T} {A}
+(*  Definition map_op_untrusted {T} {A}
              (x : option (M_trusted T))
              (F : T -> A) : option (M_trusted A) :=
-    option_map (fun mt => map_untrusted mt F) x.
+    option_map (fun mt => map_untrusted mt F) x.*)
 
-  Definition map_op_untrusted_op {T} {A}
+(*  Definition map_op_untrusted_op {T} {A}
              (x : option (M_trusted T))
              (F : T -> option A) : option (M_trusted A) :=
-    map_option (fun mt => map_untrusted_op mt F) x.
+    map_option (fun mt => map_untrusted_op mt F) x.*)
 
-  Definition M_byz_run_ls_before_event
+(*  Definition M_byz_run_ls_before_event
              {L S}
              (ls : MLocalSystem L S)
              {eo : EventOrdering}
@@ -3083,27 +4044,29 @@ Section ComponentSM.
       (fun subs' out =>
          map_op_untrusted
            out
-           (fun s => upd_ls_main_state_and_subs ls s subs')).
+           (fun s => upd_ls_main_state_and_subs ls s subs')).*)
 
   Definition M_byz_state_ls_before_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
              (e  : Event)
-             (cn : CompName) : option (M_trusted (sf cn)) :=
-    map_op_untrusted_op
-      (M_byz_run_ls_before_event ls e)
-      (state_of_component cn).
+             (cn : CompName) : option (sf cn) :=
+    let ls' := M_byz_run_ls_before_event ls e in
+    state_of_component cn ls'.
 
   Definition M_byz_state_sys_before_event
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
              (e   : Event)
-             (cn  : CompName) : option (M_trusted (sf cn)) :=
+             (cn  : CompName) : option (sf cn) :=
     M_byz_state_ls_before_event (sys (loc e)) e cn.
 
-  Definition M_byz_state_ls_before_event_of_trusted
+(*  Definition state_of_trusted_in_ls {L S} (ls : LocalSystem L S) : option tsf :=
+    option_map state_of_trusted (find_trusted_sub ls).*)
+
+(*  Definition M_byz_state_ls_before_event_of_trusted
              {L S}
              (ls : MLocalSystem L S)
              {eo : EventOrdering}
@@ -3114,54 +4077,48 @@ Section ComponentSM.
            mt
            state_of_trusted_in_ls
            (fun tsm => Some (state_of_trusted tsm)))
-      (M_byz_run_ls_before_event ls e).
+      (M_byz_run_ls_before_event ls e).*)
 
-  Definition M_byz_state_sys_before_event_of_trusted
+(*  Definition M_byz_state_sys_before_event_of_trusted
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
              (e   : Event) : option tsf :=
-    M_byz_state_ls_before_event_of_trusted (sys (loc e)) e.
+    M_byz_state_ls_before_event_of_trusted (sys (loc e)) e.*)
 
-  Definition M_byz_state_sm_on_event {n} {k}
+(*  Definition M_byz_state_sm_on_event {n} {k}
              (sm : n_proc n (msg_comp_name k))
              {eo : EventOrdering}
              (e  : Event) : M_n (sm2level sm) (option (M_trusted (sf (msg_comp_name k)))) :=
   (M_byz_run_sm_on_event sm e)
-    >>o= fun mt => ret _ (to_op_M_trusted mt).
+    >>o= fun mt => ret _ (to_op_M_trusted mt).*)
 
   Definition M_byz_run_ls_on_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
-             (e  : Event) : option (M_trusted (LocalSystem _ _)) :=
-    M_break
-      (M_byz_state_sm_on_event (at2sm (ls_main ls)) e)
-      (ls_subs ls)
-      (fun subs' out =>
-         map_op_untrusted
-           out
-           (fun s => upd_ls_main_state_and_subs ls s subs')).
+             (e  : Event) : LocalSystem L S :=
+    let ls' := M_byz_run_ls_before_event ls e in
+    fst (M_byz_run_ls_on_one_event ls' e).
 
   Definition M_byz_state_ls_on_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
              (e  : Event)
-             (cn : CompName) : option (M_trusted (sf cn)) :=
-    map_op_untrusted_op
-      (M_byz_run_ls_on_event ls e)
-      (state_of_component cn).
+             (cn : CompName) : option (sf cn) :=
+    let ls' := M_byz_run_ls_on_event ls e in
+    state_of_component cn ls'.
 
   Definition M_byz_state_sys_on_event
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
              (e   : Event)
-             (cn  : CompName) : option (M_trusted (sf cn)) :=
+             (cn  : CompName) : option (sf cn) :=
     M_byz_state_ls_on_event (sys (loc e)) e cn.
 
-  Definition M_byz_state_ls_on_event_of_trusted
+(*  Definition M_byz_state_ls_on_event_of_trusted
              {L S}
              (ls : MLocalSystem L S)
              {eo : EventOrdering}
@@ -3172,16 +4129,16 @@ Section ComponentSM.
            mt
            state_of_trusted_in_ls
            (fun tsm => Some (state_of_trusted tsm)))
-      (M_byz_run_ls_on_event ls e).
+      (M_byz_run_ls_on_event ls e).*)
 
-  Definition M_byz_state_sys_on_event_of_trusted
+(*  Definition M_byz_state_sys_on_event_of_trusted
              {F}
              (sys : M_USystem F)
              {eo  : EventOrdering}
              (e   : Event) : option tsf :=
-    M_byz_state_ls_on_event_of_trusted (sys (loc e)) e.
+    M_byz_state_ls_on_event_of_trusted (sys (loc e)) e.*)
 
-  Lemma M_byz_state_sys_before_event_of_trusted_unfold :
+(*  Lemma M_byz_state_sys_before_event_of_trusted_unfold :
     forall {F}
            (sys : M_USystem F)
            {eo  : EventOrdering}
@@ -3196,9 +4153,9 @@ Section ComponentSM.
           (M_byz_run_ls_before_event (sys (loc e)) e).
   Proof.
     tcsp.
-  Qed.
+  Qed.*)
 
-  Lemma map_op_untrusted_option_map_M_nt :
+(*  Lemma map_op_untrusted_option_map_M_nt :
     forall {T A} (t : option T) (F : T -> A),
       map_op_untrusted
         (option_map M_nt t)
@@ -3210,9 +4167,9 @@ Section ComponentSM.
     introv.
     destruct t; simpl; auto.
   Qed.
-  Hint Rewrite @map_op_untrusted_option_map_M_nt : comp.
+  Hint Rewrite @map_op_untrusted_option_map_M_nt : comp.*)
 
-  Lemma M_break_map_op_untrusted_option_map_M_nt :
+(*  Lemma M_break_map_op_untrusted_option_map_M_nt :
     forall {n S T A}
            (t    : n_procs n -> S -> option T)
            (F    : n_procs n -> S -> T -> A)
@@ -3234,36 +4191,24 @@ Section ComponentSM.
     introv.
     apply eq_M_break; introv; autorewrite with comp; auto.
   Qed.
-  Hint Rewrite @M_break_map_op_untrusted_option_map_M_nt : comp.
+  Hint Rewrite @M_break_map_op_untrusted_option_map_M_nt : comp.*)
 
   Definition M_byz_run_ls_on_this_one_event
              {L S}
-             (ls : MLocalSystem L S)
+             (ls : LocalSystem L S)
              {eo : EventOrdering}
-             (e  : Event) : option (M_trusted (LocalSystem _ _)) :=
-    if_trigger_info_data
-      (trigger e)
-      (fun m =>
-         M_break
-           (sm_update (ls_main ls) (sm_state (ls_main ls)) m)
-           (ls_subs ls)
-           (fun subs' out =>
-              option_map
-                (fun s => M_nt (upd_ls_main_state_and_subs ls s subs'))
-                (fst out)))
-      (option_map
-         (fun tsm => M_t (fst (run_trustedSM_on_trigger_info tsm (trigger e))))
-         (find_trusted (ls_subs ls))).
+             (e  : Event) : LocalSystem _ _ :=
+    fst (M_byz_run_ls_on_one_event ls e).
 
-  Lemma M_nt_inj :
+(*  Lemma M_nt_inj :
     forall {T} (t1 t2 : T),
       M_nt t1 = M_nt t2
       -> t1 = t2.
   Proof.
     introv h; injection h; auto.
-  Qed.
+  Qed.*)
 
-  Lemma M_byz_run_ls_on_this_one_event_Some_M_nt_implies :
+(*  Lemma M_byz_run_ls_on_this_one_event_Some_M_nt_implies :
     forall {L S}
            (ls1 : MLocalSystem L S)
            {eo  : EventOrdering}
@@ -3293,9 +4238,9 @@ Section ComponentSM.
     destruct xx; repnd; simpl in *.
     apply option_map_Some in h; exrepnd; subst; simpl in *.
     apply M_nt_inj in h0; subst; auto.
-  Qed.
+  Qed.*)
 
-  Definition M_byz_run_M_trusted_ls_on_this_one_event
+(*  Definition M_byz_run_M_trusted_ls_on_this_one_event
              {L S}
              (mt : M_trusted (MLocalSystem L S))
              {eo : EventOrdering}
@@ -3303,9 +4248,9 @@ Section ComponentSM.
     on_M_trusted
       mt
       (fun ls => M_byz_run_ls_on_this_one_event ls e)
-      (fun tsm => Some (M_t (fst (run_trustedSM_on_trigger_info tsm (trigger e))))).
+      (fun tsm => Some (M_t (fst (run_trustedSM_on_trigger_info tsm (trigger e))))).*)
 
-  Lemma on_M_trusted_map_untrusted :
+(*  Lemma on_M_trusted_map_untrusted :
     forall {U T A} (x : M_trusted U) (f : U -> T) (F : T -> A) (G : trustedSM -> A),
       on_M_trusted (map_untrusted x f) F G
       = on_M_trusted x (compose F f) G.
@@ -3313,9 +4258,9 @@ Section ComponentSM.
     introv; unfold map_untrusted, on_M_trusted.
     destruct x; simpl; auto.
   Qed.
-  Hint Rewrite @on_M_trusted_map_untrusted : comp.
+  Hint Rewrite @on_M_trusted_map_untrusted : comp.*)
 
-  Lemma on_M_trusted_implies_or :
+(*  Lemma on_M_trusted_implies_or :
     forall {T} {A}
            (x : M_trusted T)
            (F : T -> A)
@@ -3327,25 +4272,25 @@ Section ComponentSM.
   Proof.
     introv h.
     destruct x; simpl in *; subst; tcsp;[left|right]; eexists; dands; reflexivity.
-  Qed.
+  Qed.*)
 
-  Lemma on_M_trusted_M_nt :
+(*  Lemma on_M_trusted_M_nt :
     forall {T A} (x : T) (F : T -> A) (G : trustedSM -> A),
       on_M_trusted (M_nt x) F G = F x.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite @on_M_trusted_M_nt : comp.
+  Hint Rewrite @on_M_trusted_M_nt : comp.*)
 
-  Lemma on_M_trusted_M_t :
+(*  Lemma on_M_trusted_M_t :
     forall {T A} (x : trustedSM) (F : T -> A) (G : trustedSM -> A),
       on_M_trusted (M_t x) F G = G x.
   Proof.
     tcsp.
   Qed.
-  Hint Rewrite @on_M_trusted_M_t : comp.
+  Hint Rewrite @on_M_trusted_M_t : comp.*)
 
-  Lemma M_break_on_M_trusted :
+(*  Lemma M_break_on_M_trusted :
     forall {n} {A} {S} {O}
            (a    : M_trusted A)
            (f    : A -> M_n n S)
@@ -3359,9 +4304,9 @@ Section ComponentSM.
           (fun tsm => M_break (g tsm) subs F).
   Proof.
     introv; destruct a; simpl; auto.
-  Qed.
+  Qed.*)
 
-  Lemma eq_on_M_trusted :
+(*  Lemma eq_on_M_trusted :
     forall {T} {A}
            (x : M_trusted T)
            (F1 F2 : T -> A)
@@ -3372,7 +4317,7 @@ Section ComponentSM.
   Proof.
     introv impa impb.
     destruct x; simpl; tcsp.
-  Qed.
+  Qed.*)
 
   Lemma M_break_if_trigger_info_data :
     forall {n} {S} {O} {D}
@@ -3405,52 +4350,21 @@ Section ComponentSM.
 
   Lemma M_byz_run_ls_on_event_unroll :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_byz_run_ls_on_event ls e
       = if dec_isFirst e
         then M_byz_run_ls_on_this_one_event ls e
         else
-          map_option
-            (fun ls => M_byz_run_M_trusted_ls_on_this_one_event ls e)
-            (M_byz_run_ls_before_event ls e).
+          let ls' := M_byz_run_ls_before_event ls e in
+          M_byz_run_ls_on_this_one_event ls' e.
   Proof.
     introv.
-    unfold M_byz_run_ls_on_event, M_byz_run_ls_before_event; simpl.
-    destruct ls; simpl.
-    unfold M_byz_state_sm_on_event, M_byz_state_sm_before_event.
-    unfold M_byz_run_sm_on_event.
-    unfold M_byz_run_update_on_event; simpl.
-    unfold M_byz_run_sm_on_list; simpl.
-    unfold M_byz_run_M_trusted_ls_on_this_one_event; simpl.
-    unfold M_byz_run_ls_on_this_one_event; simpl.
-    unfold trigger_op; simpl.
-
-    destruct (dec_isFirst e) as [d|d].
-
-    {
-      rewrite isFirst_implies_localPreds_eq; simpl; auto.
-      autorewrite with comp; simpl.
-      unfold M_op2M_trusted_with_out; simpl.
-      unfold M_op_update; simpl.
-      destruct (trigger e); simpl; auto;[| |]; auto_rw_bind.
-    }
-
-    auto_rw_bind.
-    rewrite M_break_bind_some; simpl; tcsp;[].
-    rewrite map_option_M_break.
-    apply eq_M_break; introv.
-    unfold map_op_untrusted.
-    rewrite map_option_option_map; unfold compose; simpl.
-    apply equal_map_options; introv eqs; subst; simpl in *.
-    autorewrite with comp; unfold compose; simpl.
-    rewrite M_break_on_M_trusted.
-    apply eq_on_M_trusted; introv; auto_rw_bind;[].
-    rewrite M_break_if_trigger_info_data.
-    apply eq_if_trigger_info_data; introv; auto_rw_bind;[].
-    apply eq_M_break; introv; auto_rw_bind.
-    rewrite option_map_option_map; unfold compose; simpl; auto.
+    unfold M_byz_run_ls_on_event; simpl.
+    destruct (dec_isFirst e) as [d|d]; simpl in *; auto.
+    unfold M_byz_run_ls_before_event.
+    rewrite isFirst_implies_localPreds_eq; auto.
   Qed.
 
   Lemma on_M_some_ret_Some :
@@ -3477,7 +4391,7 @@ Section ComponentSM.
     introv; destruct a; simpl; auto.
   Qed.
 
-  Lemma run_trustedSM_on_trigger_info_list_snoc :
+(*  Lemma run_trustedSM_on_trigger_info_list_snoc :
     forall {D} (l : list (trigger_info D)) x (tsm : trustedSM),
       run_trustedSM_on_trigger_info_list tsm (snoc l x)
       = fst (run_trustedSM_on_trigger_info
@@ -3485,9 +4399,9 @@ Section ComponentSM.
                x).
   Proof.
     induction l; introv; simpl; auto.
-  Qed.
+  Qed.*)
 
-  Lemma M_byz_run_update_on_list_snoc :
+(*  Lemma M_byz_run_update_on_list_snoc :
     forall {S} {n} {cn}
            (upd : M_Update n cn S)
            (l : list (trigger_info (cio_I (fio cn))))
@@ -3534,55 +4448,44 @@ Section ComponentSM.
     repeat rewrite bind_some_bind_some.
     apply eq_bind_some; introv; auto_rw_bind.
     rewrite run_trustedSM_on_trigger_info_list_snoc; auto.
+  Qed.*)
+
+  Lemma M_byz_run_ls_on_inputs_snoc :
+    forall {Lv Sp}
+           (ls : LocalSystem Lv Sp)
+           cn
+           (i  : trigger_info (cio_I (fio cn)))
+           (l  : list (trigger_info (cio_I (fio cn)))),
+      M_byz_run_ls_on_inputs ls cn (snoc l i)
+      = let ls' := M_byz_run_ls_on_inputs ls cn l in
+        fst (M_byz_run_ls_on_input ls' cn i).
+  Proof.
+    introv; revert ls; induction l; introv; simpl; tcsp.
   Qed.
 
   Lemma M_byz_run_ls_before_event_unroll :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_byz_run_ls_before_event ls e
       = if dec_isFirst e
-        then Some (M_nt ls)
-        else map_option
-               (fun ls => M_byz_run_M_trusted_ls_on_this_one_event ls (local_pred e))
-               (M_byz_run_ls_before_event ls (local_pred e)).
+        then ls
+        else let ls' := M_byz_run_ls_before_event ls (local_pred e) in
+             M_byz_run_ls_on_this_one_event ls' (local_pred e).
   Proof.
     introv.
-    unfold M_byz_run_ls_before_event; destruct ls; simpl.
-    unfold M_byz_state_sm_before_event.
-
-    destruct (dec_isFirst e) as [d|d].
-
-    { rewrite isFirst_implies_localPreds_eq; simpl; auto.
-      destruct ls_main0; simpl; auto. }
-
-    rewrite (localPreds_unroll e) at 1; auto; simpl.
-    unfold M_byz_run_sm_on_list; simpl.
+    unfold M_byz_run_ls_before_event.
+    destruct (dec_isFirst e) as [d|d]; simpl in *; auto.
+    { rewrite isFirst_implies_localPreds_eq; auto. }
+    rewrite (localPreds_unroll e); auto.
     rewrite map_snoc; simpl.
-    rewrite @M_byz_run_update_on_list_snoc.
-    rewrite map_option_M_break.
-    rewrite M_break_bind_some; simpl; tcsp;[].
-    apply eq_M_break; introv; simpl.
-    unfold map_op_untrusted.
-    rewrite map_option_option_map; unfold compose; simpl.
-    apply equal_map_options; introv; introv eqs; subst; simpl in *.
-
-    unfold M_byz_run_M_trusted_ls_on_this_one_event; simpl.
-    rewrite M_break_on_M_trusted; auto_rw_bind.
-    unfold compose; simpl.
-    apply eq_on_M_trusted; introv; auto_rw_bind;[].
-
-    unfold M_byz_run_ls_on_this_one_event.
-    rewrite M_break_if_trigger_info_data.
-    apply eq_if_trigger_info_data; introv; auto_rw_bind;[].
-    apply eq_M_break; introv; auto_rw_bind.
-    rewrite option_map_option_map; unfold compose; simpl; auto.
+    rewrite @M_byz_run_ls_on_inputs_snoc; auto.
   Qed.
 
   Lemma M_byz_run_ls_before_event_as_M_byz_run_ls_on_event_pred :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       ~ isFirst e
@@ -3601,12 +4504,12 @@ Section ComponentSM.
 
   Lemma M_byz_run_ls_before_event_unroll_on :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_byz_run_ls_before_event ls e
       = if dec_isFirst e
-        then Some (M_nt ls)
+        then ls
         else M_byz_run_ls_on_event ls (local_pred e).
   Proof.
     introv.
@@ -3616,7 +4519,7 @@ Section ComponentSM.
     destruct (dec_isFirst e); tcsp.
   Qed.
 
-  Lemma unroll_M_byz_state_ls_before_event_of_trusted :
+(*  Lemma unroll_M_byz_state_ls_before_event_of_trusted :
     forall {eo : EventOrdering} (e : Event)
            {L S} (ls : MLocalSystem L S),
       M_byz_state_ls_before_event_of_trusted ls e
@@ -3629,45 +4532,53 @@ Section ComponentSM.
     unfold M_byz_state_ls_on_event_of_trusted.
     rewrite M_byz_run_ls_before_event_unroll_on.
     destruct (dec_isFirst e); simpl; auto.
+  Qed.*)
+
+
+  Lemma M_byz_run_ls_on_this_one_event_eq :
+    forall {Lv Sp}
+           (ls : LocalSystem Lv Sp)
+           {eo : EventOrdering}
+           (e  : Event),
+      M_byz_run_ls_on_this_one_event ls e
+      = match trigger e with
+        | trigger_info_data d => fst (M_run_ls_on_input ls (msg_comp_name Sp) d)
+        | trigger_info_arbitrary => procs2byz ls
+        | trigger_info_trusted j => fst (M_run_ls_on_trusted (procs2byz ls) j)
+        end.
+  Proof.
+    introv.
+    unfold M_byz_run_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
+    remember (M_byz_run_ls_on_input ls (msg_comp_name Sp) (trigger e)) as h; repnd; simpl in *.
+    unfold M_byz_run_ls_on_input in *.
+    destruct (trigger e); simpl in *; ginv; auto.
   Qed.
 
   Lemma M_run_ls_on_this_one_event_M_byz_run_ls_on_this_one_event :
-    forall {L S}
+    forall {Lv Sp}
            {eo      : EventOrdering}
            (e       : Event)
-           (ls1 ls2 : MLocalSystem L S),
+           (ls1 ls2 : LocalSystem Lv Sp),
       M_run_ls_on_this_one_event ls1 e = Some ls2
-      -> M_byz_run_ls_on_this_one_event ls1 e = Some (M_nt ls2).
+      -> M_byz_run_ls_on_this_one_event ls1 e = ls2.
   Proof.
     introv h.
     unfold M_run_ls_on_this_one_event in *.
-    unfold M_byz_run_ls_on_this_one_event.
+    rewrite M_byz_run_ls_on_this_one_event_eq.
+    rewrite option_map_Some in h; exrepnd; rev_Some.
 
-    rewrite map_option_Some in h.
-    exrepnd.
-    symmetry in h0.
-
-    (* TODO: do not unfold *)
-    unfold if_trigger_info_data in *.
     unfold trigger_op in *.
-    unfold ti2op in *.
-    simpl in *.
     destruct (trigger e) as [d|d|d]; ginv; [].
-
-    unfold M_break in *. simpl in *.
-
-    dest_cases w.
-    repnd.
-    simpl in *.
-    destruct w2 as [X|X]; ginv.
+    unfold M_run_ls_on_input_ls; simpl in *; auto.
   Qed.
 
-  Lemma M_byz_run_ls_on_this_one_event_M_run_ls_on_this_one_event :
+(*  Lemma M_byz_run_ls_on_this_one_event_M_run_ls_on_this_one_event :
     forall {L S}
            {eo      : EventOrdering}
            (e       : Event)
            (ls1 ls2 : MLocalSystem L S),
-      M_byz_run_ls_on_this_one_event ls1 e = Some (M_nt ls2)
+      M_byz_run_ls_on_this_one_event ls1 e = Some ls2
       -> M_run_ls_on_this_one_event ls1 e = Some ls2.
   Proof.
     introv h.
@@ -3695,15 +4606,15 @@ Section ComponentSM.
     inversion h; subst; auto.
   Qed.
   Hint Resolve M_byz_run_ls_on_this_one_event_M_run_ls_on_this_one_event : comp.
-
+*)
 
   Lemma M_run_ls_on_event_M_byz_run_ls_on_event :
     forall {L S}
            {eo      : EventOrdering}
            (e       : Event)
-           (ls1 ls2 : MLocalSystem L S),
+           (ls1 ls2 : LocalSystem L S),
       M_run_ls_on_event ls1 e = Some ls2
-      -> M_byz_run_ls_on_event ls1 e = Some (M_nt ls2).
+      -> M_byz_run_ls_on_event ls1 e = ls2.
   Proof.
     intros L S eo e.
     induction e as [e ind] using predHappenedBeforeInd;[]; introv h.
@@ -3726,7 +4637,7 @@ Section ComponentSM.
   Qed.
 
   Lemma M_run_ls_on_this_one_event_implies_isCorrect :
-    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : MLocalSystem L S),
+    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : LocalSystem L S),
       M_run_ls_on_this_one_event ls1 e = Some ls2
       -> isCorrect e.
   Proof.
@@ -3738,7 +4649,7 @@ Section ComponentSM.
   Hint Resolve M_run_ls_on_this_one_event_implies_isCorrect : comp.
 
   Lemma M_run_ls_on_event_implies_has_correct_trace_before :
-    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : MLocalSystem L S),
+    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : LocalSystem L S),
       M_run_ls_on_event ls1 e = Some ls2
       -> has_correct_trace_before e (loc e).
   Proof.
@@ -3752,12 +4663,33 @@ Section ComponentSM.
   Qed.
   Hint Resolve M_run_ls_on_event_implies_has_correct_trace_before : comp.
 
+  Lemma M_run_ls_on_event_implies_has_correct_trace_bounded :
+    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : LocalSystem L S),
+      M_run_ls_on_event ls1 e = Some ls2
+      -> has_correct_trace_bounded e.
+  Proof.
+    introv run; apply M_run_ls_on_event_implies_has_correct_trace_before in run; eauto 3 with eo.
+  Qed.
+  Hint Resolve M_run_ls_on_event_implies_has_correct_trace_bounded : comp.
 
+  Lemma M_run_ls_before_event_implies_has_correct_trace_bounded_lt :
+    forall {eo : EventOrdering} (e : Event) {L S} (ls1 ls2 : LocalSystem L S),
+      M_run_ls_before_event ls1 e = Some ls2
+      -> has_correct_trace_bounded_lt e.
+  Proof.
+    introv run.
+    rewrite M_run_ls_before_event_unroll_on in run.
+    destruct (dec_isFirst e); ginv; eauto 3 with comp eo.
+
+  Qed.
+  Hint Resolve M_run_ls_before_event_implies_has_correct_trace_bounded_lt : comp.
+
+(*
   Lemma M_byz_run_ls_on_event_M_run_ls_on_event :
     forall {L S}
            {eo      : EventOrdering}
            (e       : Event)
-           (ls1 ls2 : MLocalSystem L S),
+           (ls1 ls2 : LocalSystem L S),
       M_byz_run_ls_on_event ls1 e = Some (M_nt ls2)
       -> M_run_ls_on_event ls1 e = Some ls2.
   Proof.
@@ -3782,6 +4714,7 @@ Section ComponentSM.
     }
   Qed.
   Hint Resolve M_byz_run_ls_on_event_M_run_ls_on_event : comp.
+*)
 
   Lemma M_byz_state_sys_on_event_if_M_state_sys_on_event :
     forall {F}
@@ -3791,7 +4724,7 @@ Section ComponentSM.
            (cn  : CompName)
            (s   : sf cn),
       M_state_sys_on_event sys e cn = Some s
-      -> M_byz_state_sys_on_event sys e cn = Some (M_nt s).
+      -> M_byz_state_sys_on_event sys e cn = Some s.
   Proof.
     introv h.
     rewrite M_state_sys_on_event_unfold in h.
@@ -3801,17 +4734,11 @@ Section ComponentSM.
 
     unfold M_byz_state_sys_on_event.
     unfold M_byz_state_ls_on_event.
-    unfold map_op_untrusted_op.
-    rewrite map_option_Some.
-    eexists; dands; eauto.
-
-    unfold map_untrusted_op.
-    simpl in *.
-    rewrite h0. eauto.
+    allrw; auto.
   Qed.
   Hint Resolve M_byz_state_sys_on_event_if_M_state_sys_on_event : comp.
 
-  Lemma M_byz_state_sys_on_event_implies_M_state_sys_on_event :
+(*  Lemma M_byz_state_sys_on_event_implies_M_state_sys_on_event :
     forall {F}
            (sys : M_USystem F)
            {eo  : EventOrdering}
@@ -3840,78 +4767,34 @@ Section ComponentSM.
     apply option_map_Some in h2; exrepnd; ginv.
   Qed.
   Hint Resolve M_byz_state_sys_on_event_implies_M_state_sys_on_event : comp.
-
+*)
 
   Definition M_byz_output_ls_on_this_one_event
-             {L S}
-             (ts : M_trusted (MLocalSystem L S))
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
              {eo : EventOrdering}
-             (e  : Event) : M_trusted_msgs :=
-    on_M_trusted
-      ts
-      (fun ls =>
-         if_trigger_info_data
-           (trigger e)
-           (fun m =>
-              M_break
-                (sm_update (ls_main ls) (sm_state (ls_main ls)) m)
-                (ls_subs ls)
-                (fun subs' out => M_nt_o (snd out)))
-           (on_Some_t_o
-              (find_trusted (ls_subs ls))
-              (fun tsm => M_t_o (snd (run_trustedSM_on_trigger_info tsm (trigger e))))))
-      (fun tsm => M_t_o (snd (run_trustedSM_on_trigger_info tsm (trigger e)))).
+             (e  : Event) : option (event2out Sp e) :=
+    snd (M_byz_run_ls_on_one_event ls e).
 
   Lemma M_byz_output_ls_on_event_as_run :
     forall {Lv Sp}
-           (ls : MLocalSystem Lv Sp)
+           (ls : LocalSystem Lv Sp)
            {eo : EventOrdering}
            (e  : Event),
       M_byz_output_ls_on_event ls e
-      = on_Some_t_o
-          (M_byz_run_ls_before_event ls e)
-          (fun ls => M_byz_output_ls_on_this_one_event ls e).
+      = let ls' := M_byz_run_ls_before_event ls e
+        in M_byz_output_ls_on_this_one_event ls' e.
   Proof.
-    introv.
-    unfold M_byz_output_ls_on_event; simpl.
-    unfold M_byz_output_sm_on_event; simpl.
-    unfold M_byz_run_ls_before_event; simpl.
-    unfold M_byz_state_sm_before_event; simpl.
-    unfold M_byz_run_sm_on_event; simpl.
-    unfold M_byz_run_update_on_event; simpl.
-    unfold M_byz_run_sm_on_list; simpl.
-
-    fold (M_StateMachine Lv) in *.
-    fold (n_proc Lv) in *.
-    unfold bind_some, M_break, bind; simpl.
-    remember (M_byz_run_update_on_list (sm_state (ls_main ls)) (sm_update (ls_main ls)) (map trigger History( e)) (ls_subs ls)) as w.
-    simpl in *.
-    rewrite <- Heqw.
-    clear Heqw.
-
-    repnd; simpl.
-    unfold M_on_some; simpl.
-    destruct w; simpl; auto;[].
-    destruct m; simpl; auto;[].
-
-    remember (trigger e) as trig.
-    destruct trig; simpl; auto;[| |].
-
-    { unfold M_break; simpl.
-      destruct (sm_update (ls_main ls) s d w0); simpl; auto. }
-
-    { destruct (find_trusted w0); simpl; auto. }
-
-    { destruct (find_trusted w0); simpl; auto. }
+    auto.
   Qed.
 
   Lemma M_run_ls_before_event_M_byz_run_ls_before_event :
     forall {L S}
            {eo      : EventOrdering}
            (e       : Event)
-           (ls1 ls2 : MLocalSystem L S),
+           (ls1 ls2 : LocalSystem L S),
       M_run_ls_before_event ls1 e = Some ls2
-      -> M_byz_run_ls_before_event ls1 e = Some (M_nt ls2).
+      -> M_byz_run_ls_before_event ls1 e = ls2.
   Proof.
     intros L S eo e.
     induction e as [e ind] using predHappenedBeforeInd;[]; introv h.
@@ -3928,24 +4811,20 @@ Section ComponentSM.
   (* Use this one instead of the other one *)
   Lemma M_byz_run_ls_on_event_unroll2 :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_byz_run_ls_on_event ls e
-      = map_option
-          (fun ls => M_byz_run_M_trusted_ls_on_this_one_event ls e)
-          (M_byz_run_ls_before_event ls e).
+      = let ls' := M_byz_run_ls_before_event ls e in
+        M_byz_run_ls_on_this_one_event ls' e.
   Proof.
-    introv.
-    rewrite M_byz_run_ls_on_event_unroll.
-    rewrite M_byz_run_ls_before_event_unroll_on.
-    destruct (dec_isFirst e); simpl; auto.
+    introv; auto.
   Qed.
 
   (* Use this one instead of the other one *)
   Lemma M_run_ls_on_event_unroll2 :
     forall {L S}
-           (ls : MLocalSystem L S)
+           (ls : LocalSystem L S)
            {eo : EventOrdering}
            (e  : Event),
       M_run_ls_on_event ls e
@@ -3960,16 +4839,27 @@ Section ComponentSM.
   Qed.
 
   Lemma in_M_output_ls_on_this_one_event_implies :
-    forall {eo : EventOrdering} (e : Event) {L S} (ls : MLocalSystem L S) out,
+    forall {eo : EventOrdering} (e : Event)
+           {Lv Sp} (ls : LocalSystem Lv Sp) out,
       In out (M_output_ls_on_this_one_event ls e)
       ->
-      exists m,
+      exists m comp,
         trigger_op e = Some m
-        /\ In out (M_break (sm_update (ls_main ls) (sm_state (ls_main ls)) m) (ls_subs ls) (fun _ out => snd out)).
+        /\ find_name (msg_comp_name Sp) ls = Some comp
+        /\ In out (M_break
+                     (M_run_sm_on_input comp m)
+                     ls
+                     (fun subs out => snd out)).
   Proof.
     introv i.
     unfold M_output_ls_on_this_one_event in *.
     remember (trigger_op e) as trig; symmetry in Heqtrig; destruct trig; simpl in *; ginv; tcsp; eauto.
+    unfold M_run_ls_on_input_out in i.
+    unfold M_run_ls_on_input in i.
+    unfold on_comp in i.
+    dest_cases w.
+    eexists; eexists; dands; eauto.
+    unfold M_break in *; dest_cases w; repnd; simpl in *; auto.
   Qed.
 
   Lemma M_break_mp :
@@ -3984,30 +4874,6 @@ Section ComponentSM.
     introv imp m.
     unfold M_break in *.
     dest_cases w; tcsp.
-  Qed.
-
-  Lemma in_M_output_ls_on_event_implies_byz_eq :
-    forall {eo : EventOrdering} (e : Event)
-           {Lv Sp}
-           (ls : MLocalSystem Lv Sp)
-           out,
-      In out (M_output_ls_on_event ls e)
-      -> M_byz_output_ls_on_event ls e = M_nt_o (M_output_ls_on_event ls e).
-  Proof.
-    introv i.
-    rewrite M_byz_output_ls_on_event_as_run.
-    rewrite M_output_ls_on_event_as_run_before in i.
-    rewrite M_output_ls_on_event_as_run_before.
-    remember (M_run_ls_before_event ls e) as q; symmetry in Heqq; destruct q; simpl in *; tcsp.
-    applydup @M_run_ls_before_event_M_byz_run_ls_before_event in Heqq as w.
-    rewrite w; simpl.
-    applydup @in_M_output_ls_on_this_one_event_implies in i as j; exrepnd.
-    unfold M_output_ls_on_this_one_event.
-    allrw.
-    applydup trigger_op_Some_implies_trigger_message in j1.
-    allrw; simpl.
-    unfold M_break in *.
-    remember (sm_update (ls_main l) (sm_state (ls_main l)) m (ls_subs l)) as z; repnd; simpl in *; auto.
   Qed.
 
   Lemma has_correct_trace_before_implies_trigger_eq :
@@ -4026,30 +4892,57 @@ Section ComponentSM.
     forall {L S}
            {eo  : EventOrdering}
            (e   : Event)
-           (ls1 : MLocalSystem L S),
+           (ls1 : LocalSystem L S),
       has_correct_trace_before e (loc e)
-      -> M_byz_run_ls_on_this_one_event ls1 e
-         = option_map M_nt (M_run_ls_on_this_one_event ls1 e).
+      -> M_run_ls_on_this_one_event ls1 e
+         = Some (M_byz_run_ls_on_this_one_event ls1 e).
   Proof.
     introv cor.
     unfold M_run_ls_on_this_one_event.
     unfold M_byz_run_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
     applydup has_correct_trace_before_implies_trigger_eq in cor; exrepnd.
     unfold trigger_op.
-    rewrite cor1; simpl.
-    unfold M_break; simpl in *.
-    dest_cases w; repnd; simpl in *; tcsp.
-    rewrite option_map_option_map; unfold compose; simpl; auto.
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as run; repnd; simpl in *.
+    revert dependent run.
+    rewrite cor1; simpl; introv h.
+    unfold M_run_ls_on_input_ls; rewrite <- h; simpl; auto.
   Qed.
+
+  Lemma has_correct_trace_bounded_lt_implies_before_local_pred :
+    forall {eo : EventOrdering} (e : Event),
+      ~isFirst e
+      -> has_correct_trace_bounded_lt e
+      -> has_correct_trace_before (local_pred e) (loc e).
+  Proof.
+    introv ni cor h q w.
+    apply cor.
+    assert (e' ⊏ e) as lte; eauto 3 with eo.
+    destruct h as [h|h]; subst; eauto 3 with eo.
+    split; eauto 3 with eo.
+  Qed.
+  Hint Resolve has_correct_trace_bounded_lt_implies_before_local_pred : eo.
+
+  Lemma has_correct_trace_before_local_implies_implies_lt :
+    forall {eo : EventOrdering} (e : Event),
+      has_correct_trace_before (local_pred e) (loc e)
+      -> has_correct_trace_bounded_lt e.
+  Proof.
+    introv cor h.
+    pose proof (cor e') as cor; repeat (autodimp cor hyp); eauto 3 with eo.
+    assert (e' ⊑ (local_pred e)) as lte; eauto 3 with eo.
+    apply localHappenedBefore_implies_le_local_pred; auto.
+  Qed.
+  Hint Resolve has_correct_trace_before_local_implies_implies_lt : eo.
 
   Lemma M_byz_run_ls_before_event_as_M_run_ls_before_event :
     forall {L S}
            {eo  : EventOrdering}
            (e   : Event)
-           (ls1 : MLocalSystem L S),
-      has_correct_trace_before e (loc e)
-      -> M_byz_run_ls_before_event ls1 e
-         = option_map M_nt (M_run_ls_before_event ls1 e).
+           (ls1 : LocalSystem L S),
+      has_correct_trace_bounded_lt e
+      -> M_run_ls_before_event ls1 e
+         = Some (M_byz_run_ls_before_event ls1 e).
   Proof.
     intros L S eo e.
     induction e as [e ind] using predHappenedBeforeInd;[]; introv h.
@@ -4057,30 +4950,264 @@ Section ComponentSM.
     rewrite M_byz_run_ls_before_event_unroll.
     destruct (dec_isFirst e); ginv; auto;[].
 
-    rewrite option_map_map_option; unfold option_compose; simpl.
     rewrite ind; autorewrite with eo; eauto 3 with eo;[].
-    rewrite map_option_option_map; unfold compose; simpl.
-
-    apply equal_map_options; introv i.
-    rewrite M_byz_run_ls_on_this_one_event_as_M_run_ls_on_this_one_event; autorewrite with eo; eauto 3 with eo.
+    simpl.
+    rewrite M_byz_run_ls_on_this_one_event_as_M_run_ls_on_this_one_event;
+      autorewrite with eo; eauto 3 with eo.
   Qed.
 
-  Lemma correct_implies_byz_output_eq :
+  (*Lemma correct_implies_byz_output_eq :
     forall {eo : EventOrdering} (e : Event)
            {Lv Sp}
-           (ls : MLocalSystem Lv Sp),
+           (ls : LocalSystem Lv Sp),
       has_correct_trace_before e (loc e)
-      -> M_byz_output_ls_on_event ls e = M_nt_o (M_output_ls_on_event ls e).
+      -> M_byz_output_ls_on_event_B ls e
+         = m_byz_output_msg (msg_comp_name Sp) _ (M_output_ls_on_event ls e).
   Proof.
     introv cor.
-    rewrite M_byz_output_ls_on_event_as_run.
+    unfold M_byz_output_ls_on_event_B.
     rewrite M_output_ls_on_event_as_run_before.
     rewrite M_byz_run_ls_before_event_as_M_run_ls_before_event; auto.
-    remember (M_run_ls_before_event ls e) as q; symmetry in Heqq; destruct q; simpl in *; tcsp.
-    unfold M_output_ls_on_this_one_event, trigger_op.
-    applydup @has_correct_trace_before_implies_trigger_eq in cor; exrepnd; rewrite cor1; simpl.
-    unfold M_break; dest_cases w; auto.
+
+    remember (M_byz_run_ls_before_event ls e) as w; clear Heqw.
+    unfold M_byz_run_ls_on_one_event_B.
+    unfold M_output_ls_on_this_one_event.
+    applydup @has_correct_trace_before_implies_trigger_eq in cor; exrepnd.
+
+    unfold event2M_byz_output, trigger_op.
+    rewrite cor1; simpl.
+    unfold M_run_ls_on_input_out; simpl; auto.
+    remember (M_run_ls_on_input w (msg_comp_name Sp) m) as z; repnd; simpl.
+    destruct z; simpl in *; auto.
   Qed.
+
+  Lemma in_M_output_ls_on_event_implies_byz_eq :
+    forall {eo : EventOrdering} (e : Event)
+           {Lv Sp}
+           (ls : LocalSystem Lv Sp)
+           out,
+      In out (M_output_ls_on_event ls e)
+      -> M_byz_output_ls_on_event_B ls e
+         = m_byz_output_msg (msg_comp_name Sp) _ (M_output_ls_on_event ls e).
+  Proof.
+    introv i.
+    unfold M_byz_output_ls_on_event_B.
+    unfold M_byz_run_ls_on_one_event_B.
+    rewrite M_output_ls_on_event_as_run_before in i.
+    rewrite M_output_ls_on_event_as_run_before.
+    remember (M_run_ls_before_event ls e) as q; symmetry in Heqq; destruct q; simpl in *; tcsp.
+    applydup @M_run_ls_before_event_M_byz_run_ls_before_event in Heqq as w.
+    rewrite w; simpl.
+    applydup @in_M_output_ls_on_this_one_event_implies in i as j; exrepnd.
+    unfold M_output_ls_on_this_one_event.
+    allrw; simpl.
+    applydup trigger_op_Some_implies_trigger_message in j0.
+    unfold event2M_byz_output; simpl.
+    allrw; simpl.
+    unfold M_run_ls_on_input_out; simpl.
+    remember (M_run_ls_on_input l (msg_comp_name Sp) m) as z; repnd; simpl in *; tcsp.
+    destruct z; simpl; auto.
+  Qed.*)
+
+  Lemma dmsg_is_in_out {s} {eo : EventOrdering} {e : Event}
+        (m : DirectedMsg)
+        (o : event2out s e) : Prop.
+  Proof.
+    unfold event2out in o.
+    remember (trigger e) as trig; destruct trig; simpl in *.
+    { exact (In m o). }
+    { destruct o. }
+    { exact False. }
+  Defined.
+
+  Lemma dmsgs_are_out {s} {eo : EventOrdering} {e : Event}
+        (l : DirectedMsgs)
+        (o : event2out s e) : Prop.
+  Proof.
+    unfold event2out in o.
+    remember (trigger e) as trig; destruct trig; simpl in *.
+    { exact (o = l). }
+    { destruct o. }
+    { exact False. }
+  Defined.
+
+  Lemma in_M_output_ls_on_event_implies_byz_eq :
+    forall {eo : EventOrdering} (e : Event)
+           {Lv Sp}
+           (ls : LocalSystem Lv Sp)
+           (m  : DirectedMsg),
+      In m (M_output_ls_on_event ls e)
+      -> exists o,
+        M_byz_output_ls_on_event ls e = Some o
+        /\ dmsg_is_in_out m o.
+  Proof.
+    introv i.
+    unfold M_byz_output_ls_on_event.
+    apply M_output_ls_on_event_implies_run in i; exrepnd.
+    apply M_run_ls_before_event_M_byz_run_ls_before_event in i1; allrw; simpl.
+    clear i1.
+
+    unfold M_output_ls_on_this_one_event in i0.
+    unfold M_run_ls_on_input_out in i0.
+    unfold M_byz_run_ls_on_one_event.
+    unfold trigger_op, event2out, dmsg_is_in_out in *; simpl in *.
+    remember (trigger e) as trig; clear Heqtrig.
+    destruct trig; simpl in *; tcsp.
+    apply in_olist2list in i0; exrepnd; simpl in *.
+    unfold LocalSystem in *; simpl in *; rewrite i0.
+    eexists; dands; eauto.
+  Qed.
+
+  Lemma eq_cons :
+    forall {T} (x1 x2 : T) l1 l2,
+      x1 :: l1 = x2 :: l2 -> x1 = x2 /\ l1 = l2.
+  Proof.
+    introv h; inversion h; auto.
+  Qed.
+
+  Lemma incr_n_proc_inj :
+    forall {n} {cn} (p q : n_proc n cn),
+      incr_n_proc p = incr_n_proc q
+      -> p = q.
+  Proof.
+    unfold incr_n_proc; introv h; inversion h; auto.
+  Qed.
+
+  Lemma incr_n_nproc_inj :
+    forall {n} (a b : n_nproc n),
+      incr_n_nproc a = incr_n_nproc b
+      -> a = b.
+  Proof.
+    introv h.
+    destruct a, b; simpl in *.
+    inversion h; subst.
+    apply decomp_p_nproc in h.
+    apply incr_n_proc_inj in h; subst; auto.
+  Qed.
+
+  Lemma incr_n_procs_inj :
+    forall {n} (l k : n_procs n),
+      incr_n_procs l = incr_n_procs k
+      -> l = k.
+  Proof.
+    unfold incr_n_procs.
+    induction l; destruct k; introv h; simpl in *; tcsp.
+    apply eq_cons in h; repnd.
+    apply IHl in h; clear IHl; subst.
+    apply incr_n_nproc_inj in h0; subst; auto.
+  Qed.
+
+  Definition M_byz_output_sys_on_this_one_event
+             {F}
+             (sys : M_USystem F)
+             {eo  : EventOrdering}
+             (e   : Event) : option (event2out (fls_space F (loc e)) e) :=
+    M_byz_output_ls_on_this_one_event (sys (loc e)) e.
+
+  Definition is_trusted_event {eo : EventOrdering} (e : Event) (i : ITrusted) :=
+    trigger e = trigger_info_trusted i.
+
+  Lemma trusted_is_in_out {s} {eo : EventOrdering} {e : Event}
+        {i}
+        (p : is_trusted_event e i)
+        (x : iot_output (iot_fun (it_name i)))
+        (o : event2out s e) : Prop.
+  Proof.
+    unfold event2out in o.
+    unfold is_trusted_event in p.
+    rewrite p in o; simpl in *.
+    exact (x = o).
+  Defined.
+
+  Lemma has_correct_trace_before_implies_isCorrect :
+    forall {eo : EventOrdering} (e : Event),
+      has_correct_trace_before e (loc e) -> isCorrect e.
+  Proof.
+    introv cor; eapply cor; eauto 3 with eo.
+  Qed.
+  Hint Resolve has_correct_trace_before_implies_isCorrect : eo.
+
+  Lemma correct_byz_output_implies :
+    forall {n} {s} (ls : LocalSystem n s) {eo : EventOrdering} (e : Event) (o : event2out s e),
+      has_correct_trace_before e (loc e)
+      -> M_byz_output_ls_on_event ls e = Some o
+      ->
+      exists (i : msg) (msgs : DirectedMsgs),
+        trigger e = trigger_info_data i
+        /\ dmsgs_are_out msgs o
+        /\ M_output_ls_on_event ls e = msgs.
+  Proof.
+    introv cor out.
+    applydup has_correct_trace_before_implies_isCorrect in cor.
+    unfold M_byz_output_ls_on_event in *.
+    unfold M_byz_run_ls_on_one_event in *.
+    unfold M_output_ls_on_event in *.
+    unfold event2out, dmsgs_are_out, isCorrect, trigger_op in *; simpl in *.
+    remember (trigger e) as trig; destruct trig; simpl in *; tcsp; GC.
+    exists d o; dands; auto.
+    rewrite M_byz_run_ls_before_event_as_M_run_ls_before_event; auto; simpl.
+    unfold M_output_ls_on_this_one_event.
+    unfold trigger_op; allrw <-; simpl.
+    unfold M_run_ls_on_input_out; simpl in *.
+    unfold LocalSystem in *; rewrite out; simpl; auto.
+    eauto 3 with eo comp.
+  Qed.
+
+  Lemma in_M_output_ls_on_this_one_event_implies_in_byz :
+    forall {eo : EventOrdering} (e : Event) {n} {s} (ls : LocalSystem n s) m,
+      In m (M_output_ls_on_this_one_event ls e)
+      -> exists (o : event2out _ e),
+          M_byz_output_ls_on_this_one_event ls e = Some o /\ dmsg_is_in_out m o.
+  Proof.
+    introv out.
+    unfold M_output_ls_on_this_one_event in out.
+    apply in_olist2list in out; exrepnd.
+    apply map_option_Some in out1; exrepnd; rev_Some.
+    unfold M_run_ls_on_input_out in out2.
+
+    unfold M_byz_output_ls_on_this_one_event.
+    unfold M_byz_run_ls_on_one_event.
+    apply trigger_op_Some_implies_trigger_message in out1.
+    remember (M_byz_run_ls_on_input ls (msg_comp_name s) (trigger e)) as z; symmetry in Heqz; repnd; simpl in *.
+    revert z Heqz.
+    unfold event2out, dmsg_is_in_out in *; rewrite out1; simpl; introv run.
+    rewrite run in out2; simpl in *; subst; simpl in *.
+    exists l; dands; auto.
+  Qed.
+
+  Lemma in_M_output_sys_on_event_implies_in_byz :
+    forall {eo : EventOrdering} (e : Event) {F} (sys : M_USystem F) m,
+      In m (M_output_sys_on_event sys e)
+      -> exists (o : event2out _ e),
+        M_byz_output_sys_on_event sys e = Some o
+        /\ dmsg_is_in_out m o.
+  Proof.
+    introv out.
+    apply M_output_ls_on_event_as_run in out; exrepnd.
+    unfold M_byz_output_sys_on_event.
+    rewrite M_byz_output_ls_on_event_as_run.
+    applydup @M_run_ls_before_event_M_byz_run_ls_before_event in out1 as xx.
+    allrw; simpl; clear xx.
+    apply in_M_output_ls_on_this_one_event_implies_in_byz; auto.
+  Qed.
+
+  (*Definition M_byz_output_ls_on_event_trusted
+             {Lv Sp}
+             (ls : LocalSystem Lv Sp)
+             {eo : EventOrdering}
+             (e  : Event)
+             (i  : ITrusted) : option (iot_output (iot_fun (it_name i))) :=
+    snd (M_run_ls_on_trusted
+           (M_byz_run_ls_before_event ls e)
+           i).
+
+  Definition M_byz_output_sys_on_event_trusted
+             {F}
+             (sys : M_USystem F)
+             {eo  : EventOrdering}
+             (e   : Event)
+             (i   : ITrusted) : option (iot_output (iot_fun (it_name i))) :=
+    M_byz_output_ls_on_event_trusted (sys (loc e)) e i.*)
 
 End ComponentSM.
 
@@ -4099,18 +5226,27 @@ Hint Resolve similar_subs_sym : comp.
 Hint Resolve similar_sms_trans : comp.
 Hint Resolve similar_procs_trans : comp.
 Hint Resolve similar_subs_trans : comp.
-Hint Resolve state_of_subcomponents_if_similar : comp.
+Hint Resolve state_of_component_if_similar : comp.
 Hint Resolve ls_preserves_subs_implies_M_run_update_on_list : comp.
-Hint Resolve ls_preserves_subs_implies_M_run_update_on_list2 : comp.
+(*Hint Resolve ls_preserves_subs_implies_M_run_update_on_list2 : comp.*)
 Hint Resolve M_run_ls_on_this_one_event_implies_isCorrect : comp.
 Hint Resolve M_run_ls_on_event_implies_has_correct_trace_before : comp.
-Hint Resolve M_byz_run_ls_on_this_one_event_M_run_ls_on_this_one_event : comp.
-Hint Resolve M_byz_run_ls_on_event_M_run_ls_on_event : comp.
+Hint Resolve M_run_ls_on_event_implies_has_correct_trace_bounded : comp.
+Hint Resolve M_run_ls_before_event_implies_has_correct_trace_bounded_lt : comp.
+(*Hint Resolve M_byz_run_ls_on_this_one_event_M_run_ls_on_this_one_event : comp.*)
+(*Hint Resolve M_byz_run_ls_on_event_M_run_ls_on_event : comp.*)
 Hint Resolve M_byz_state_sys_on_event_if_M_state_sys_on_event : comp.
-Hint Resolve M_byz_state_sys_on_event_implies_M_state_sys_on_event : comp.
+(*Hint Resolve M_byz_state_sys_on_event_implies_M_state_sys_on_event : comp.*)
 Hint Resolve similar_sms_at_refl : comp.
 Hint Resolve similar_sms_at_sym : comp.
 Hint Resolve similar_sms_at_trans : comp.
+
+
+Hint Rewrite @select_n_proc_trivial : comp.
+Hint Rewrite @select_n_procs_trivial : comp.
+Hint Rewrite @lift_n_procs_0 : comp.
+Hint Rewrite @mapOption_fun_Some : list.
+Hint Rewrite @mapOption_fun_None : list.
 
 
 Hint Rewrite @crazy_bind_option1 : comp.
@@ -4123,12 +5259,12 @@ Hint Rewrite @bind_some_ret_some : comp.
 Hint Rewrite @bind_some_ret_some_fun : comp.
 Hint Rewrite @M_on_some_ret_some : comp.
 Hint Rewrite @M_on_some_ret_some_fun : comp.
-Hint Rewrite @map_op_untrusted_option_map_M_nt : comp.
-Hint Rewrite @M_break_map_op_untrusted_option_map_M_nt : comp.
-Hint Rewrite @on_M_trusted_map_untrusted : comp.
+(*Hint Rewrite @map_op_untrusted_option_map_M_nt : comp.*)
+(*Hint Rewrite @M_break_map_op_untrusted_option_map_M_nt : comp.*)
+(*Hint Rewrite @on_M_trusted_map_untrusted : comp.*)
 Hint Rewrite @on_M_some_ret_Some : comp.
-Hint Rewrite @on_M_trusted_M_nt : comp.
-Hint Rewrite @on_M_trusted_M_t : comp.
+(*Hint Rewrite @on_M_trusted_M_nt : comp.*)
+(*Hint Rewrite @on_M_trusted_M_t : comp.*)
 Hint Rewrite @M_break_bind : comp.
 Hint Rewrite @M_break_bind_pair : comp.
 Hint Rewrite @M_break_bind_ret : comp.
@@ -4139,6 +5275,9 @@ Hint Resolve M_state_sys_before_event_if_on_event_direct_pred : proc.
 
 Hint Resolve sub_local_key_map_preserves_in_lookup_receiving_keys : eo.
 Hint Resolve verify_authenticated_data_if_sub_keys : eo.
+Hint Resolve has_correct_trace_before_implies_isCorrect : eo.
+Hint Resolve has_correct_trace_bounded_lt_implies_before_local_pred : eo.
+Hint Resolve has_correct_trace_before_local_implies_implies_lt : eo.
 
 
 Delimit Scope comp with comp.

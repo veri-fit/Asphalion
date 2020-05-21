@@ -58,29 +58,27 @@ Section MinBFTass_knew1.
 
     rewrite M_run_ls_on_event_unroll2 in runOn.
     rewrite runBef in runOn; simpl in *.
-    apply map_option_Some in runOn; exrepnd; rev_Some.
+    apply map_option_Some in runOn; exrepnd; rev_Some; minbft_simp.
     unfold trigger_op in *.
     rewrite eqtrig in *; simpl in *; ginv.
 
     clear runBef.
 
-    autorewrite with minbft in *.
-    simpl in *;
-      autorewrite with comp minbft minbft2 in *; simpl in *;
-        repeat unfold_handler;
-        repeat unfold_handler_concl;
-        smash_minbft;
-        repeat (simpl in *; autorewrite with minbft in *; smash_minbft2; try omega).
+    unfold M_byz_run_ls_on_one_event; simpl; allrw.
+    unfold data_is_in_out, event2out; simpl; rewrite eqtrig; simpl.
+    unfold M_run_ls_on_input_ls in *; simpl in *.
 
-(*
-    Time minbft_dest_msg Case;
+    remember (M_run_ls_on_input
+                (MinBFTlocalSys_new (usig_id u1) s1 u1 l1)
+                (msg_comp_name 0) (MinBFT_request m)) as run.
+    symmetry in Heqrun; repnd; simpl in *.
+    unfold M_run_ls_on_input in *; simpl in *.
+    autorewrite with minbft in *; simpl in *.
+
+    post_minbft_dest_msg;
       repeat (simpl in *; autorewrite with minbft in *; smash_minbft2; try omega);
-      try (complete (dands; tcsp; right; right; right; left; unfold invalid_prepare, valid_prepare in *; smash_minbft2));
-      try (complete (dands; tcsp; right; right; right; right; left; unfold invalid_prepare, valid_prepare in *; smash_minbft2));
-      try (complete (dands; tcsp; right; right; right; left; unfold invalid_commit, valid_commit in *; smash_minbft2));
-      try (complete (dands; tcsp; right; right; right; right; left; unfold invalid_commit, valid_commit in *; smash_minbft2));
-      try (complete (apply MinBFTlocalSys_new_inj in runOn0; repnd; subst; try omega)).
-*)
+      unfold lower_out_break in *; simpl in *; minbft_simp; try omega;
+        eexists; dands; eauto; simpl; tcsp.
   Qed.
   Hint Resolve on_request_implies_generates : minbft.
 

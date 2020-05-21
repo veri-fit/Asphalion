@@ -58,22 +58,26 @@ do
 			    if [ -e "SM/${f}.v" ]
 			    then deps+=("SM/$f")
 			    else
-				if [ -e "PrimaryBackup/${f}.v" ]
-				then deps+=("PrimaryBackup/$f")
-				else
-				    if [ -e "runtime/${f}.v" ]
-				    then deps+=("runtime/$f")
+			        if [ -e "SM2/${f}.v" ]
+			        then deps+=("SM2/$f")
+			        else
+				    if [ -e "PrimaryBackup/${f}.v" ]
+				    then deps+=("PrimaryBackup/$f")
 				    else
-					if [ -e "TwoThirds/${f}.v" ]
-					then deps+=("TwoThirds/$f")
-					else
-					    if [ -e "combinators/${f}.v" ]
-					    then deps+=("combinators/$f")
+				        if [ -e "runtime/${f}.v" ]
+				        then deps+=("runtime/$f")
+				        else
+					    if [ -e "TwoThirds/${f}.v" ]
+					    then deps+=("TwoThirds/$f")
 					    else
-						if [ -e "coq-tools/${f}.v" ]
-						then deps+=("coq-tools/$f")
-						else echo "${f} doesn't exist" >> debug
-						fi
+					        if [ -e "combinators/${f}.v" ]
+					        then deps+=("combinators/$f")
+					        else
+						    if [ -e "coq-tools/${f}.v" ]
+						    then deps+=("coq-tools/$f")
+						    else echo "${f} doesn't exist" >> debug
+						    fi
+					        fi
 					    fi
 					fi
 				    fi
@@ -82,13 +86,13 @@ do
 			fi
 		    fi
 		fi
-	    fi	    
+	    fi
 	done
 	#printf '%s\n' "++=++ ${deps[@]} ++=++"
 	#deps=("${temp[@]}")
 
 	aa[$file]=${deps[@]}
-   
+
 	for i in "${deps[@]}"
 	do
 	    #echo "checking $i"
@@ -117,6 +121,7 @@ echo "	rm -f combinators/.*.aux   combinators/*.glob   combinators/*.vo"   >> Ma
 echo "	rm -f PBFT/.*.aux          PBFT/*.glob          PBFT/*.vo"          >> Makefile
 echo "	rm -f MinBFT/.*.aux        MinBFT/*.glob        MinBFT/*.vo"        >> Makefile
 echo "	rm -f SM/.*.aux            SM/*.glob            SM/*.vo"            >> Makefile
+echo "	rm -f SM2/.*.aux           SM2/*.glob           SM2/*.vo"           >> Makefile
 echo "	rm -f PrimaryBackup/.*.aux PrimaryBackup/*.glob PrimaryBackup/*.vo" >> Makefile
 echo "	rm -f runtime/.*.aux       runtime/*.glob       runtime/*.vo"       >> Makefile
 echo "	rm -f TwoThirds/.*.aux     TwoThirds/*.glob     TwoThirds/*.vo"     >> Makefile
@@ -144,5 +149,5 @@ do
     fi
 
     echo "" >> Makefile
-    echo "	coqc -R coq-tools util -R model model -R combinators combinators -R PBFT PBFT -R MinBFT MinBFT -R SM SM -R PrimaryBackup PrimaryBackup -R runtime runtime -R TwoThirds TwoThirds ${i}.v" >> Makefile
+    echo "	coqc -R coq-tools util -R model model -R combinators combinators -R PBFT PBFT -R MinBFT MinBFT -R SM SM -R SM2 SM2 -R PrimaryBackup PrimaryBackup -R runtime runtime -R TwoThirds TwoThirds ${i}.v" >> Makefile
 done

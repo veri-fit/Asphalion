@@ -16,9 +16,8 @@ Ltac microbft_simplifier_step :=
   | [ H : MicroBFTsubs_new _ _ = _ |- _ ] => apply MicroBFTsubs_new_inj in H; repnd
   | [ H : _ = MicroBFTsubs_new _ _ |- _ ] => apply MicroBFTsubs_new_inj in H; repnd
   | [ H : MicroBFTlocalSys _ = MicroBFTlocalSys_new _ _ _ _ |- _ ] => rewrite MicroBFTlocalSys_as_new in H
-  | [ H : MicroBFTlocalSys_new _ _ _ _ = MicroBFTlocalSys_new _ _ _ _ |- _ ] => apply MicroBFTlocalSys_new_inj in H; repnd
-  | [ H : MkLocalSystem _ _ = MicroBFTlocalSys_new _ _ _ _ |- _ ] => apply MicroBFTlocalSys_new_inj in H; repnd
-  | [ H : MicroBFTlocalSys_new _ _ _ _ = MkLocalSystem _ _ |- _ ] => apply MicroBFTlocalSys_new_inj in H; repnd
+  | [ H : _ = MicroBFTlocalSys_new _ _ _ _ |- _ ] => apply MicroBFTlocalSys_new_inj in H; repnd
+  | [ H : MicroBFTlocalSys_new _ _ _ _ = _ |- _ ] => apply MicroBFTlocalSys_new_inj in H; repnd
   | [ H : MicroBFTsys _ = MicroBFTlocalSys_new _ _ _ _ |- _ ] => rewrite MicroBFTlocalSys_as_new in H
   | [ H : true = false |- _ ] => inversion H
   | [ H : false = true |- _ ] => inversion H
