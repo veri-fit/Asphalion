@@ -141,32 +141,49 @@ Ltac causal_norm_with x :=
 
 Ltac simpl_sem_rule :=
   repeat match goal with
-         | [ H : rule_e_t_d_c_n_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_0_t_d_c_n_hypotheses_true in H
-         | [ H : rule_e_t_d_c_n_hypotheses_true 1 _ _ _ _ _ |- _ ] => apply rule_1_t_d_c_n_hypotheses_true in H
-         | [ H : rule_t_d_c_n_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_0_d_c_n_hypotheses_true in H
-         | [ H : rule_t_d_c_n_hypotheses_true 1 _ _ _ _ |- _ ] => apply rule_1_d_c_n_hypotheses_true in H
-         | [ H : rule_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_0_c_n_hypotheses_true in H
-         | [ H : rule_d_c_n_hypotheses_true 1 _ _ _ |- _ ] => apply rule_1_c_n_hypotheses_true in H
-         | [ H : rule_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_0_n_hypotheses_true in H
-         | [ H : rule_c_n_hypotheses_true 1 _ _ |- _ ] => apply rule_1_n_hypotheses_true in H
-         | [ H : rule_n_hypotheses_true 0 _ |- _ ] => apply rule_0_hypotheses_true in H
-         | [ H : rule_n_hypotheses_true 1 _ |- _ ] => apply rule_1_hypotheses_true in H
+         | [ H : rule_e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ _ |- _ ] => apply rule_0_t_d_c_n_p_v_hypotheses_true in H
+         | [ H : rule_e_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ _ |- _ ] => apply rule_1_t_d_c_n_p_v_hypotheses_true in H
+         | [ H : rule_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ |- _ ] => apply rule_0_d_c_n_p_v_hypotheses_true in H
+         | [ H : rule_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ |- _ ] => apply rule_1_d_c_n_p_v_hypotheses_true in H
+         | [ H : rule_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_0_c_n_p_v_hypotheses_true in H
+         | [ H : rule_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ |- _ ] => apply rule_1_c_n_p_v_hypotheses_true in H
+         | [ H : rule_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_0_n_p_v_hypotheses_true in H
+         | [ H : rule_c_n_p_v_hypotheses_true 1 _ _ _ _ |- _ ] => apply rule_1_n_p_v_hypotheses_true in H
+         | [ H : rule_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_0_p_v_hypotheses_true in H
+         | [ H : rule_n_p_v_hypotheses_true 1 _ _ _ |- _ ] => apply rule_1_p_v_hypotheses_true in H
+         | [ H : rule_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_0_v_hypotheses_true in H
+         | [ H : rule_p_v_hypotheses_true 1 _ _ |- _ ] => apply rule_1_v_hypotheses_true in H
+         | [ H : rule_v_hypotheses_true 0 _ |- _ ] => apply rule_0_hypotheses_true in H
+         | [ H : rule_v_hypotheses_true 1 _ |- _ ] => apply rule_1_hypotheses_true in H
 
          | [ H : rule__hypotheses_true _ |- _ ] => unfold rule__hypotheses_true in H; simpl in H
 
-         | [ H : rule_1e_t_d_c_n_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1e_0_d_c_n_hypotheses_true in H
-         | [ H : rule_1e_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1e_0_c_n_hypotheses_true in H
-         | [ H : rule_1e_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1e_0_n_hypotheses_true in H
-         | [ H : rule_1e_n_hypotheses_true 0 _ |- _ ] => apply rule_1e_0_hypotheses_true in H
+         | [ H : rule_1e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ |- _ ] => apply rule_1e_0_d_c_n_p_v_hypotheses_true in H
+         | [ H : rule_1e_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_1e_0_c_n_p_v_hypotheses_true in H
+         | [ H : rule_1e_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1e_0_n_p_v_hypotheses_true in H
+         | [ H : rule_1e_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1e_0_p_v_hypotheses_true in H
+         | [ H : rule_1e_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1e_0_v_hypotheses_true in H
+         | [ H : rule_1e_v_hypotheses_true 0 _ |- _ ] => apply rule_1e_0_hypotheses_true in H
 
-         | [ H : rule_1t_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1t_0_c_n_hypotheses_true in H
-         | [ H : rule_1t_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1t_0_n_hypotheses_true in H
-         | [ H : rule_1t_n_hypotheses_true 0 _ |- _ ] => apply rule_1t_0_hypotheses_true in H
+         | [ H : rule_1t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_1t_0_c_n_p_v_hypotheses_true in H
+         | [ H : rule_1t_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1t_0_n_p_v_hypotheses_true in H
+         | [ H : rule_1t_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1t_0_p_v_hypotheses_true in H
+         | [ H : rule_1t_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1t_0_v_hypotheses_true in H
+         | [ H : rule_1t_v_hypotheses_true 0 _ |- _ ] => apply rule_1t_0_hypotheses_true in H
 
-         | [ H : rule_1d_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1d_0_n_hypotheses_true in H
-         | [ H : rule_1d_n_hypotheses_true 0 _ |- _ ] => apply rule_1d_0_hypotheses_true in H
+         | [ H : rule_1d_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1d_0_n_p_v_hypotheses_true in H
+         | [ H : rule_1d_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1d_0_p_v_hypotheses_true in H
+         | [ H : rule_1d_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1d_0_v_hypotheses_true in H
+         | [ H : rule_1d_v_hypotheses_true 0 _ |- _ ] => apply rule_1d_0_hypotheses_true in H
 
-         | [ H : rule_1c_n_hypotheses_true 0 _ |- _ ] => apply rule_1c_0_hypotheses_true in H
+         | [ H : rule_1c_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1c_0_p_v_hypotheses_true in H
+         | [ H : rule_1c_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1c_0_v_hypotheses_true in H
+         | [ H : rule_1c_v_hypotheses_true 0 _ |- _ ] => apply rule_1c_0_hypotheses_true in H
+
+         | [ H : rule_1n_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1n_0_v_hypotheses_true in H
+         | [ H : rule_1n_v_hypotheses_true 0 _ |- _ ] => apply rule_1n_0_hypotheses_true in H
+
+         | [ H : rule_1p_v_hypotheses_true 0 _ |- _ ] => apply rule_1p_0_hypotheses_true in H
 
          | [ H : Vector.t _ 0 -> _ |- _ ] => pose proof (H (Vector.nil _)) as H
          | [ H : Vector.t _ 0 |- _ ] => induction H using Vector.case0; simpl in *
@@ -175,32 +192,49 @@ Ltac simpl_sem_rule :=
 
 Ltac intro_sem_rule :=
   repeat match goal with
-         | [ |- rule_e_t_d_c_n_hypotheses_true 0 _ _ _ _ _ ] => apply rule_0_t_d_c_n_hypotheses_true
-         | [ |- rule_e_t_d_c_n_hypotheses_true 1 _ _ _ _ _ ] => apply rule_1_t_d_c_n_hypotheses_true
-         | [ |- rule_t_d_c_n_hypotheses_true 0 _ _ _ _ ] => apply rule_0_d_c_n_hypotheses_true
-         | [ |- rule_t_d_c_n_hypotheses_true 1 _ _ _ _ ] => apply rule_1_d_c_n_hypotheses_true
-         | [ |- rule_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_0_c_n_hypotheses_true
-         | [ |- rule_d_c_n_hypotheses_true 1 _ _ _ ] => apply rule_1_c_n_hypotheses_true
-         | [ |- rule_c_n_hypotheses_true 0 _ _ ] => apply rule_0_n_hypotheses_true
-         | [ |- rule_c_n_hypotheses_true 1 _ _ ] => apply rule_1_n_hypotheses_true
-         | [ |- rule_n_hypotheses_true 0 _ ] => apply rule_0_hypotheses_true
-         | [ |- rule_n_hypotheses_true 1 _ ] => apply rule_1_hypotheses_true
+         | [ |- rule_e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ _ ] => apply rule_0_t_d_c_n_p_v_hypotheses_true
+         | [ |- rule_e_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ _ ] => apply rule_1_t_d_c_n_p_v_hypotheses_true
+         | [ |- rule_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ ] => apply rule_0_d_c_n_p_v_hypotheses_true
+         | [ |- rule_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ ] => apply rule_1_d_c_n_p_v_hypotheses_true
+         | [ |- rule_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_0_c_n_p_v_hypotheses_true
+         | [ |- rule_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ ] => apply rule_1_c_n_p_v_hypotheses_true
+         | [ |- rule_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_0_n_p_v_hypotheses_true
+         | [ |- rule_c_n_p_v_hypotheses_true 1 _ _ _ _ ] => apply rule_1_n_p_v_hypotheses_true
+         | [ |- rule_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_0_p_v_hypotheses_true
+         | [ |- rule_n_p_v_hypotheses_true 1 _ _ _ ] => apply rule_1_p_v_hypotheses_true
+         | [ |- rule_p_v_hypotheses_true 0 _ _ ] => apply rule_0_v_hypotheses_true
+         | [ |- rule_p_v_hypotheses_true 1 _ _ ] => apply rule_1_v_hypotheses_true
+         | [ |- rule_v_hypotheses_true 0 _ ] => apply rule_0_hypotheses_true
+         | [ |- rule_v_hypotheses_true 1 _ ] => apply rule_1_hypotheses_true
 
          | [ |- rule__hypotheses_true _ ] => unfold rule__hypotheses_true; simpl
 
-         | [ |- rule_1e_t_d_c_n_hypotheses_true 0 _ _ _ _ ] => apply rule_1e_0_d_c_n_hypotheses_true
-         | [ |- rule_1e_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_1e_0_c_n_hypotheses_true
-         | [ |- rule_1e_c_n_hypotheses_true 0 _ _ ] => apply rule_1e_0_n_hypotheses_true
-         | [ |- rule_1e_n_hypotheses_true 0 _ ] => apply rule_1e_0_hypotheses_true
+         | [ |- rule_1e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ ] => apply rule_1e_0_d_c_n_p_v_hypotheses_true
+         | [ |- rule_1e_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_1e_0_c_n_p_v_hypotheses_true
+         | [ |- rule_1e_c_n_p_v_hypotheses_true _ _ 0 _ _ ] => apply rule_1e_0_n_p_v_hypotheses_true
+         | [ |- rule_1e_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1e_0_p_v_hypotheses_true
+         | [ |- rule_1e_p_v_hypotheses_true 0 _ _ ] => apply rule_1e_0_v_hypotheses_true
+         | [ |- rule_1e_v_hypotheses_true 0 _ ] => apply rule_1e_0_hypotheses_true
 
-         | [ |- rule_1t_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_1t_0_c_n_hypotheses_true
-         | [ |- rule_1t_c_n_hypotheses_true 0 _ _ ] => apply rule_1t_0_n_hypotheses_true
-         | [ |- rule_1t_n_hypotheses_true 0 _ ] => apply rule_1t_0_hypotheses_true
+         | [ |- rule_1t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_1t_0_c_n_p_v_hypotheses_true
+         | [ |- rule_1t_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_1t_0_n_p_v_hypotheses_true
+         | [ |- rule_1t_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1t_0_p_v_hypotheses_true
+         | [ |- rule_1t_p_v_hypotheses_true 0 _ _ ] => apply rule_1t_0_v_hypotheses_true
+         | [ |- rule_1t_v_hypotheses_true 0 _ ] => apply rule_1t_0_hypotheses_true
 
-         | [ |- rule_1d_c_n_hypotheses_true 0 _ _ ] => apply rule_1d_0_n_hypotheses_true
-         | [ |- rule_1d_n_hypotheses_true 0 _ ] => apply rule_1d_0_hypotheses_true
+         | [ |- rule_1d_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_1d_0_n_p_v_hypotheses_true
+         | [ |- rule_1d_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1d_0_p_v_hypotheses_true
+         | [ |- rule_1d_p_v_hypotheses_true 0 _ _ ] => apply rule_1d_0_v_hypotheses_true
+         | [ |- rule_1d_v_hypotheses_true 0 _ ] => apply rule_1d_0_hypotheses_true
 
-         | [ |- rule_1c_n_hypotheses_true 0 _ ] => apply rule_1c_0_hypotheses_true
+         | [ |- rule_1c_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1c_0_p_v_hypotheses_true
+         | [ |- rule_1c_p_v_hypotheses_true 0 _ _ ] => apply rule_1c_0_v_hypotheses_true
+         | [ |- rule_1c_v_hypotheses_true 0 _ ] => apply rule_1c_0_hypotheses_true
+
+         | [ |- rule_1n_p_v_hypotheses_true 0 _ _ ] => apply rule_1n_0_v_hypotheses_true
+         | [ |- rule_1n_v_hypotheses_true 0 _ ] => apply rule_1n_0_hypotheses_true
+
+         | [ |- rule_1p_v_hypotheses_true 0 _ ] => apply rule_1p_0_hypotheses_true
 
          | [ |- rule_1e_hypotheses_true _ ] =>
            let e := fresh "e" in
@@ -261,6 +295,16 @@ Ltac inst_hyp t h :=
     let H' := fresh H in
     dup H as H';
     pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
+
+  | [ H : rule_1p_hypotheses_true _ |- _ ] =>
+    let H' := fresh H in
+    dup H as H';
+    pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
+
+  | [ H : rule_1v_hypotheses_true _ |- _ ] =>
+    let H' := fresh H in
+    dup H as H';
+    pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
   end.
 
 (* To prove primitive rules *)
@@ -275,7 +319,7 @@ Ltac start_proving_derived st :=
 
 
 
-Ltac LOCKapply x :=
+Tactic Notation "LOCKapply" constr(x) :=
   let j := fresh "j" in
   apply x; simseqs j.
 
@@ -308,6 +352,15 @@ Ltac LOCKintro0 :=
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_TRUST ?f @ ?e)] =>
     LOCKapply PRIMITIVE_RULE_all_trust_intro_true
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_NODE ?f @ ?e)] =>
+    LOCKapply PRIMITIVE_RULE_all_node_intro_true
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_TIME ?f @ ?e)] =>
+    LOCKapply PRIMITIVE_RULE_all_time_intro_true
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_VOUCHERS ?f @ ?e)] =>
+    LOCKapply PRIMITIVE_RULE_all_vouchers_intro_true
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a @ ?e)] =>
     unfold a; LOCKintro0
@@ -356,6 +409,24 @@ Ltac LOCKintro0 :=
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
     unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro0
   end.
 
 Ltac LOCKintro1 x :=
@@ -371,6 +442,12 @@ Ltac LOCKintro1 x :=
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_NODE ?f @ ?e)] =>
     LOCKapply (PRIMITIVE_RULE_exists_node_intro_true x)
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_TIME ?f @ ?e)] =>
+    LOCKapply (PRIMITIVE_RULE_exists_time_intro_true x)
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_VOUCHERS ?f @ ?e)] =>
+    LOCKapply (PRIMITIVE_RULE_exists_vouchers_intro_true x)
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_ID ?f @ ?e)] =>
     LOCKapply (PRIMITIVE_RULE_exists_id_intro_true x)
@@ -428,10 +505,55 @@ Ltac LOCKintro1 x :=
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
     unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
+
+  | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ @ ?e)] =>
+    unfold a; LOCKintro1 x
   end.
 
 Tactic Notation "LOCKintro" := LOCKintro0.
 Tactic Notation "LOCKintro" constr(x) := LOCKintro1 x.
+
+Tactic Notation "LOCKintros" :=
+  repeat LOCKintro0.
+Tactic Notation "LOCKintros" constr(x1) :=
+  repeat LOCKintro0; LOCKintro1 x1;
+  repeat LOCKintro0.
+Tactic Notation "LOCKintros" constr(x1) constr(x2) :=
+  repeat LOCKintro0; LOCKintro1 x1;
+  repeat LOCKintro0; LOCKintro1 x2;
+  repeat LOCKintro0.
+Tactic Notation "LOCKintros" constr(x1) constr(x2) constr(x3) :=
+  repeat LOCKintro0; LOCKintro1 x1;
+  repeat LOCKintro0; LOCKintro1 x2;
+  repeat LOCKintro0; LOCKintro1 x3;
+  repeat LOCKintro0.
+Tactic Notation "LOCKintros" constr(x1) constr(x2) constr(x3) constr(x4) :=
+  repeat LOCKintro0; LOCKintro1 x1;
+  repeat LOCKintro0; LOCKintro1 x2;
+  repeat LOCKintro0; LOCKintro1 x3;
+  repeat LOCKintro0; LOCKintro1 x4;
+  repeat LOCKintro0.
 
 Ltac LOCKelim1 v :=
   norm_with v;
@@ -444,6 +566,12 @@ Ltac LOCKelim1 v :=
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_node_elim_true v)
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TIME ?f @ ?e) » ?J ⊢ ?c)] =>
+    LOCKapply (PRIMITIVE_RULE_exists_time_elim_true v)
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_VOUCHERS ?f @ ?e) » ?J ⊢ ?c)] =>
+    LOCKapply (PRIMITIVE_RULE_exists_vouchers_elim_true v)
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_ID ?f @ ?e) » ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_id_elim_true v)
@@ -501,6 +629,33 @@ Ltac LOCKelim1 v :=
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim1 v
   end.
 
 Ltac LOCKelim2 v w :=
@@ -511,6 +666,12 @@ Ltac LOCKelim2 v w :=
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_node_elim_true v w)
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TIME ?f @ ?e) » ?J ⊢ ?c)] =>
+    LOCKapply (PRIMITIVE_RULE_all_time_elim_true v w)
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_VOUCHERS ?f @ ?e) » ?J ⊢ ?c)] =>
+    LOCKapply (PRIMITIVE_RULE_all_vouchers_elim_true v w)
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_ID ?f @ ?e) » ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_id_elim_true v w)
@@ -568,6 +729,33 @@ Ltac LOCKelim2 v w :=
 
   | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
+
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+    unfold a; LOCKelim2 v w
   end.
 
 Tactic Notation "LOCKelim" constr(x) := LOCKelim1 x.
@@ -592,11 +780,14 @@ Ltac LOCKauto :=
 
   | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a) ] =>
     match H with
-    | context[?v › ?a] =>
+    | context[?v › a] =>
       norm_with v; LOCKapply PRIMITIVE_RULE_hypothesis_true
 
     | context[?v › KE_FALSE @ ?e] =>
       norm_with v; LOCKapply DERIVED_RULE_false_elim_true
+
+    | context[?v › KE_ID_LT ?i ?i @ ?e] =>
+      norm_with v; LOCKapply PRIMITIVE_RULE_id_lt_elim_true
     end
   end.
 
@@ -606,19 +797,30 @@ Ltac LOCKclearH :=
     norm_with v; LOCKapply PRIMITIVE_RULE_thin_true
   end.
 
+Ltac LOCKclearG :=
+  match goal with
+  | [ |- sequent_true (⟬ ?R ++ (?x ⋈ ?c) :: ?Q ⟭ _ ⊢ _)] =>
+    causal_norm_with x; LOCKapply PRIMITIVE_RULE_remove_causal_true
+  | [ |- sequent_true (⟬ (?x ⋈ ?c) :: ?Q ⟭ _ ⊢ _)] =>
+    causal_norm_with x; LOCKapply PRIMITIVE_RULE_remove_causal_true
+  end.
+
 Ltac LOCKclearH_at x :=
   norm_with x;
   match goal with
   | [ |- sequent_true (⟬ ?R ⟭ ?H • (x › ?a) » ?J ⊢ _)] =>
-    norm_with x; LOCKapply PRIMITIVE_RULE_thin_true
+    LOCKapply PRIMITIVE_RULE_thin_true
   end.
 
 Ltac LOCKclearG_at x :=
   causal_norm_with x;
   match goal with
   | [ |- sequent_true (⟬ ?R ++ (x ⋈ ?c) :: ?Q ⟭ _ ⊢ _)] =>
-    causal_norm_with x; LOCKapply PRIMITIVE_RULE_remove_causal_true
+    LOCKapply PRIMITIVE_RULE_remove_causal_true
   end.
+
+Tactic Notation "LOCKclearone" := first [LOCKclearH | LOCKclearG].
+Tactic Notation "LOCKclearall" := repeat LOCKclearone.
 
 Tactic Notation "LOCKclear" := LOCKclearH.
 Tactic Notation "LOCKclear" constr(x) := first [LOCKclearG_at x | LOCKclearH_at x].
@@ -652,28 +854,45 @@ Hint Rewrite @nil_as_emHyps : norm.
 Hint Rewrite @addHyps_em : norm kc.
 Hint Rewrite @snoc_app_eq : norm.
 
-Hint Rewrite @rule_0_t_d_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_0_d_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_0_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_0_n_hypotheses_true : rule.
+Hint Rewrite @rule_0_t_d_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_0_d_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_0_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_0_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_0_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_0_v_hypotheses_true : rule.
 Hint Rewrite @rule_0_hypotheses_true : rule.
 
-Hint Rewrite @rule_1_t_d_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1e_0_d_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1e_0_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1e_0_n_hypotheses_true : rule.
+Hint Rewrite @rule_1_t_d_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1e_0_d_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1e_0_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1e_0_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1e_0_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1e_0_v_hypotheses_true : rule.
 Hint Rewrite @rule_1e_0_hypotheses_true : rule.
 
-Hint Rewrite @rule_1_d_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1t_0_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1t_0_n_hypotheses_true : rule.
+Hint Rewrite @rule_1_d_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_v_hypotheses_true : rule.
 Hint Rewrite @rule_1t_0_hypotheses_true : rule.
 
-Hint Rewrite @rule_1_c_n_hypotheses_true : rule.
-Hint Rewrite @rule_1d_0_n_hypotheses_true : rule.
+Hint Rewrite @rule_1_c_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1d_0_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1t_0_v_hypotheses_true : rule.
 Hint Rewrite @rule_1t_0_hypotheses_true : rule.
 
-Hint Rewrite @rule_1_n_hypotheses_true : rule.
+Hint Rewrite @rule_1_n_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1c_0_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1c_0_v_hypotheses_true : rule.
 Hint Rewrite @rule_1c_0_hypotheses_true : rule.
+
+Hint Rewrite @rule_1_p_v_hypotheses_true : rule.
+Hint Rewrite @rule_1n_0_v_hypotheses_true : rule.
+Hint Rewrite @rule_1n_0_hypotheses_true : rule.
+
+Hint Rewrite @rule_1_v_hypotheses_true : rule.
+Hint Rewrite @rule_1p_0_hypotheses_true : rule.
 
 Hint Rewrite @rule_1_hypotheses_true : rule.

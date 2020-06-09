@@ -58,7 +58,6 @@ Section KnowledgeCalculus.
         kc_trust2data     : kc_trust -> kc_data;
         kc_trust2data_inj : injective kc_trust2data;
 
-
         (* relation between data and scrambled/hashed data *)
         kc_generated_for : kc_data -> kc_trust -> Prop;
         kc_sim_data      : kc_data -> kc_data -> Prop;
@@ -66,8 +65,23 @@ Section KnowledgeCalculus.
         kc_collision_resistant : forall (t : kc_trust) d1 d2, kc_generated_for d1 t -> kc_generated_for d2 t -> kc_sim_data d1 d2 -> d1 = d2;
 
 
+        (* === VOUCHERS/PAYLOAD === *)
+        (* The vouchers ones that have agreed with the data.
+           A piece of data can be broken into its category, its vouchers and its payload data *)
+        kc_vouchers : Type;
+        kc_num_vouchers : kc_vouchers -> nat;
+        kc_add_vouchers : kc_vouchers -> kc_vouchers -> kc_vouchers;
+        kc_mk_vouchers : node_type -> kc_vouchers;
+        kc_data2category : kc_data -> string;
+        kc_data2vouchers : kc_data -> kc_vouchers;
+        kc_data2payload  : kc_data -> kc_data;
+        kc_app_vouchers_inc1 : forall (v1 v2 : kc_vouchers), kc_num_vouchers v1 <= kc_num_vouchers (kc_add_vouchers v1 v2);
+        kc_app_vouchers_inc2 : forall (v1 v2 : kc_vouchers), kc_num_vouchers v2 <= kc_num_vouchers (kc_add_vouchers v1 v2);
+        kc_num_node2vouchers : forall (n : node_type), kc_num_vouchers (kc_mk_vouchers n) = 1;
+
+
         (* === OWNER === *)
-        (* owner of the data *)
+        (* owner of the data/the one who's supposed to have generated it *)
         kc_data2owner       : kc_data -> option node_type;
         kc_same_trust2owner : forall (t : kc_trust), kc_data2owner (kc_trust2data t) = kc_trust2owner t;
 
@@ -999,13 +1013,17 @@ Section KnowledgeCalculus.
   | KT_ID
   | KT_TRUST
   | KT_DATA
-  | KT_NODE.
+  | KT_NODE
+  | KT_TIME
+  | KT_VOUCHERS.
 
   Inductive KVal : KType -> Type :=
-  | KV_ID    (i : kc_id)     : KVal KT_ID
-  | KV_TRUST (t : kc_trust)  : KVal KT_TRUST
-  | KV_DATA  (d : kc_data)   : KVal KT_DATA
-  | KV_NODE  (n : node_type) : KVal KT_NODE.
+  | KV_ID       (i : kc_id)       : KVal KT_ID
+  | KV_TRUST    (t : kc_trust)    : KVal KT_TRUST
+  | KV_DATA     (d : kc_data)     : KVal KT_DATA
+  | KV_NODE     (n : node_type)   : KVal KT_NODE
+  | KV_TIME     (t : PosDTime)    : KVal KT_TIME
+  | KV_VOUCHERS (k : kc_vouchers) : KVal KT_VOUCHERS.
 
   (* ******************************************************************* *)
 
@@ -1029,6 +1047,9 @@ Section KnowledgeCalculus.
   | KE_HAPPENED_BEFORE (f : KExpression)
   | KE_FORALL_BEFORE   (f : KExpression)
 
+  | KE_HAPPENED_AFTER (f : KExpression) (t : option PosDTime)
+  | KE_FORALL_AFTER   (f : KExpression)
+
   | KE_CORRECT
   | KE_AT (n : node_type)
 
@@ -1043,10 +1064,20 @@ Section KnowledgeCalculus.
   | KE_KNOWS  (d : kc_data)
   | KE_DISS   (d : kc_data) (* dissemination *)
 
+  (* vouchers/owners *)
+  (* we know that they ([l]) know *)
+  | KE_VOUCHED      (d : kc_data) (l : kc_vouchers)
+  | KE_HAS_OWNER    (d : kc_data) (n : node_type)
+  | KE_HAS_CAT      (d : kc_data) (s : string)
+  | KE_SAME_CAT     (a b : kc_data)
+  | KE_HAS_PAYLOAD  (a b : kc_data)
+
+  | KE_AT_LEAST_VOUCHERS (l : kc_vouchers) (n : nat)
+  | KE_AT_MOST_VOUCHERS  (l : kc_vouchers) (n : nat)
+
   (* trusted knowledge *)
   | KE_ID_AFTER     (c : kc_id)
   | KE_TRUST_HAS_ID (t : kc_trust) (c : kc_id)
-  | KE_HAS_OWNER    (d : kc_data)  (n : node_type)
   | KE_GEN_FOR      (d : kc_data)  (t : kc_trust)
   | KE_IN           (t : kc_trust) (d : kc_data)
   | KE_HAS_INIT_ID  (i : kc_id)
@@ -1067,10 +1098,12 @@ Section KnowledgeCalculus.
 
   Definition ktype2type (T : KType) : Type :=
     match T with
-    | KT_ID    => kc_id
-    | KT_TRUST => kc_trust
-    | KT_DATA  => kc_data
-    | kC_NODE  => node_type
+    | KT_ID       => kc_id
+    | KT_TRUST    => kc_trust
+    | KT_DATA     => kc_data
+    | KT_NODE     => node_type
+    | KT_TIME     => PosDTime
+    | KT_VOUCHERS => kc_vouchers
     end.
 
   Definition ktype2type2val {T : KType} (v : ktype2type T) : KVal T.
@@ -1080,6 +1113,8 @@ Section KnowledgeCalculus.
     - exact (KV_TRUST v).
     - exact (KV_DATA v).
     - exact (KV_NODE v).
+    - exact (KV_TIME v).
+    - exact (KV_VOUCHERS v).
   Defined.
 
   Definition kval2id (v : KVal KT_ID) : kc_id :=
@@ -1102,6 +1137,16 @@ Section KnowledgeCalculus.
     | KV_NODE n => n
     end.
 
+  Definition kval2time (v : KVal KT_TIME) : PosDTime :=
+    match v with
+    | KV_TIME t => t
+    end.
+
+  Definition kval2vouchers (v : KVal KT_VOUCHERS) : kc_vouchers :=
+    match v with
+    | KV_VOUCHERS l => l
+    end.
+
   Definition KE_DATA_EQ (a b : kc_data) : KExpression :=
     KE_VAL_EQ (KV_DATA a) (KV_DATA b).
 
@@ -1113,6 +1158,12 @@ Section KnowledgeCalculus.
 
   Definition KE_TRUST_EQ (a b : kc_trust) : KExpression :=
     KE_VAL_EQ (KV_TRUST a) (KV_TRUST b).
+
+  Definition KE_TIME_EQ (a b : PosDTime) : KExpression :=
+    KE_VAL_EQ (KV_TIME a) (KV_TIME b).
+
+  Definition KE_VOUCHERS_EQ (a b : kc_vouchers) : KExpression :=
+    KE_VAL_EQ (KV_VOUCHERS a) (KV_VOUCHERS b).
 
 
   (* universal quantifiers *)
@@ -1128,6 +1179,12 @@ Section KnowledgeCalculus.
   Definition KE_ALL_NODE (f : node_type -> KExpression) : KExpression :=
     KE_ALL KT_NODE (fun n => f (kval2node n)).
 
+  Definition KE_ALL_TIME (f : PosDTime -> KExpression) : KExpression :=
+    KE_ALL KT_TIME (fun t => f (kval2time t)).
+
+  Definition KE_ALL_VOUCHERS (f : kc_vouchers -> KExpression) : KExpression :=
+    KE_ALL KT_VOUCHERS (fun l => f (kval2vouchers l)).
+
 
   (* existential quantifiers *)
   Definition KE_EX_ID (f : kc_id -> KExpression) : KExpression :=
@@ -1141,6 +1198,12 @@ Section KnowledgeCalculus.
 
   Definition KE_EX_NODE (f : node_type -> KExpression) : KExpression :=
     KE_EX KT_NODE (fun n => f (kval2node n)).
+
+  Definition KE_EX_TIME (f : PosDTime -> KExpression) : KExpression :=
+    KE_EX KT_TIME (fun t => f (kval2time t)).
+
+  Definition KE_EX_VOUCHERS (f : kc_vouchers -> KExpression) : KExpression :=
+    KE_EX KT_VOUCHERS (fun l => f (kval2vouchers l)).
 
 
   (* True/False *)
@@ -1217,6 +1280,22 @@ Section KnowledgeCalculus.
     | S n => fun f => KE_ALL_NODE (fun v => KE_ALL_NODEs (funNS2N f v))
     end.
 
+  (*Definition KE_ALL_TIMEs {n : nat} (f : PosDTime -(n)-> KExpression) : KExpression :=
+    KE_ALLs (funN_map kval2node f).*)
+  Fixpoint KE_ALL_TIMEs {n : nat} : (PosDTime -(n)-> KExpression) -> KExpression :=
+    match n with
+    | 0 => fun f => KE_ALL_TIME f
+    | S n => fun f => KE_ALL_TIME (fun v => KE_ALL_TIMEs (funNS2N f v))
+    end.
+
+  (*Definition KE_ALL_VOUCHERSs {n : nat} (f : kc_vouchers -(n)-> KExpression) : KExpression :=
+    KE_ALLs (funN_map kval2node f).*)
+  Fixpoint KE_ALL_VOUCHERSs {n : nat} : (kc_vouchers -(n)-> KExpression) -> KExpression :=
+    match n with
+    | 0 => fun f => KE_ALL_VOUCHERS f
+    | S n => fun f => KE_ALL_VOUCHERS (fun v => KE_ALL_VOUCHERSs (funNS2N f v))
+    end.
+
   Fixpoint KE_EXs {T : KType} {n : nat} : ((KVal T) -(n)-> KExpression) -> KExpression :=
     match n with
     | 0 => fun f => KE_EX T f
@@ -1255,6 +1334,22 @@ Section KnowledgeCalculus.
     | S n => fun f => KE_EX_NODE (fun v => KE_EX_NODEs (funNS2N f v))
     end.
 
+  (*Definition KE_EX_TIMEs {n : nat} (f : node_type -(n)-> KExpression) : KExpression :=
+    KE_EXs (funN_map kval2node f).*)
+  Fixpoint KE_EX_TIMEs {n : nat} : (PosDTime -(n)-> KExpression) -> KExpression :=
+    match n with
+    | 0 => fun f => KE_EX_TIME f
+    | S n => fun f => KE_EX_TIME (fun v => KE_EX_TIMEs (funNS2N f v))
+    end.
+
+  (*Definition KE_EX_VOUCHERSs {n : nat} (f : node_type -(n)-> KExpression) : KExpression :=
+    KE_EXs (funN_map kval2node f).*)
+  Fixpoint KE_EX_VOUCHERSs {n : nat} : (kc_vouchers -(n)-> KExpression) -> KExpression :=
+    match n with
+    | 0 => fun f => KE_EX_VOUCHERS f
+    | S n => fun f => KE_EX_VOUCHERS (fun v => KE_EX_VOUCHERSs (funNS2N f v))
+    end.
+
 
   (* restricted multi-quantifiers *)
   Definition KE_ALL_ID2 (f : kc_id -> kc_id -> KExpression) : KExpression :=
@@ -1269,6 +1364,12 @@ Section KnowledgeCalculus.
   Definition KE_ALL_NODE2 (f : node_type -> node_type -> KExpression) : KExpression :=
     @KE_ALL_NODEs 1 f.
 
+  Definition KE_ALL_TIME2 (f : PosDTime -> PosDTime -> KExpression) : KExpression :=
+    @KE_ALL_TIMEs 1 f.
+
+  Definition KE_ALL_VOUCHERS2 (f : kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
+    @KE_ALL_VOUCHERSs 1 f.
+
 
   Definition KE_ALL_ID3 (f : kc_id -> kc_id -> kc_id -> KExpression) : KExpression :=
     @KE_ALL_IDs 2 f.
@@ -1281,6 +1382,12 @@ Section KnowledgeCalculus.
 
   Definition KE_ALL_NODE3 (f : node_type -> node_type -> node_type -> KExpression) : KExpression :=
     @KE_ALL_NODEs 2 f.
+
+  Definition KE_ALL_TIME3 (f : PosDTime -> PosDTime -> PosDTime -> KExpression) : KExpression :=
+    @KE_ALL_TIMEs 2 f.
+
+  Definition KE_ALL_VOUCHERS3 (f : kc_vouchers -> kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
+    @KE_ALL_VOUCHERSs 2 f.
 
 
   Definition KE_EX_ID2 (f : kc_id -> kc_id -> KExpression) : KExpression :=
@@ -1295,6 +1402,12 @@ Section KnowledgeCalculus.
   Definition KE_EX_NODE2 (f : node_type -> node_type -> KExpression) : KExpression :=
     @KE_EX_NODEs 1 f.
 
+  Definition KE_EX_TIME2 (f : PosDTime -> PosDTime -> KExpression) : KExpression :=
+    @KE_EX_TIMEs 1 f.
+
+  Definition KE_EX_VOUCHERS2 (f : kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
+    @KE_EX_VOUCHERSs 1 f.
+
 
   Definition KE_EX_ID3 (f : kc_id -> kc_id -> kc_id -> KExpression) : KExpression :=
     @KE_EX_IDs 2 f.
@@ -1307,6 +1420,12 @@ Section KnowledgeCalculus.
 
   Definition KE_EX_NODE3 (f : node_type -> node_type -> node_type -> KExpression) : KExpression :=
     @KE_EX_NODEs 2 f.
+
+  Definition KE_EX_TIME3 (f : PosDTime -> PosDTime -> PosDTime -> KExpression) : KExpression :=
+    @KE_EX_TIMEs 2 f.
+
+  Definition KE_EX_VOUCHERS3 (f : kc_vouchers -> kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
+    @KE_EX_VOUCHERSs 2 f.
 
 
   Definition KE_NODE := KE_EX_NODE KE_AT.
@@ -1619,6 +1738,18 @@ Section KnowledgeCalculus.
     rewrite h1 in *; ginv.
   Qed.
 
+  Definition at_time_op {eo : EventOrdering} (e : Event) (top : option PosDTime) :=
+    match top with
+    | Some t => time e = t
+    | None => True
+    end.
+
+  Definition by_time_op {eo : EventOrdering} (e1 e2 : Event) (top : option PosDTime) :=
+    match top with
+    | Some t => (time e2 <= time e1 + t)%dtime
+    | None => True
+    end.
+
   (* ******************************************************************* *)
 
 
@@ -1650,6 +1781,9 @@ Section KnowledgeCalculus.
     | KE_HAPPENED_BEFORE f => exists (e' : EventN), e' ≺ e /\ interpret e' f
     | KE_FORALL_BEFORE   f => forall (e' : EventN), e' ≺ e -> interpret e' f
 
+    | KE_HAPPENED_AFTER f top => exists (e' : EventN), e ≺ e' /\ interpret e' f /\ by_time_op e e' top
+    | KE_FORALL_AFTER   f => forall (e' : EventN), e ≺ e' -> interpret e' f
+
     | KE_CORRECT => isCorrect e
     | KE_AT n => loc e = node2name n
 
@@ -1664,10 +1798,19 @@ Section KnowledgeCalculus.
     | KE_KNOWS  d => knows_after e d
     | KE_DISS   d => disseminate_data e d
 
+    (* vouchers/owners *)
+    | KE_VOUCHED   d l => kc_data2vouchers d = l
+    | KE_HAS_OWNER d n => data_is_owned_by n d
+    | KE_HAS_CAT d s => kc_data2category d = s
+    | KE_SAME_CAT a b => kc_data2category a = kc_data2category b
+    | KE_HAS_PAYLOAD a b => kc_data2payload a = b
+
+    | KE_AT_LEAST_VOUCHERS l n => n < kc_num_vouchers l
+    | KE_AT_MOST_VOUCHERS  l n => kc_num_vouchers l < n
+
     (* trusted knowledge *)
     | KE_ID_AFTER     c   => id_after e c
     | KE_TRUST_HAS_ID t c => kc_trust_has_id t c
-    | KE_HAS_OWNER    d n => data_is_owned_by n d
     | KE_GEN_FOR      d t => kc_generated_for d t
     | KE_IN           t d => In t (kc_data2trust d)
     | KE_HAS_INIT_ID  i   => has_init_id e i
@@ -1724,19 +1867,28 @@ Section KnowledgeCalculus.
     H ++ J.
   Notation "H » J" := (addHyps H J) (at level 70).
 
+  Definition OpPosDTime := option PosDTime.
+
   Inductive causalRel {eo : EventOrdering} : Type :=
   | causal_rel_eq                 (e1 e2 : EventN)
-  | causal_rel_right_before       (e1 e2 : EventN)
-  | causal_rel_local_before       (e1 e2 : EventN)
-  | causal_rel_local_before_eq    (e1 e2 : EventN)
-  | causal_rel_happened_before    (e1 e2 : EventN)
-  | causal_rel_happened_before_eq (e1 e2 : EventN).
+  | causal_rel_right_before       (e1 e2 : EventN) (t : OpPosDTime)
+  | causal_rel_local_before       (e1 e2 : EventN) (t : OpPosDTime)
+  | causal_rel_local_before_eq    (e1 e2 : EventN) (t : OpPosDTime)
+  | causal_rel_happened_before    (e1 e2 : EventN) (t : OpPosDTime)
+  | causal_rel_happened_before_eq (e1 e2 : EventN) (t : OpPosDTime).
   Notation "e1 ≡ e2" := (causal_rel_eq                 e1 e2) (at level 69).
-  Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2) (at level 69).
-  Notation "e1 □ e2" := (causal_rel_local_before       e1 e2) (at level 69).
-  Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2) (at level 69).
-  Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2) (at level 69).
-  Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2) (at level 69).
+
+  Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2 None) (at level 69).
+  Notation "e1 □ e2" := (causal_rel_local_before       e1 e2 None) (at level 69).
+  Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2 None) (at level 69).
+  Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2 None) (at level 69).
+  Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2 None) (at level 69).
+
+  Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before       e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before       e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq    e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before    e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq e1 e2 (Some t)) (at level 69).
 
   Record namedCausalRel {eo : EventOrdering} :=
     MkNamedCausalRel
@@ -1775,9 +1927,18 @@ Section KnowledgeCalculus.
         rh_d : nat;
         rh_c : nat;
         rh_n : nat;
-        rh_f : Vector.t EventN rh_e -> Vector.t kc_trust rh_t -> Vector.t kc_data rh_d -> Vector.t kc_id rh_c -> Vector.t node_type rh_n -> list sequent;
+        rh_p : nat;
+        rh_v : nat;
+        rh_f : Vector.t EventN rh_e
+               -> Vector.t kc_trust rh_t
+               -> Vector.t kc_data rh_d
+               -> Vector.t kc_id rh_c
+               -> Vector.t node_type rh_n
+               -> Vector.t PosDTime rh_p
+               -> Vector.t kc_vouchers rh_v
+               -> list sequent;
       }.
-  Global Arguments MkRuleHypotheses [eo] _ _ _ _ _.
+  Global Arguments MkRuleHypotheses [eo] _ _ _ _ _ _ _.
 
   Record rule {eo : EventOrdering} :=
     MkRule
@@ -1788,34 +1949,40 @@ Section KnowledgeCalculus.
   Global Arguments MkRule [eo] _ _.
 
   Definition MkRuleHypotheses0 {eo : EventOrdering} (hyps : list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 0 0 0 0 0 (fun _ _ _ _ _ => hyps).
+    MkRuleHypotheses 0 0 0 0 0 0 0 (fun _ _ _ _ _ _ _ => hyps).
 
   Definition MkRuleHypotheses1e {eo : EventOrdering} (hyps : EventN -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 1 0 0 0 0 (fun l _ _ _ _ => hyps (Vector.hd l)).
+    MkRuleHypotheses 1 0 0 0 0 0 0 (fun l _ _ _ _ _ _ => hyps (Vector.hd l)).
 
   Definition MkRuleHypotheses2e {eo : EventOrdering} (hyps : EventN -> EventN -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 2 0 0 0 0 (fun l _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l))).
+    MkRuleHypotheses 2 0 0 0 0 0 0 (fun l _ _ _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l))).
 
   Definition MkRuleHypotheses3e {eo : EventOrdering} (hyps : EventN -> EventN -> EventN -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 3 0 0 0 0 (fun l _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l)))).
+    MkRuleHypotheses 3 0 0 0 0 0 0 (fun l _ _ _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l)))).
 
   Definition MkRuleHypotheses4e {eo : EventOrdering} (hyps : EventN -> EventN -> EventN -> EventN -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 4 0 0 0 0 (fun l _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl l))))).
+    MkRuleHypotheses 4 0 0 0 0 0 0 (fun l _ _ _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl l))))).
 
   Definition MkRuleHypotheses5e {eo : EventOrdering} (hyps : EventN -> EventN -> EventN -> EventN -> EventN -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 5 0 0 0 0 (fun l _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl l)))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl (Vector.tl l)))))).
+    MkRuleHypotheses 5 0 0 0 0 0 0 (fun l _ _ _ _ _ _ => hyps (Vector.hd l) (Vector.hd (Vector.tl l)) (Vector.hd (Vector.tl (Vector.tl l))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl l)))) (Vector.hd (Vector.tl (Vector.tl (Vector.tl (Vector.tl l)))))).
 
   Definition MkRuleHypotheses1t {eo : EventOrdering} (hyps : kc_trust -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 0 1 0 0 0 (fun _ l _ _ _ => hyps (Vector.hd l)).
+    MkRuleHypotheses 0 1 0 0 0 0 0 (fun _ l _ _ _ _ _ => hyps (Vector.hd l)).
 
   Definition MkRuleHypotheses1d {eo : EventOrdering} (hyps : kc_data -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 0 0 1 0 0 (fun _ _ l _ _ => hyps (Vector.hd l)).
+    MkRuleHypotheses 0 0 1 0 0 0 0 (fun _ _ l _ _ _ _ => hyps (Vector.hd l)).
 
   Definition MkRuleHypotheses1c {eo : EventOrdering} (hyps : kc_id -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 0 0 0 1 0 (fun _ _ _ l _ => hyps (Vector.hd l)).
+    MkRuleHypotheses 0 0 0 1 0 0 0 (fun _ _ _ l _ _ _ => hyps (Vector.hd l)).
 
   Definition MkRuleHypotheses1n {eo : EventOrdering} (hyps : node_type -> list sequent) : rule_hypotheses :=
-    MkRuleHypotheses 0 0 0 0 1 (fun _ _ _ _ l => hyps (Vector.hd l)).
+    MkRuleHypotheses 0 0 0 0 1 0 0 (fun _ _ _ _ l _ _ => hyps (Vector.hd l)).
+
+  Definition MkRuleHypotheses1p {eo : EventOrdering} (hyps : PosDTime -> list sequent) : rule_hypotheses :=
+    MkRuleHypotheses 0 0 0 0 0 1 0 (fun _ _ _ _ _ l _ => hyps (Vector.hd l)).
+
+  Definition MkRuleHypotheses1v {eo : EventOrdering} (hyps : kc_vouchers -> list sequent) : rule_hypotheses :=
+    MkRuleHypotheses 0 0 0 0 0 0 1 (fun _ _ _ _ _ _ l => hyps (Vector.hd l)).
 
   Definition MkRule0 {eo : EventOrdering} (hyps  : list sequent) (concl : sequent) : rule :=
     MkRule (MkRuleHypotheses0 hyps) concl.
@@ -1847,6 +2014,12 @@ Section KnowledgeCalculus.
   Definition MkRule1n {eo : EventOrdering} (hyps  : node_type -> list sequent) (concl : sequent) : rule :=
     MkRule (MkRuleHypotheses1n hyps) concl.
 
+  Definition MkRule1p {eo : EventOrdering} (hyps  : PosDTime -> list sequent) (concl : sequent) : rule :=
+    MkRule (MkRuleHypotheses1p hyps) concl.
+
+  Definition MkRule1v {eo : EventOrdering} (hyps  : kc_vouchers -> list sequent) (concl : sequent) : rule :=
+    MkRule (MkRuleHypotheses1v hyps) concl.
+
   Definition seq_event {eo : EventOrdering} (s : sequent) : EventN :=
     exp_at_event (seq_concl s).
 
@@ -1859,11 +2032,11 @@ Section KnowledgeCalculus.
   Definition causal_rel_true {eo : EventOrdering} (r : causalRel) : Prop :=
     match r with
     | causal_rel_eq                 e1 e2 => en_event e1 = en_event e2
-    | causal_rel_right_before       e1 e2 => (en_event e1) ⊂ e2
-    | causal_rel_local_before       e1 e2 => e1 ⊏ e2
-    | causal_rel_local_before_eq    e1 e2 => e1 ⊑ e2
-    | causal_rel_happened_before    e1 e2 => e1 ≺ e2
-    | causal_rel_happened_before_eq e1 e2 => e1 ≼ e2
+    | causal_rel_right_before       e1 e2 t => (en_event e1) ⊂ e2 /\ by_time_op e1 e2 t
+    | causal_rel_local_before       e1 e2 t => e1 ⊏ e2 /\ by_time_op e1 e2 t
+    | causal_rel_local_before_eq    e1 e2 t => e1 ⊑ e2 /\ by_time_op e1 e2 t
+    | causal_rel_happened_before    e1 e2 t => e1 ≺ e2 /\ by_time_op e1 e2 t
+    | causal_rel_happened_before_eq e1 e2 t => e1 ≼ e2 /\ by_time_op e1 e2 t
     end.
 
   Definition sequent_true {eo : EventOrdering} (s : sequent) :=
@@ -1872,114 +2045,295 @@ Section KnowledgeCalculus.
     -> interpret (seq_event s) (seq_concl s).
 
 
-  Definition rule_e_t_d_c_n_hypotheses_true {eo : EventOrdering}
-             (e t d c n : nat)
-             (f : Vector.t EventN e -> Vector.t kc_trust t -> Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall es ts ds cs ns s, In s (f es ts ds cs ns) -> sequent_true s.
+  Definition rule_e_t_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (e t d c n p v : nat)
+             (f : Vector.t EventN e
+                  -> Vector.t kc_trust t
+                  -> Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall es ts ds cs ns ps vs s, In s (f es ts ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_t_d_c_n_hypotheses_true {eo : EventOrdering}
-             (t d c n : nat)
-             (f : Vector.t kc_trust t -> Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall ts ds cs ns s, In s (f ts ds cs ns) -> sequent_true s.
+  Definition rule_t_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (t d c n p v : nat)
+             (f : Vector.t kc_trust t
+                  -> Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall ts ds cs ns ps vs s, In s (f ts ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_d_c_n_hypotheses_true {eo : EventOrdering}
-             (d c n : nat)
-             (f : Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall ds cs ns s, In s (f ds cs ns) -> sequent_true s.
+  Definition rule_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (d c n p v : nat)
+             (f : Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall ds cs ns ps vs s, In s (f ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_c_n_hypotheses_true {eo : EventOrdering}
-             (c n : nat)
-             (f : Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall cs ns s, In s (f cs ns) -> sequent_true s.
+  Definition rule_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (c n p v : nat)
+             (f : Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall cs ns ps vs s, In s (f cs ns ps vs) -> sequent_true s.
 
-  Definition rule_n_hypotheses_true {eo : EventOrdering}
-             (n : nat)
-             (f : Vector.t node_type n -> list sequent) :=
-    forall ns s, In s (f ns) -> sequent_true s.
+  Definition rule_n_p_v_hypotheses_true {eo : EventOrdering}
+             (n p v : nat)
+             (f : Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall ns ps vs s, In s (f ns ps vs) -> sequent_true s.
+
+  Definition rule_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall ps vs s, In s (f ps vs) -> sequent_true s.
+
+  Definition rule_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall vs s, In s (f vs) -> sequent_true s.
 
   Definition rule__hypotheses_true {eo : EventOrdering}
              (f : list sequent) :=
     forall s, In s f -> sequent_true s.
 
 
-  Definition rule_1e_t_d_c_n_hypotheses_true {eo : EventOrdering}
-             (t d c n : nat)
-             (f : EventN -> Vector.t kc_trust t -> Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall e ts ds cs ns s, In s (f e ts ds cs ns) -> sequent_true s.
+  Definition rule_1e_t_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (t d c n p v : nat)
+             (f : EventN
+                  -> Vector.t kc_trust t
+                  -> Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e ts ds cs ns ps vs s, In s (f e ts ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1e_d_c_n_hypotheses_true {eo : EventOrdering}
-             (d c n : nat)
-             (f : EventN -> Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall e ds cs ns s, In s (f e ds cs ns) -> sequent_true s.
+  Definition rule_1e_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (d c n p v : nat)
+             (f : EventN
+                  -> Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e ds cs ns ps vs s, In s (f e ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1e_c_n_hypotheses_true {eo : EventOrdering}
-             (c n : nat)
-             (f : EventN -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall e cs ns s, In s (f e cs ns) -> sequent_true s.
+  Definition rule_1e_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (c n p v : nat)
+             (f : EventN
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e cs ns ps vs s, In s (f e cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1e_n_hypotheses_true {eo : EventOrdering}
-             (n : nat)
-             (f : EventN -> Vector.t node_type n -> list sequent) :=
-    forall e ns s, In s (f e ns) -> sequent_true s.
+  Definition rule_1e_n_p_v_hypotheses_true {eo : EventOrdering}
+             (n p v : nat)
+             (f : EventN
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e ns ps vs s, In s (f e ns ps vs) -> sequent_true s.
+
+  Definition rule_1e_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : EventN
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e ps vs s, In s (f e ps vs) -> sequent_true s.
+
+  Definition rule_1e_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : EventN
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall e vs s, In s (f e vs) -> sequent_true s.
 
   Definition rule_1e_hypotheses_true {eo : EventOrdering}
-             (f : EventN -> list sequent) :=
+             (f : EventN
+                  -> list sequent) :=
     forall e s, In s (f e) -> sequent_true s.
 
 
-  Definition rule_1t_d_c_n_hypotheses_true {eo : EventOrdering}
-             (d c n : nat)
-             (f : kc_trust -> Vector.t kc_data d -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall t ds cs ns s, In s (f t ds cs ns) -> sequent_true s.
+  Definition rule_1t_d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (d c n p v : nat)
+             (f : kc_trust
+                  -> Vector.t kc_data d
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall t ds cs ns ps vs s, In s (f t ds cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1t_c_n_hypotheses_true {eo : EventOrdering}
-             (c n : nat)
-             (f : kc_trust -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall t cs ns s, In s (f t cs ns) -> sequent_true s.
+  Definition rule_1t_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (c n p v : nat)
+             (f : kc_trust
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall t cs ns ps vs s, In s (f t cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1t_n_hypotheses_true {eo : EventOrdering}
-             (n : nat)
-             (f : kc_trust -> Vector.t node_type n -> list sequent) :=
-    forall t ns s, In s (f t ns) -> sequent_true s.
+  Definition rule_1t_n_p_v_hypotheses_true {eo : EventOrdering}
+             (n p v : nat)
+             (f : kc_trust
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall t ns ps vs s, In s (f t ns ps vs) -> sequent_true s.
+
+  Definition rule_1t_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : kc_trust
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall t ps vs s, In s (f t ps vs) -> sequent_true s.
+
+  Definition rule_1t_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : kc_trust
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall t vs s, In s (f t vs) -> sequent_true s.
 
   Definition rule_1t_hypotheses_true {eo : EventOrdering}
              (f : kc_trust -> list sequent) :=
     forall t s, In s (f t) -> sequent_true s.
 
 
-  Definition rule_1d_c_n_hypotheses_true {eo : EventOrdering}
-             (c n : nat)
-             (f : kc_data -> Vector.t kc_id c -> Vector.t node_type n -> list sequent) :=
-    forall d cs ns s, In s (f d cs ns) -> sequent_true s.
+  Definition rule_1d_c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (c n p v : nat)
+             (f : kc_data
+                  -> Vector.t kc_id c
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall d cs ns ps vs s, In s (f d cs ns ps vs) -> sequent_true s.
 
-  Definition rule_1d_n_hypotheses_true {eo : EventOrdering}
-             (n : nat)
-             (f : kc_data -> Vector.t node_type n -> list sequent) :=
-    forall d ns s, In s (f d ns) -> sequent_true s.
+  Definition rule_1d_n_p_v_hypotheses_true {eo : EventOrdering}
+             (n p v : nat)
+             (f : kc_data
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall d ns ps vs s, In s (f d ns ps vs) -> sequent_true s.
+
+  Definition rule_1d_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : kc_data
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall d ps vs s, In s (f d ps vs) -> sequent_true s.
+
+  Definition rule_1d_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : kc_data
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall d vs s, In s (f d vs) -> sequent_true s.
 
   Definition rule_1d_hypotheses_true {eo : EventOrdering}
              (f : kc_data -> list sequent) :=
     forall d s, In s (f d) -> sequent_true s.
 
 
-  Definition rule_1c_n_hypotheses_true {eo : EventOrdering}
-             (n : nat)
-             (f : kc_id -> Vector.t node_type n -> list sequent) :=
-    forall c ns s, In s (f c ns) -> sequent_true s.
+  Definition rule_1c_n_p_v_hypotheses_true {eo : EventOrdering}
+             (n p v : nat)
+             (f : kc_id
+                  -> Vector.t node_type n
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall c ns ps vs s, In s (f c ns ps vs) -> sequent_true s.
+
+  Definition rule_1c_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : kc_id
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall c ps vs s, In s (f c ps vs) -> sequent_true s.
+
+  Definition rule_1c_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : kc_id
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall c vs s, In s (f c vs) -> sequent_true s.
 
   Definition rule_1c_hypotheses_true {eo : EventOrdering}
              (f : kc_id -> list sequent) :=
     forall c s, In s (f c) -> sequent_true s.
 
 
+  Definition rule_1n_p_v_hypotheses_true {eo : EventOrdering}
+             (p v : nat)
+             (f : node_type
+                  -> Vector.t PosDTime p
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall n ps vs s, In s (f n ps vs) -> sequent_true s.
+
+  Definition rule_1n_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : node_type
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall n vs s, In s (f n vs) -> sequent_true s.
+
   Definition rule_1n_hypotheses_true {eo : EventOrdering}
              (f : node_type -> list sequent) :=
     forall n s, In s (f n) -> sequent_true s.
 
 
+  Definition rule_1p_v_hypotheses_true {eo : EventOrdering}
+             (v : nat)
+             (f : PosDTime
+                  -> Vector.t kc_vouchers v
+                  -> list sequent) :=
+    forall p vs s, In s (f p vs) -> sequent_true s.
+
+  Definition rule_1p_hypotheses_true {eo : EventOrdering}
+             (f : PosDTime -> list sequent) :=
+    forall p s, In s (f p) -> sequent_true s.
+
+
+  Definition rule_1v_hypotheses_true {eo : EventOrdering}
+             (f : kc_vouchers -> list sequent) :=
+    forall v s, In s (f v) -> sequent_true s.
+
+
   Definition rule_hypotheses_true {eo : EventOrdering} (rh : rule_hypotheses) :=
     match rh with
-    | MkRuleHypotheses e t d c n f => rule_e_t_d_c_n_hypotheses_true e t d c n f
+    | MkRuleHypotheses e t d c n p v f => rule_e_t_d_c_n_p_v_hypotheses_true e t d c n p v f
     end.
 
   Definition rule_true {eo : EventOrdering} (r : rule) :=
@@ -2002,293 +2356,509 @@ Section KnowledgeCalculus.
   Definition hyps_at_event {eo : EventOrdering} (H : hypotheses) (e : Event) :=
     forall h, In h H -> en_event (hyp_event h) = e.
 
-  Definition rule_0_t_d_c_n_hypotheses_true :
-    forall {eo : EventOrdering} t d c n f,
-      rule_e_t_d_c_n_hypotheses_true 0 t d c n f
-      <-> rule_t_d_c_n_hypotheses_true t d c n (f (Vector.nil _)).
+  Definition rule_0_t_d_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} t d c n p v f,
+      rule_e_t_d_c_n_p_v_hypotheses_true 0 t d c n p v f
+      <-> rule_t_d_c_n_p_v_hypotheses_true t d c n p v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_e_t_d_c_n_hypotheses_true, rule_t_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_e_t_d_c_n_p_v_hypotheses_true, rule_t_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction es using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_0_t_d_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_0_t_d_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_0_d_c_n_hypotheses_true :
-    forall {eo : EventOrdering} d c n f,
-      rule_t_d_c_n_hypotheses_true 0 d c n f
-      <-> rule_d_c_n_hypotheses_true d c n (f (Vector.nil _)).
+  Definition rule_0_d_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} d c n p v f,
+      rule_t_d_c_n_p_v_hypotheses_true 0 d c n p v f
+      <-> rule_d_c_n_p_v_hypotheses_true d c n p v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_t_d_c_n_hypotheses_true, rule_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_t_d_c_n_p_v_hypotheses_true, rule_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ts using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_0_d_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_0_d_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_0_c_n_hypotheses_true :
-    forall {eo : EventOrdering} c n f,
-      rule_d_c_n_hypotheses_true 0 c n f
-      <-> rule_c_n_hypotheses_true c n (f (Vector.nil _)).
+  Definition rule_0_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} c n p v f,
+      rule_d_c_n_p_v_hypotheses_true 0 c n p v f
+      <-> rule_c_n_p_v_hypotheses_true c n p v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_d_c_n_hypotheses_true, rule_c_n_hypotheses_true; split; intro h;
+    unfold rule_d_c_n_p_v_hypotheses_true, rule_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ds using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_0_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_0_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_0_n_hypotheses_true :
-    forall {eo : EventOrdering} n f,
-      rule_c_n_hypotheses_true 0 n f
-      <-> rule_n_hypotheses_true n (f (Vector.nil _)).
+  Definition rule_0_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} n p v f,
+      rule_c_n_p_v_hypotheses_true 0 n p v f
+      <-> rule_n_p_v_hypotheses_true n p v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_c_n_hypotheses_true, rule_n_hypotheses_true; split; intro h;
+    unfold rule_c_n_p_v_hypotheses_true, rule_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction cs using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_0_n_hypotheses_true : rule.
+  Hint Rewrite @rule_0_n_p_v_hypotheses_true : rule.
 
-  Definition rule_0_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_n_hypotheses_true 0 f
-      <-> rule__hypotheses_true (f (Vector.nil _)).
+  Definition rule_0_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_n_p_v_hypotheses_true 0 p v f
+      <-> rule_p_v_hypotheses_true p v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_n_hypotheses_true, rule__hypotheses_true; split; intro h;
+    unfold rule_n_p_v_hypotheses_true, rule_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_0_hypotheses_true : rule.
+  Hint Rewrite @rule_0_p_v_hypotheses_true : rule.
 
-  Definition rule_1_t_d_c_n_hypotheses_true :
-    forall {eo : EventOrdering} t d c n f,
-      rule_e_t_d_c_n_hypotheses_true 1 t d c n f
-      <-> rule_1e_t_d_c_n_hypotheses_true t d c n (fun e => f (mk_v1 e)).
+  Definition rule_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_p_v_hypotheses_true 0 v f
+      <-> rule_v_hypotheses_true v (f (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_e_t_d_c_n_hypotheses_true, rule_1e_t_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_p_v_hypotheses_true, rule_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_0_v_hypotheses_true : rule.
+
+  Definition rule_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_v_hypotheses_true 0 f
+      <-> rule__hypotheses_true (f (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_v_hypotheses_true, rule__hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_0_hypotheses_true : rule.
+
+  Definition rule_1_t_d_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} t d c n p v f,
+      rule_e_t_d_c_n_p_v_hypotheses_true 1 t d c n p v f
+      <-> rule_1e_t_d_c_n_p_v_hypotheses_true t d c n p v (fun e => f (mk_v1 e)).
+  Proof.
+    introv.
+    unfold rule_e_t_d_c_n_p_v_hypotheses_true, rule_1e_t_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction es using Vector.caseS'; simpl in *.
       induction es using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1_t_d_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1_t_d_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1e_0_d_c_n_hypotheses_true :
-    forall {eo : EventOrdering} d c n f,
-      rule_1e_t_d_c_n_hypotheses_true 0 d c n f
-      <-> rule_1e_d_c_n_hypotheses_true d c n (fun e => f e (Vector.nil _)).
+  Definition rule_1e_0_d_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} d c n p v f,
+      rule_1e_t_d_c_n_p_v_hypotheses_true 0 d c n p v f
+      <-> rule_1e_d_c_n_p_v_hypotheses_true d c n p v (fun e => f e (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1e_t_d_c_n_hypotheses_true, rule_1e_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_1e_t_d_c_n_p_v_hypotheses_true, rule_1e_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ts using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1e_0_d_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1e_0_d_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1e_0_c_n_hypotheses_true :
-    forall {eo : EventOrdering} c n f,
-      rule_1e_d_c_n_hypotheses_true 0 c n f
-      <-> rule_1e_c_n_hypotheses_true c n (fun e => f e (Vector.nil _)).
+  Definition rule_1e_0_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} c n p v f,
+      rule_1e_d_c_n_p_v_hypotheses_true 0 c n p v f
+      <-> rule_1e_c_n_p_v_hypotheses_true c n p v (fun e => f e (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1e_d_c_n_hypotheses_true, rule_1e_c_n_hypotheses_true; split; intro h;
+    unfold rule_1e_d_c_n_p_v_hypotheses_true, rule_1e_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ds using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1e_0_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1e_0_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1e_0_n_hypotheses_true :
-    forall {eo : EventOrdering} n f,
-      rule_1e_c_n_hypotheses_true 0 n f
-      <-> rule_1e_n_hypotheses_true n (fun e => f e (Vector.nil _)).
+  Definition rule_1e_0_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} n p v f,
+      rule_1e_c_n_p_v_hypotheses_true 0 n p v f
+      <-> rule_1e_n_p_v_hypotheses_true n p v (fun e => f e (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1e_c_n_hypotheses_true, rule_1e_n_hypotheses_true; split; intro h;
+    unfold rule_1e_c_n_p_v_hypotheses_true, rule_1e_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction cs using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1e_0_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1e_0_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1e_0_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_1e_n_hypotheses_true 0 f
-      <-> rule_1e_hypotheses_true (fun e => f e (Vector.nil _)).
+  Definition rule_1e_0_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_1e_n_p_v_hypotheses_true 0 p v f
+      <-> rule_1e_p_v_hypotheses_true p v (fun e => f e (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_n_hypotheses_true, rule__hypotheses_true; split; intro h;
+    unfold rule_n_p_v_hypotheses_true, rule_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
+  Hint Rewrite @rule_1e_0_p_v_hypotheses_true : rule.
+
+  Definition rule_1e_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_1e_p_v_hypotheses_true 0 v f
+      <-> rule_1e_v_hypotheses_true v (fun e => f e (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_p_v_hypotheses_true, rule_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1e_0_v_hypotheses_true : rule.
+
+  Definition rule_1e_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1e_v_hypotheses_true 0 f
+      <-> rule_1e_hypotheses_true (fun e => f e (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_v_hypotheses_true, rule__hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
   Hint Rewrite @rule_1e_0_hypotheses_true : rule.
 
 
-  Definition rule_1_d_c_n_hypotheses_true :
-    forall {eo : EventOrdering} d c n f,
-      rule_t_d_c_n_hypotheses_true 1 d c n f
-      <-> rule_1t_d_c_n_hypotheses_true d c n (fun t => f (mk_v1 t)).
+  Definition rule_1_d_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} d c n p v f,
+      rule_t_d_c_n_p_v_hypotheses_true 1 d c n p v f
+      <-> rule_1t_d_c_n_p_v_hypotheses_true d c n p v (fun t => f (mk_v1 t)).
   Proof.
     introv.
-    unfold rule_t_d_c_n_hypotheses_true, rule_1t_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_t_d_c_n_p_v_hypotheses_true, rule_1t_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ts using Vector.caseS'; simpl in *.
       induction ts using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1_d_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1_d_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1t_0_c_n_hypotheses_true :
-    forall {eo : EventOrdering} c n f,
-      rule_1t_d_c_n_hypotheses_true 0 c n f
-      <-> rule_1t_c_n_hypotheses_true c n (fun t => f t (Vector.nil _)).
+  Definition rule_1t_0_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} c n p v f,
+      rule_1t_d_c_n_p_v_hypotheses_true 0 c n p v f
+      <-> rule_1t_c_n_p_v_hypotheses_true c n p v (fun t => f t (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1t_d_c_n_hypotheses_true, rule_1t_c_n_hypotheses_true; split; intro h;
+    unfold rule_1t_d_c_n_p_v_hypotheses_true, rule_1t_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ds using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1t_0_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1t_0_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1t_0_n_hypotheses_true :
-    forall {eo : EventOrdering} n f,
-      rule_1t_c_n_hypotheses_true 0 n f
-      <-> rule_1t_n_hypotheses_true n (fun t => f t (Vector.nil _)).
+  Definition rule_1t_0_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} n p v f,
+      rule_1t_c_n_p_v_hypotheses_true 0 n p v f
+      <-> rule_1t_n_p_v_hypotheses_true n p v (fun t => f t (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1t_c_n_hypotheses_true, rule_1t_n_hypotheses_true; split; intro h;
+    unfold rule_1t_c_n_p_v_hypotheses_true, rule_1t_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction cs using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1t_0_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1t_0_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1t_0_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_1t_n_hypotheses_true 0 f
-      <-> rule_1t_hypotheses_true (fun t => f t (Vector.nil _)).
+  Definition rule_1t_0_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_1t_n_p_v_hypotheses_true 0 p v f
+      <-> rule_1t_p_v_hypotheses_true p v (fun t => f t (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1t_n_hypotheses_true, rule_1t_hypotheses_true; split; intro h;
+    unfold rule_1t_n_p_v_hypotheses_true, rule_1t_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
+  Hint Rewrite @rule_1t_0_p_v_hypotheses_true : rule.
+
+  Definition rule_1t_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_1t_p_v_hypotheses_true 0 v f
+      <-> rule_1t_v_hypotheses_true v (fun t => f t (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1t_p_v_hypotheses_true, rule_1t_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1t_0_v_hypotheses_true : rule.
+
+  Definition rule_1t_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1t_v_hypotheses_true 0 f
+      <-> rule_1t_hypotheses_true (fun t => f t (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1t_v_hypotheses_true, rule_1t_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
   Hint Rewrite @rule_1t_0_hypotheses_true : rule.
 
 
-  Definition rule_1_c_n_hypotheses_true :
-    forall {eo : EventOrdering} c n f,
-      rule_d_c_n_hypotheses_true 1 c n f
-      <-> rule_1d_c_n_hypotheses_true c n (fun t => f (mk_v1 t)).
+  Definition rule_1_c_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} c n p v f,
+      rule_d_c_n_p_v_hypotheses_true 1 c n p v f
+      <-> rule_1d_c_n_p_v_hypotheses_true c n p v (fun t => f (mk_v1 t)).
   Proof.
     introv.
-    unfold rule_t_d_c_n_hypotheses_true, rule_1t_d_c_n_hypotheses_true; split; intro h;
+    unfold rule_t_d_c_n_p_v_hypotheses_true, rule_1t_d_c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ds using Vector.caseS'; simpl in *.
       induction ds using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1_c_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1_c_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1d_0_n_hypotheses_true :
-    forall {eo : EventOrdering} n f,
-      rule_1d_c_n_hypotheses_true 0 n f
-      <-> rule_1d_n_hypotheses_true n (fun t => f t (Vector.nil _)).
+  Definition rule_1d_0_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} n p v f,
+      rule_1d_c_n_p_v_hypotheses_true 0 n p v f
+      <-> rule_1d_n_p_v_hypotheses_true n p v (fun t => f t (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1d_c_n_hypotheses_true, rule_1d_n_hypotheses_true; split; intro h;
+    unfold rule_1d_c_n_p_v_hypotheses_true, rule_1d_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction cs using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1d_0_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1d_0_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1d_0_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_1d_n_hypotheses_true 0 f
-      <-> rule_1d_hypotheses_true (fun t => f t (Vector.nil _)).
+  Definition rule_1d_0_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_1d_n_p_v_hypotheses_true 0 p v f
+      <-> rule_1d_p_v_hypotheses_true p v (fun t => f t (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1d_n_hypotheses_true, rule_1d_hypotheses_true; split; intro h;
+    unfold rule_1d_n_p_v_hypotheses_true, rule_1d_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
+  Hint Rewrite @rule_1d_0_p_v_hypotheses_true : rule.
+
+  Definition rule_1d_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_1d_p_v_hypotheses_true 0 v f
+      <-> rule_1d_v_hypotheses_true v (fun t => f t (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1d_p_v_hypotheses_true, rule_1d_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1d_0_v_hypotheses_true : rule.
+
+  Definition rule_1d_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1d_v_hypotheses_true 0 f
+      <-> rule_1d_hypotheses_true (fun t => f t (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1d_v_hypotheses_true, rule_1d_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
   Hint Rewrite @rule_1d_0_hypotheses_true : rule.
 
 
-  Definition rule_1_n_hypotheses_true :
-    forall {eo : EventOrdering} n f,
-      rule_c_n_hypotheses_true 1 n f
-      <-> rule_1c_n_hypotheses_true n (fun t => f (mk_v1 t)).
+  Definition rule_1_n_p_v_hypotheses_true :
+    forall {eo : EventOrdering} n p v f,
+      rule_c_n_p_v_hypotheses_true 1 n p v f
+      <-> rule_1c_n_p_v_hypotheses_true n p v (fun t => f (mk_v1 t)).
   Proof.
     introv.
-    unfold rule_c_n_hypotheses_true, rule_1c_n_hypotheses_true; split; intro h;
+    unfold rule_c_n_p_v_hypotheses_true, rule_1c_n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction cs using Vector.caseS'; simpl in *.
       induction cs using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1_n_hypotheses_true : rule.
+  Hint Rewrite @rule_1_n_p_v_hypotheses_true : rule.
 
-  Definition rule_1c_0_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_1c_n_hypotheses_true 0 f
-      <-> rule_1c_hypotheses_true (fun c => f c (Vector.nil _)).
+  Definition rule_1c_0_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_1c_n_p_v_hypotheses_true 0 p v f
+      <-> rule_1c_p_v_hypotheses_true p v (fun c => f c (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_1c_n_hypotheses_true, rule_1c_hypotheses_true; split; intro h;
+    unfold rule_1c_n_p_v_hypotheses_true, rule_1c_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
-  Hint Rewrite @rule_1c_0_hypotheses_true : rule.
+  Hint Rewrite @rule_1c_0_p_v_hypotheses_true : rule.
 
-  Definition rule_1_hypotheses_true :
-    forall {eo : EventOrdering} f,
-      rule_n_hypotheses_true 1 f
-      <-> rule_1n_hypotheses_true (fun n => f (mk_v1 n)).
+  Definition rule_1c_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_1c_p_v_hypotheses_true 0 v f
+      <-> rule_1c_v_hypotheses_true v (fun c => f c (Vector.nil _)).
   Proof.
     introv.
-    unfold rule_n_hypotheses_true, rule_1n_hypotheses_true; split; intro h;
+    unfold rule_1c_p_v_hypotheses_true, rule_1c_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1c_0_v_hypotheses_true : rule.
+
+  Definition rule_1c_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1c_v_hypotheses_true 0 f
+      <-> rule_1c_hypotheses_true (fun c => f c (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1c_v_hypotheses_true, rule_1c_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1c_0_hypotheses_true : rule.
+
+
+  Definition rule_1_p_v_hypotheses_true :
+    forall {eo : EventOrdering} p v f,
+      rule_n_p_v_hypotheses_true 1 p v f
+      <-> rule_1n_p_v_hypotheses_true p v (fun t => f (mk_v1 t)).
+  Proof.
+    introv.
+    unfold rule_n_p_v_hypotheses_true, rule_1n_p_v_hypotheses_true; split; intro h;
       introv i.
     { eapply h; eauto. }
     { induction ns using Vector.caseS'; simpl in *.
       induction ns using Vector.case0; simpl in *.
       eapply h; eauto. }
   Qed.
+  Hint Rewrite @rule_1_p_v_hypotheses_true : rule.
+
+  Definition rule_1n_0_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_1n_p_v_hypotheses_true 0 v f
+      <-> rule_1n_v_hypotheses_true v (fun c => f c (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1n_p_v_hypotheses_true, rule_1n_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1n_0_v_hypotheses_true : rule.
+
+  Definition rule_1n_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1n_v_hypotheses_true 0 f
+      <-> rule_1n_hypotheses_true (fun c => f c (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1n_v_hypotheses_true, rule_1n_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1n_0_hypotheses_true : rule.
+
+
+  Definition rule_1_v_hypotheses_true :
+    forall {eo : EventOrdering} v f,
+      rule_p_v_hypotheses_true 1 v f
+      <-> rule_1p_v_hypotheses_true v (fun t => f (mk_v1 t)).
+  Proof.
+    introv.
+    unfold rule_p_v_hypotheses_true, rule_1p_v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction ps using Vector.caseS'; simpl in *.
+      induction ps using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1_v_hypotheses_true : rule.
+
+  Definition rule_1p_0_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_1p_v_hypotheses_true 0 f
+      <-> rule_1p_hypotheses_true (fun c => f c (Vector.nil _)).
+  Proof.
+    introv.
+    unfold rule_1p_v_hypotheses_true, rule_1p_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
+  Hint Rewrite @rule_1p_0_hypotheses_true : rule.
+
+
+  Definition rule_1_hypotheses_true :
+    forall {eo : EventOrdering} f,
+      rule_v_hypotheses_true 1 f
+      <-> rule_1v_hypotheses_true (fun n => f (mk_v1 n)).
+  Proof.
+    introv.
+    unfold rule_v_hypotheses_true, rule_1v_hypotheses_true; split; intro h;
+      introv i.
+    { eapply h; eauto. }
+    { induction vs using Vector.caseS'; simpl in *.
+      induction vs using Vector.case0; simpl in *.
+      eapply h; eauto. }
+  Qed.
   Hint Rewrite @rule_1_hypotheses_true : rule.
+
 
   (**********************)
 
@@ -3675,32 +4245,49 @@ Section KnowledgeCalculus.
 
   Ltac simpl_sem_rule :=
     repeat match goal with
-           | [ H : rule_e_t_d_c_n_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_0_t_d_c_n_hypotheses_true in H
-           | [ H : rule_e_t_d_c_n_hypotheses_true 1 _ _ _ _ _ |- _ ] => apply rule_1_t_d_c_n_hypotheses_true in H
-           | [ H : rule_t_d_c_n_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_0_d_c_n_hypotheses_true in H
-           | [ H : rule_t_d_c_n_hypotheses_true 1 _ _ _ _ |- _ ] => apply rule_1_d_c_n_hypotheses_true in H
-           | [ H : rule_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_0_c_n_hypotheses_true in H
-           | [ H : rule_d_c_n_hypotheses_true 1 _ _ _ |- _ ] => apply rule_1_c_n_hypotheses_true in H
-           | [ H : rule_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_0_n_hypotheses_true in H
-           | [ H : rule_c_n_hypotheses_true 1 _ _ |- _ ] => apply rule_1_n_hypotheses_true in H
-           | [ H : rule_n_hypotheses_true 0 _ |- _ ] => apply rule_0_hypotheses_true in H
-           | [ H : rule_n_hypotheses_true 1 _ |- _ ] => apply rule_1_hypotheses_true in H
+           | [ H : rule_e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ _ |- _ ] => apply rule_0_t_d_c_n_p_v_hypotheses_true in H
+           | [ H : rule_e_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ _ |- _ ] => apply rule_1_t_d_c_n_p_v_hypotheses_true in H
+           | [ H : rule_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ |- _ ] => apply rule_0_d_c_n_p_v_hypotheses_true in H
+           | [ H : rule_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ |- _ ] => apply rule_1_d_c_n_p_v_hypotheses_true in H
+           | [ H : rule_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_0_c_n_p_v_hypotheses_true in H
+           | [ H : rule_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ |- _ ] => apply rule_1_c_n_p_v_hypotheses_true in H
+           | [ H : rule_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_0_n_p_v_hypotheses_true in H
+           | [ H : rule_c_n_p_v_hypotheses_true 1 _ _ _ _ |- _ ] => apply rule_1_n_p_v_hypotheses_true in H
+           | [ H : rule_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_0_p_v_hypotheses_true in H
+           | [ H : rule_n_p_v_hypotheses_true 1 _ _ _ |- _ ] => apply rule_1_p_v_hypotheses_true in H
+           | [ H : rule_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_0_v_hypotheses_true in H
+           | [ H : rule_p_v_hypotheses_true 1 _ _ |- _ ] => apply rule_1_v_hypotheses_true in H
+           | [ H : rule_v_hypotheses_true 0 _ |- _ ] => apply rule_0_hypotheses_true in H
+           | [ H : rule_v_hypotheses_true 1 _ |- _ ] => apply rule_1_hypotheses_true in H
 
            | [ H : rule__hypotheses_true _ |- _ ] => unfold rule__hypotheses_true in H; simpl in H
 
-           | [ H : rule_1e_t_d_c_n_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1e_0_d_c_n_hypotheses_true in H
-           | [ H : rule_1e_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1e_0_c_n_hypotheses_true in H
-           | [ H : rule_1e_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1e_0_n_hypotheses_true in H
-           | [ H : rule_1e_n_hypotheses_true 0 _ |- _ ] => apply rule_1e_0_hypotheses_true in H
+           | [ H : rule_1e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ |- _ ] => apply rule_1e_0_d_c_n_p_v_hypotheses_true in H
+           | [ H : rule_1e_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_1e_0_c_n_p_v_hypotheses_true in H
+           | [ H : rule_1e_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1e_0_n_p_v_hypotheses_true in H
+           | [ H : rule_1e_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1e_0_p_v_hypotheses_true in H
+           | [ H : rule_1e_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1e_0_v_hypotheses_true in H
+           | [ H : rule_1e_v_hypotheses_true 0 _ |- _ ] => apply rule_1e_0_hypotheses_true in H
 
-           | [ H : rule_1t_d_c_n_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1t_0_c_n_hypotheses_true in H
-           | [ H : rule_1t_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1t_0_n_hypotheses_true in H
-           | [ H : rule_1t_n_hypotheses_true 0 _ |- _ ] => apply rule_1t_0_hypotheses_true in H
+           | [ H : rule_1t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ |- _ ] => apply rule_1t_0_c_n_p_v_hypotheses_true in H
+           | [ H : rule_1t_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1t_0_n_p_v_hypotheses_true in H
+           | [ H : rule_1t_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1t_0_p_v_hypotheses_true in H
+           | [ H : rule_1t_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1t_0_v_hypotheses_true in H
+           | [ H : rule_1t_v_hypotheses_true 0 _ |- _ ] => apply rule_1t_0_hypotheses_true in H
 
-           | [ H : rule_1d_c_n_hypotheses_true 0 _ _ |- _ ] => apply rule_1d_0_n_hypotheses_true in H
-           | [ H : rule_1d_n_hypotheses_true 0 _ |- _ ] => apply rule_1d_0_hypotheses_true in H
+           | [ H : rule_1d_c_n_p_v_hypotheses_true 0 _ _ _ _ |- _ ] => apply rule_1d_0_n_p_v_hypotheses_true in H
+           | [ H : rule_1d_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1d_0_p_v_hypotheses_true in H
+           | [ H : rule_1d_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1d_0_v_hypotheses_true in H
+           | [ H : rule_1d_v_hypotheses_true 0 _ |- _ ] => apply rule_1d_0_hypotheses_true in H
 
-           | [ H : rule_1c_n_hypotheses_true 0 _ |- _ ] => apply rule_1c_0_hypotheses_true in H
+           | [ H : rule_1c_n_p_v_hypotheses_true 0 _ _ _ |- _ ] => apply rule_1c_0_p_v_hypotheses_true in H
+           | [ H : rule_1c_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1c_0_v_hypotheses_true in H
+           | [ H : rule_1c_v_hypotheses_true 0 _ |- _ ] => apply rule_1c_0_hypotheses_true in H
+
+           | [ H : rule_1n_p_v_hypotheses_true 0 _ _ |- _ ] => apply rule_1n_0_v_hypotheses_true in H
+           | [ H : rule_1n_v_hypotheses_true 0 _ |- _ ] => apply rule_1n_0_hypotheses_true in H
+
+           | [ H : rule_1p_v_hypotheses_true 0 _ |- _ ] => apply rule_1p_0_hypotheses_true in H
 
            | [ H : Vector.t _ 0 -> _ |- _ ] => pose proof (H (Vector.nil _)) as H
            | [ H : Vector.t _ 0 |- _ ] => induction H using Vector.case0; simpl in *
@@ -3709,32 +4296,49 @@ Section KnowledgeCalculus.
 
   Ltac intro_sem_rule :=
     repeat match goal with
-           | [ |- rule_e_t_d_c_n_hypotheses_true 0 _ _ _ _ _ ] => apply rule_0_t_d_c_n_hypotheses_true
-           | [ |- rule_e_t_d_c_n_hypotheses_true 1 _ _ _ _ _ ] => apply rule_1_t_d_c_n_hypotheses_true
-           | [ |- rule_t_d_c_n_hypotheses_true 0 _ _ _ _ ] => apply rule_0_d_c_n_hypotheses_true
-           | [ |- rule_t_d_c_n_hypotheses_true 1 _ _ _ _ ] => apply rule_1_d_c_n_hypotheses_true
-           | [ |- rule_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_0_c_n_hypotheses_true
-           | [ |- rule_d_c_n_hypotheses_true 1 _ _ _ ] => apply rule_1_c_n_hypotheses_true
-           | [ |- rule_c_n_hypotheses_true 0 _ _ ] => apply rule_0_n_hypotheses_true
-           | [ |- rule_c_n_hypotheses_true 1 _ _ ] => apply rule_1_n_hypotheses_true
-           | [ |- rule_n_hypotheses_true 0 _ ] => apply rule_0_hypotheses_true
-           | [ |- rule_n_hypotheses_true 1 _ ] => apply rule_1_hypotheses_true
+           | [ |- rule_e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ _ ] => apply rule_0_t_d_c_n_p_v_hypotheses_true
+           | [ |- rule_e_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ _ ] => apply rule_1_t_d_c_n_p_v_hypotheses_true
+           | [ |- rule_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ ] => apply rule_0_d_c_n_p_v_hypotheses_true
+           | [ |- rule_t_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ _ ] => apply rule_1_d_c_n_p_v_hypotheses_true
+           | [ |- rule_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_0_c_n_p_v_hypotheses_true
+           | [ |- rule_d_c_n_p_v_hypotheses_true 1 _ _ _ _ _ ] => apply rule_1_c_n_p_v_hypotheses_true
+           | [ |- rule_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_0_n_p_v_hypotheses_true
+           | [ |- rule_c_n_p_v_hypotheses_true 1 _ _ _ _ ] => apply rule_1_n_p_v_hypotheses_true
+           | [ |- rule_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_0_p_v_hypotheses_true
+           | [ |- rule_n_p_v_hypotheses_true 1 _ _ _ ] => apply rule_1_p_v_hypotheses_true
+           | [ |- rule_p_v_hypotheses_true 0 _ _ ] => apply rule_0_v_hypotheses_true
+           | [ |- rule_p_v_hypotheses_true 1 _ _ ] => apply rule_1_v_hypotheses_true
+           | [ |- rule_v_hypotheses_true 0 _ ] => apply rule_0_hypotheses_true
+           | [ |- rule_v_hypotheses_true 1 _ ] => apply rule_1_hypotheses_true
 
            | [ |- rule__hypotheses_true _ ] => unfold rule__hypotheses_true; simpl
 
-           | [ |- rule_1e_t_d_c_n_hypotheses_true 0 _ _ _ _ ] => apply rule_1e_0_d_c_n_hypotheses_true
-           | [ |- rule_1e_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_1e_0_c_n_hypotheses_true
-           | [ |- rule_1e_c_n_hypotheses_true 0 _ _ ] => apply rule_1e_0_n_hypotheses_true
-           | [ |- rule_1e_n_hypotheses_true 0 _ ] => apply rule_1e_0_hypotheses_true
+           | [ |- rule_1e_t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ _ ] => apply rule_1e_0_d_c_n_p_v_hypotheses_true
+           | [ |- rule_1e_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_1e_0_c_n_p_v_hypotheses_true
+           | [ |- rule_1e_c_n_p_v_hypotheses_true _ _ 0 _ _ ] => apply rule_1e_0_n_p_v_hypotheses_true
+           | [ |- rule_1e_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1e_0_p_v_hypotheses_true
+           | [ |- rule_1e_p_v_hypotheses_true 0 _ _ ] => apply rule_1e_0_v_hypotheses_true
+           | [ |- rule_1e_v_hypotheses_true 0 _ ] => apply rule_1e_0_hypotheses_true
 
-           | [ |- rule_1t_d_c_n_hypotheses_true 0 _ _ _ ] => apply rule_1t_0_c_n_hypotheses_true
-           | [ |- rule_1t_c_n_hypotheses_true 0 _ _ ] => apply rule_1t_0_n_hypotheses_true
-           | [ |- rule_1t_n_hypotheses_true 0 _ ] => apply rule_1t_0_hypotheses_true
+           | [ |- rule_1t_d_c_n_p_v_hypotheses_true 0 _ _ _ _ _ ] => apply rule_1t_0_c_n_p_v_hypotheses_true
+           | [ |- rule_1t_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_1t_0_n_p_v_hypotheses_true
+           | [ |- rule_1t_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1t_0_p_v_hypotheses_true
+           | [ |- rule_1t_p_v_hypotheses_true 0 _ _ ] => apply rule_1t_0_v_hypotheses_true
+           | [ |- rule_1t_v_hypotheses_true 0 _ ] => apply rule_1t_0_hypotheses_true
 
-           | [ |- rule_1d_c_n_hypotheses_true 0 _ _ ] => apply rule_1d_0_n_hypotheses_true
-           | [ |- rule_1d_n_hypotheses_true 0 _ ] => apply rule_1d_0_hypotheses_true
+           | [ |- rule_1d_c_n_p_v_hypotheses_true 0 _ _ _ _ ] => apply rule_1d_0_n_p_v_hypotheses_true
+           | [ |- rule_1d_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1d_0_p_v_hypotheses_true
+           | [ |- rule_1d_p_v_hypotheses_true 0 _ _ ] => apply rule_1d_0_v_hypotheses_true
+           | [ |- rule_1d_v_hypotheses_true 0 _ ] => apply rule_1d_0_hypotheses_true
 
-           | [ |- rule_1c_n_hypotheses_true 0 _ ] => apply rule_1c_0_hypotheses_true
+           | [ |- rule_1c_n_p_v_hypotheses_true 0 _ _ _ ] => apply rule_1c_0_p_v_hypotheses_true
+           | [ |- rule_1c_p_v_hypotheses_true 0 _ _ ] => apply rule_1c_0_v_hypotheses_true
+           | [ |- rule_1c_v_hypotheses_true 0 _ ] => apply rule_1c_0_hypotheses_true
+
+           | [ |- rule_1n_p_v_hypotheses_true 0 _ _ ] => apply rule_1n_0_v_hypotheses_true
+           | [ |- rule_1n_v_hypotheses_true 0 _ ] => apply rule_1n_0_hypotheses_true
+
+           | [ |- rule_1p_v_hypotheses_true 0 _ ] => apply rule_1p_0_hypotheses_true
 
            | [ |- rule_1e_hypotheses_true _ ] =>
              let e := fresh "e" in
@@ -3792,6 +4396,16 @@ Section KnowledgeCalculus.
       pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
 
     | [ H : rule_1n_hypotheses_true _ |- _ ] =>
+      let H' := fresh H in
+      dup H as H';
+      pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
+
+    | [ H : rule_1p_hypotheses_true _ |- _ ] =>
+      let H' := fresh H in
+      dup H as H';
+      pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
+
+    | [ H : rule_1v_hypotheses_true _ |- _ ] =>
       let H' := fresh H in
       dup H as H';
       pose proof (H t) as H; simpl in H; simpl_sem_rule; dLin_hyp h; auto
@@ -3884,6 +4498,36 @@ Section KnowledgeCalculus.
   Lemma PRIMITIVE_RULE_exists_node_intro_true :
     forall c {eo : EventOrdering} e R H f,
       rule_true (PRIMITIVE_RULE_exists_node_intro c e R H f).
+  Proof.
+    start_proving_primitive st ct ht.
+    exists c; tcsp.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_exists_time_intro c {eo : EventOrdering} e R H f :=
+    MkRule0
+      [⟬R⟭ H ⊢ f c @ e]
+      (⟬R⟭ H ⊢ KE_EX_TIME f @ e).
+
+  Lemma PRIMITIVE_RULE_exists_time_intro_true :
+    forall c {eo : EventOrdering} e R H f,
+      rule_true (PRIMITIVE_RULE_exists_time_intro c e R H f).
+  Proof.
+    start_proving_primitive st ct ht.
+    exists c; tcsp.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_exists_vouchers_intro c {eo : EventOrdering} e R H f :=
+    MkRule0
+      [⟬R⟭ H ⊢ f c @ e]
+      (⟬R⟭ H ⊢ KE_EX_VOUCHERS f @ e).
+
+  Lemma PRIMITIVE_RULE_exists_vouchers_intro_true :
+    forall c {eo : EventOrdering} e R H f,
+      rule_true (PRIMITIVE_RULE_exists_vouchers_intro c e R H f).
   Proof.
     start_proving_primitive st ct ht.
     exists c; tcsp.
@@ -4181,8 +4825,8 @@ Section KnowledgeCalculus.
     pose proof (st (MkEventN e0 w)) as st; simpl in *; simpl_sem_rule.
     dLin_hyp ht.
     apply ht0; simpl; introv j; allrw hyp_in_adds; allrw hyp_in_add;
-      repndors; subst; tcsp;
-        apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp.
+      repndors; subst; tcsp; simpl; dands; auto;
+        try apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp.
   Qed.
 
 
@@ -4217,9 +4861,9 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     apply st0; tcsp.
     introv i; simpl in *.
-    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
+    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl; dands; auto;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e' ⋄ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' ⋄ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd; eauto 3 with eo.
   Qed.
 
 
@@ -4330,9 +4974,9 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     apply st0; tcsp.
     introv i; simpl in *.
-    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
+    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl; dands;auto;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e' □ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' □ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd; eauto 3 with eo.
   Qed.
 
 
@@ -4372,6 +5016,50 @@ Section KnowledgeCalculus.
   Proof.
     start_proving_primitive st ct ht.
     pose proof (ht (x › KE_EX_NODE f @ e)) as h; simpl in *.
+    allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
+    exrepnd.
+    unfold hyp_event, seq_event in *; simpl in *.
+    inst_hyp c st.
+    apply st1; simpl in *; tcsp.
+    introv i;allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; tcsp;
+      try (complete (apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp)).
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_exists_time_elim x {eo : EventOrdering} e R H J f a :=
+    MkRule1p
+      (fun n => [⟬R⟭ H • (x › f n @ e) » J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_TIME f @ e) » J ⊢ a).
+
+  Lemma PRIMITIVE_RULE_exists_time_elim_true :
+    forall x {eo : EventOrdering} e R H J f a,
+      rule_true (PRIMITIVE_RULE_exists_time_elim x e R H J f a).
+  Proof.
+    start_proving_primitive st ct ht.
+    pose proof (ht (x › KE_EX_TIME f @ e)) as h; simpl in *.
+    allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
+    exrepnd.
+    unfold hyp_event, seq_event in *; simpl in *.
+    inst_hyp c st.
+    apply st1; simpl in *; tcsp.
+    introv i;allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; tcsp;
+      try (complete (apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp)).
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_exists_vouchers_elim x {eo : EventOrdering} e R H J f a :=
+    MkRule1v
+      (fun n => [⟬R⟭ H • (x › f n @ e) » J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_VOUCHERS f @ e) » J ⊢ a).
+
+  Lemma PRIMITIVE_RULE_exists_vouchers_elim_true :
+    forall x {eo : EventOrdering} e R H J f a,
+      rule_true (PRIMITIVE_RULE_exists_vouchers_elim x e R H J f a).
+  Proof.
+    start_proving_primitive st ct ht.
+    pose proof (ht (x › KE_EX_VOUCHERS f @ e)) as h; simpl in *.
     allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
     exrepnd.
     unfold hyp_event, seq_event in *; simpl in *.
@@ -4568,7 +5256,7 @@ Section KnowledgeCalculus.
     start_proving_primitive st ct ht.
     unfold seq_event in *; simpl in *.
     exists e'; dands; eauto 3 with eo kn.
-    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp.
+    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; tcsp.
   Qed.
 
 
@@ -4588,8 +5276,8 @@ Section KnowledgeCalculus.
     repeat (autodimp q hyp); exrepnd; unfold hyp_event, seq_event in *; simpl in *.
     inst_hyp e' ht.
     apply ht0; simpl; introv j; allrw hyp_in_adds; allrw hyp_in_add;
-      repndors; subst; tcsp;
-        apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp.
+      repndors; subst; tcsp; simpl;
+        try apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp.
   Qed.
 
 
@@ -4613,8 +5301,8 @@ Section KnowledgeCalculus.
     apply st2; simpl in *; tcsp.
     introv i; allrw in_app_iff; simpl in *; repndors; subst; simpl in *; tcsp;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e1 ▷ e2)) as ct; allrw in_app_iff; simpl in *.
-    autodimp ct hyp; tcsp; eauto 3 with eo; split; auto; try congruence.
+    pose proof (ct (x ⋈ e1 ▷ e2)) as ct; allrw in_app_iff; simpl in *; dands; auto.
+    autodimp ct hyp; tcsp; repnd; eauto 3 with eo; split; auto; try congruence.
   Qed.
 
 
@@ -4728,9 +5416,9 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     apply st0; tcsp.
     introv i; simpl in *.
-    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
+    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl; dands; auto;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd; eauto 3 with eo.
   Qed.
 
 
@@ -4748,9 +5436,9 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     apply st0; tcsp.
     introv i; simpl in *.
-    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
+    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl; dands;auto;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e' ■ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' ■ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd; eauto 3 with eo.
   Qed.
 
 
@@ -4770,8 +5458,8 @@ Section KnowledgeCalculus.
     start_proving_primitive st ct ht.
     unfold seq_event in *; simpl in *.
     pose proof (ct (u ⋈ e1 ■ e2)) as h; simpl in *.
-    allrw in_app_iff; allsimpl; autodimp h hyp.
-    apply localHappenedBeforeLe_implies_or2 in h; repndors; subst.
+    allrw in_app_iff; allsimpl; autodimp h hyp; repnd; GC.
+    apply localHappenedBeforeLe_implies_or2 in h0; repndors; subst.
 
     { apply st0 in ht; simpl in *; tcsp.
       introv i; allrw in_app_iff; simpl in *.
@@ -4780,7 +5468,7 @@ Section KnowledgeCalculus.
 
     { apply st1 in ht; simpl in *; tcsp.
       introv i; allrw in_app_iff; simpl in *.
-      repndors; subst; tcsp; simpl;
+      repndors; subst; tcsp; simpl; dands; tcsp;
         try (complete (apply ct; allrw in_app_iff; allsimpl; tcsp)). }
   Qed.
 
@@ -4801,12 +5489,12 @@ Section KnowledgeCalculus.
     start_proving_primitive st ct ht.
     unfold seq_event in *; simpl in *.
     pose proof (ct (u ⋈ e1 ▶ e2)) as h; simpl in *.
-    allrw in_app_iff; allsimpl; autodimp h hyp.
-    destruct h as [h|h]; subst.
+    allrw in_app_iff; allsimpl; autodimp h hyp; repnd; GC.
+    destruct h0 as [h|h]; subst.
 
     { apply st1 in ht; simpl in *; tcsp.
       introv i; allrw in_app_iff; simpl in *.
-      repndors; subst; tcsp; simpl;
+      repndors; subst; tcsp; simpl; dands; tcsp;
         try (complete (apply ct; allrw in_app_iff; allsimpl; tcsp)). }
 
     { apply st0 in ht; simpl in *; tcsp.
@@ -4830,9 +5518,9 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *.
     apply st0; tcsp.
     introv i; simpl in *.
-    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl;
+    allrw in_app_iff; simpl in *; repndors; subst; tcsp; simpl; dands; tcsp;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
-    pose proof (ct (x ⋈ e' □ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' □ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd; eauto 3 with eo.
   Qed.
 
 
@@ -4871,7 +5559,7 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *; eauto 3 with kn.
     allrw interp_owns.
     pose proof (ct (x ⋈ e1 ■ e2)) as ct; allrw in_app_iff; simpl in *.
-    autodimp ct hyp.
+    autodimp ct hyp; repnd.
     rewrite <- ht; symmetry; eauto 3 with eo.
   Qed.
 
@@ -4892,7 +5580,7 @@ Section KnowledgeCalculus.
     unfold seq_event in *; simpl in *; eauto 3 with kn.
     allrw interp_owns.
     pose proof (ct (x ⋈ e1 ■ e2)) as ct; allrw in_app_iff; simpl in *.
-    autodimp ct hyp.
+    autodimp ct hyp; repnd.
     rewrite <- ht; eauto 3 with eo.
   Qed.
 
@@ -4912,7 +5600,7 @@ Section KnowledgeCalculus.
     apply st0 in ht; simpl in *; tcsp.
     unfold seq_event in *; simpl in *; exrepnd.
     exists e'0; dands; eauto 3 with eo.
-    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; eauto 3 with eo.
+    pose proof (ct (x ⋈ e' ▷ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd;eauto 3 with eo.
   Qed.
 
 
@@ -4944,8 +5632,8 @@ Section KnowledgeCalculus.
     start_proving_primitive st ct ht.
     apply st0 in ht; simpl in *; tcsp; clear st0.
     unfold seq_event in *; simpl in *.
-    pose proof (ct (x ⋈ e' ⋄ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp.
-    rewrite ct; auto.
+    pose proof (ct (x ⋈ e' ⋄ e)) as ct; allrw in_app_iff; simpl in *; autodimp ct hyp; repnd.
+    rewrite ct0; auto.
   Qed.
 
 
@@ -4963,7 +5651,7 @@ Section KnowledgeCalculus.
     pose proof (ht (x › KE_FORALL_BEFORE t @ e)) as h; simpl in *.
     allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
     unfold hyp_event, seq_event in *; simpl in *.
-    pose proof (ct (u ⋈ e' ▷ e)) as w; simpl in w; autodimp w hyp.
+    pose proof (ct (u ⋈ e' ▷ e)) as w; simpl in w; autodimp w hyp; repnd; GC.
     { apply in_app_iff; simpl; tcsp. }
     pose proof (h e') as h; autodimp h hyp.
     apply st0; simpl in *; tcsp.
@@ -5018,7 +5706,7 @@ Section KnowledgeCalculus.
     introv i; allrw in_app_iff; simpl in *; repndors; subst; simpl in *; tcsp;
       try (complete (apply ct; allrw in_app_iff; simpl in *; repndors; subst; tcsp)).
     pose proof (ct (x ⋈ e1 ▶ e2)) as ct; allrw in_app_iff; simpl in *.
-    autodimp ct hyp; tcsp; eauto 3 with eo.
+    autodimp ct hyp; tcsp; repnd; dands; eauto 3 with eo.
     split; auto; try congruence.
   Qed.
 
@@ -5046,13 +5734,13 @@ Section KnowledgeCalculus.
     pose proof (tri_if_same_loc _ _ eqloc) as xx; repndors; tcsp.
 
     { apply st3; simpl; tcsp.
-      introv i; repndors; subst; tcsp. }
+      introv i; repndors; subst; simpl; tcsp. }
 
     { apply st2; simpl; tcsp.
       introv i; repndors; subst; tcsp. }
 
     { apply st4; simpl; tcsp.
-      introv i; repndors; subst; tcsp. }
+      introv i; repndors; subst; simpl; tcsp. }
   Qed.
 
 
@@ -5160,7 +5848,7 @@ Section KnowledgeCalculus.
     pose proof (ct (u ⋈ e' ■ e)) as ct; allrw in_app_iff; simpl in *.
     autodimp ct hyp; eauto 3 with eo.
     allrw interp_KE_CORRECT_TRACE_BEFORE.
-    destruct a; simpl in *; tcsp; eauto 3 with eo.
+    destruct a; simpl in *; tcsp; repnd; eauto 3 with eo.
     assert (loc e' = loc e) as eqloc by eauto 3 with eo.
     rewrite eqloc; eauto 3 with eo.
   Qed.
@@ -5272,21 +5960,21 @@ Section KnowledgeCalculus.
     start_proving_primitive st ct ht.
     unfold seq_event in *; simpl in *.
     pose proof (ct (u ⋈ e1 □ e2)) as h; simpl in *.
-    allrw in_app_iff; allsimpl; autodimp h hyp.
-    pose proof (local_implies_pred_or_local _ _ h) as q.
+    allrw in_app_iff; allsimpl; autodimp h hyp; repnd; GC.
+    pose proof (local_implies_pred_or_local _ _ h0) as q.
     repndors; exrepnd.
 
     { inst_hyp e2 st.
       apply st1; simpl; tcsp.
       introv i; allrw in_app_iff; simpl in *.
-      repndors; subst; tcsp; simpl;
+      repndors; subst; tcsp; simpl; dands; tcsp;
         try (complete (apply ct; allrw in_app_iff; allsimpl; tcsp)). }
 
     { assert (ex_node_e e) as exe by eauto 3 with kn.
       inst_hyp (MkEventN e exe) st.
       apply st2; simpl; tcsp.
       introv i; allrw in_app_iff; simpl in *.
-      repndors; subst; tcsp; simpl;
+      repndors; subst; tcsp; simpl; dands; tcsp;
         try (complete (apply ct; allrw in_app_iff; allsimpl; tcsp)). }
   Qed.
 
@@ -5517,6 +6205,38 @@ Section KnowledgeCalculus.
 
 
   (************************************************************************************************)
+  Definition PRIMITIVE_RULE_all_time_intro {eo : EventOrdering} e R H f :=
+    MkRule1p
+      (fun n => [⟬R⟭ H ⊢ f n @ e])
+      (⟬R⟭ H ⊢ KE_ALL_TIME f @ e).
+
+  Lemma PRIMITIVE_RULE_all_time_intro_true :
+    forall {eo : EventOrdering} e R H f,
+      rule_true (PRIMITIVE_RULE_all_time_intro e R H f).
+  Proof.
+    start_proving_primitive st ct ht.
+    introv; unfold seq_event; simpl.
+    inst_hyp c st.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_all_vouchers_intro {eo : EventOrdering} e R H f :=
+    MkRule1v
+      (fun n => [⟬R⟭ H ⊢ f n @ e])
+      (⟬R⟭ H ⊢ KE_ALL_VOUCHERS f @ e).
+
+  Lemma PRIMITIVE_RULE_all_vouchers_intro_true :
+    forall {eo : EventOrdering} e R H f,
+      rule_true (PRIMITIVE_RULE_all_vouchers_intro e R H f).
+  Proof.
+    start_proving_primitive st ct ht.
+    introv; unfold seq_event; simpl.
+    inst_hyp c st.
+  Qed.
+
+
+  (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_node_elim x n {eo : EventOrdering} e R H J f a :=
     MkRule0
       [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
@@ -5539,6 +6259,50 @@ Section KnowledgeCalculus.
 
 
   (************************************************************************************************)
+  Definition PRIMITIVE_RULE_all_time_elim x n {eo : EventOrdering} e R H J f a :=
+    MkRule0
+      [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_TIME f @ e) » J ⊢ a).
+
+  Lemma PRIMITIVE_RULE_all_time_elim_true :
+    forall x n {eo : EventOrdering} e R H J f a,
+      rule_true (PRIMITIVE_RULE_all_time_elim x n e R H J f a).
+  Proof.
+    start_proving_primitive st ct ht.
+    pose proof (ht (x › KE_ALL_TIME f @ e)) as h; simpl in *.
+    allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
+    exrepnd.
+    unfold hyp_event, seq_event in *; simpl in *.
+    apply st0; simpl in *; tcsp.
+    introv i;allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; tcsp;
+      try (complete (apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp)).
+    unfold hyp_event; simpl; tcsp.
+  Qed.
+
+
+  (************************************************************************************************)
+  Definition PRIMITIVE_RULE_all_vouchers_elim x n {eo : EventOrdering} e R H J f a :=
+    MkRule0
+      [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_VOUCHERS f @ e) » J ⊢ a).
+
+  Lemma PRIMITIVE_RULE_all_vouchers_elim_true :
+    forall x n {eo : EventOrdering} e R H J f a,
+      rule_true (PRIMITIVE_RULE_all_vouchers_elim x n e R H J f a).
+  Proof.
+    start_proving_primitive st ct ht.
+    pose proof (ht (x › KE_ALL_VOUCHERS f @ e)) as h; simpl in *.
+    allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
+    exrepnd.
+    unfold hyp_event, seq_event in *; simpl in *.
+    apply st0; simpl in *; tcsp.
+    introv i;allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; tcsp;
+      try (complete (apply ht; allrw hyp_in_adds; allrw hyp_in_add; tcsp)).
+    unfold hyp_event; simpl; tcsp.
+  Qed.
+
+
+  (************************************************************************************************)
   Definition PRIMITIVE_RULE_weaken_direct_pred_to_local_pred u {eo : EventOrdering} e1 e2 Q R H a :=
     MkRule0
       [⟬Q ++ (u ⋈ e1 ≡ local_pred_n e2) :: R⟭ H ⊢ a]
@@ -5550,10 +6314,10 @@ Section KnowledgeCalculus.
   Proof.
     start_proving_primitive st ct ht.
     applydup st0 in ht; simpl in *; tcsp; clear st0.
-    pose proof (ct (u ⋈ e1 ⋄ e2)) as w; allrw in_app_iff; simpl in *; autodimp w hyp.
+    pose proof (ct (u ⋈ e1 ⋄ e2)) as w; allrw in_app_iff; simpl in *; autodimp w hyp; repnd;GC.
     introv i; allrw in_app_iff; simpl in *; repndors; subst; simpl; tcsp;
       try (complete (apply ct; allrw in_app_iff; simpl in *; tcsp)).
-    unfold local_pred; rewrite w; auto.
+    unfold local_pred; rewrite w0; auto.
   Qed.
 
 
@@ -5574,8 +6338,8 @@ Section KnowledgeCalculus.
     introv i.
     pose proof (ct (u ⋈ e1 □ e2)) as q.
     allrw in_app_iff; simpl in *.
-    autodimp q hyp.
-    repndors; subst; tcsp; simpl; eauto 3 with eo;
+    autodimp q hyp; repnd; GC.
+    repndors; subst; tcsp; simpl; dands; eauto 3 with eo;
       try (complete (apply ct; allrw in_app_iff; allsimpl; tcsp)).
     apply localHappenedBefore_implies_le_local_pred; auto.
   Qed.
@@ -5876,15 +6640,15 @@ Section KnowledgeCalculus.
       { introv ct' ht' isF; simpl in *.
         unfold seq_event in *; simpl in *.
         inst_hyp e1 st.
-        apply st0; simpl in *; tcsp.
-        introv xx; repndors; subst; simpl in *; tcsp.
+        apply st0; simpl in *; tcsp; repnd; GC.
+        introv xx; repndors; subst; simpl in *; dands; tcsp.
         dLin_hyp ct'; simpl in *; eauto 4 with eo. }
 
       { introv ct' ht' isF; simpl in *.
         unfold seq_event in *; simpl in *.
         inst_hyp e1 st.
-        apply st1; simpl in *; tcsp.
-        introv xx; repndors; subst; simpl in *; tcsp.
+        apply st1; simpl in *; tcsp; repnd; GC.
+        introv xx; repndors; subst; simpl in *; dands; tcsp.
         dLin_hyp ct'; simpl in *; eauto 4 with eo. } }
   Qed.
 
@@ -6045,4417 +6809,6 @@ Section KnowledgeCalculus.
     Opaque KE_NOT_FIRST.
   Qed.
 
-
-  (*  ****** TACTICS ****** *)
-
-
-  Ltac LOCKapply x :=
-    let j := fresh "j" in
-    apply x; simseqs j.
-
-  Tactic Notation "LOCKapply@" constr(y) constr(x) :=
-    first [norm_with y | causal_norm_with y]; LOCKapply x.
-
-  Tactic Notation "LOCKapply@" constr(y) constr(x) constr(z) :=
-    first [norm_with y | causal_norm_with y];
-    first [norm_with x | causal_norm_with x];
-    LOCKapply z.
-
-  Ltac LOCKcut1 v t :=
-    LOCKapply (PRIMITIVE_RULE_cut_true v t).
-
-  Ltac LOCKcut2 v w t :=
-    LOCKapply (PRIMITIVE_RULE_cut_after_true v w t).
-
-  Tactic Notation "LOCKcut" constr(v) constr(t) := LOCKcut1 v t.
-  Tactic Notation "LOCKcut" constr(v) constr(w) constr(t) := LOCKcut2 v w t.
-
-  (* Eventually move to tactics file *)
-  Ltac LOCKintro0 :=
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_AND ?a ?b @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_and_intro_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_NODE ?f @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_all_node_intro_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_ID ?f @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_all_id_intro_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_DATA ?f @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_all_data_intro_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_ALL_TRUST ?f @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_all_trust_intro_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a @ ?e)] =>
-      unfold a; LOCKintro0
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ @ ?e)] =>
-      unfold a; LOCKintro0
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ @ ?e)] =>
-      unfold a; LOCKintro0
-    end.
-
-  Ltac LOCKintro1 x :=
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_IMPLIES ?a ?b @ ?e)] =>
-      LOCKapply (PRIMITIVE_RULE_implies_intro_true x)
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_OR ?a ?b @ ?e)] =>
-      match x with
-      | 0 => LOCKapply PRIMITIVE_RULE_or_intro_left_true
-      | _ => LOCKapply PRIMITIVE_RULE_or_intro_right_true
-      end
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_NODE ?f @ ?e)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_node_intro_true x)
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_ID ?f @ ?e)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_id_intro_true x)
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_DATA ?f @ ?e)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_data_intro_true x)
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ KE_EX_TRUST ?f @ ?e)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_trust_intro_true x)
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a @ ?e)] =>
-      unfold a; LOCKintro1 x
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ @ ?e)] =>
-      unfold a; LOCKintro1 x
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a _ _ @ ?e)] =>
-      unfold a; LOCKintro1 x
-    end.
-
-  Tactic Notation "LOCKintro" := LOCKintro0.
-  Tactic Notation "LOCKintro" constr(x) := LOCKintro1 x.
-
-  Ltac LOCKelim1 v :=
-    norm_with v;
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_IMPLIES ?a ?b @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply PRIMITIVE_RULE_implies_elim_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_OR ?a ?b @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply PRIMITIVE_RULE_or_elim_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_node_elim_true v)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_ID ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_id_elim_true v)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_DATA ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_data_elim_true v)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TRUST ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_exists_trust_elim_true v)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim1 v
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim1 v
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim1 v
-    end.
-
-  Ltac LOCKelim2 v w :=
-    norm_with v;
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_AND ?a ?b @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_and_elim_true v w)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_all_node_elim_true v w)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_ID ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_all_id_elim_true v w)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_DATA ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_all_data_elim_true v w)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TRUST ?f @ ?e) » ?J ⊢ ?c)] =>
-      LOCKapply (PRIMITIVE_RULE_all_trust_elim_true v w)
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim2 v w
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim2 v w
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim2 v w
-
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ @ ?e) » ?J ⊢ ?c)] =>
-      unfold a; LOCKelim2 v w
-    end.
-
-  Tactic Notation "LOCKelim" constr(x) := LOCKelim1 x.
-  Tactic Notation "LOCKelim" constr(x) constr(y) := LOCKelim2 x y.
-
-  Ltac LOCKauto :=
-    match goal with
-    | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_NODE @ ?e)] =>
-      LOCKapply DERIVED_RULE_node_true
-
-    | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_AT _ @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_at_true
-
-    | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_TRUE @ ?e)] =>
-      LOCKapply DERIVED_RULE_true_true
-
-    | [ |- sequent_true (⟬ _ ⟭ _ ⊢ KE_OR KE_FIRST KE_NOT_FIRST @ ?e)] =>
-      LOCKapply PRIMITIVE_RULE_first_dec_true
-
-    | [ |- sequent_true (⟬ ?R ⟭ ?H ⊢ ?a) ] =>
-      match H with
-      | context[?v › ?a] =>
-        norm_with v; LOCKapply PRIMITIVE_RULE_hypothesis_true
-
-      | context[?v › KE_FALSE @ ?e] =>
-        norm_with v; LOCKapply DERIVED_RULE_false_elim_true
-
-      | context[?v › KE_ID_LT ?i ?i @ ?e] =>
-        norm_with v; LOCKapply PRIMITIVE_RULE_id_lt_elim_true
-      end
-    end.
-
-  Ltac LOCKclearH :=
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ (?H • (?v › _ @ _)) ⊢ _)] =>
-      norm_with v; LOCKapply PRIMITIVE_RULE_thin_true
-    end.
-
-  Ltac LOCKclearH_at x :=
-    norm_with x;
-    match goal with
-    | [ |- sequent_true (⟬ ?R ⟭ ?H • (x › ?a) » ?J ⊢ _)] =>
-      norm_with x; LOCKapply PRIMITIVE_RULE_thin_true
-    end.
-
-  Ltac LOCKclearG_at x :=
-    causal_norm_with x;
-    match goal with
-    | [ |- sequent_true (⟬ ?R ++ (x ⋈ ?c) :: ?Q ⟭ _ ⊢ _)] =>
-      causal_norm_with x; LOCKapply PRIMITIVE_RULE_remove_causal_true
-    end.
-
-  Tactic Notation "LOCKclear" := LOCKclearH.
-  Tactic Notation "LOCKclear" constr(x) := first [LOCKclearG_at x | LOCKclearH_at x].
-  Tactic Notation "LOCKclear" constr(x1) constr(x2) :=
-    first [LOCKclearG_at x1 | LOCKclearH_at x1];
-    first [LOCKclearG_at x2 | LOCKclearH_at x2].
-  Tactic Notation "LOCKclear" constr(x1) constr(x2) constr(x3) :=
-    first [LOCKclearG_at x1 | LOCKclearH_at x1];
-    first [LOCKclearG_at x2 | LOCKclearH_at x2];
-    first [LOCKclearG_at x3 | LOCKclearH_at x3].
-  Tactic Notation "LOCKclear" constr(x1) constr(x2) constr(x3) constr(x4) :=
-    first [LOCKclearG_at x1 | LOCKclearH_at x1];
-    first [LOCKclearG_at x2 | LOCKclearH_at x2];
-    first [LOCKclearG_at x3 | LOCKclearH_at x3];
-    first [LOCKclearG_at x4 | LOCKclearH_at x4].
-  Tactic Notation "LOCKclear" constr(x1) constr(x2) constr(x3) constr(x4) constr(x5) :=
-    first [LOCKclearG_at x1 | LOCKclearH_at x1];
-    first [LOCKclearG_at x2 | LOCKclearH_at x2];
-    first [LOCKclearG_at x3 | LOCKclearH_at x3];
-    first [LOCKclearG_at x4 | LOCKclearH_at x4];
-    first [LOCKclearG_at x5 | LOCKclearH_at x5].
-
-
-  (*  ****** DERIVED RULES ****** *)
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_forall_before_hyp u x {eo : EventOrdering} e' e Q R H J a b :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unlocal_forall_before_hyp_true :
-    forall u x {eo : EventOrdering} e' e Q R H J a b,
-      rule_true (DERIVED_RULE_unlocal_forall_before_hyp u x e' e Q R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-    LOCKelim x "x".
-    LOCKapply@ u (PRIMITIVE_RULE_duplicate_guard_true u "u").
-    LOCKapply@ "u" PRIMITIVE_RULE_local_if_causal_true.
-    LOCKapply@ "u" x PRIMITIVE_RULE_forall_before_elim_true.
-    LOCKelim x.
-    { LOCKapply@ u PRIMITIVE_RULE_local_if_localle_true.
-      LOCKapply@ u PRIMITIVE_RULE_at_change_localle_fwd_true; try LOCKauto. }
-    LOCKclear "x".
-    LOCKclear "u".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_owns_implies_local x t {eo : EventOrdering} e1 e2 R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e1 ▷ e2) :: Q⟭ H ⊢ KE_OWNS t @ e1,
-       ⟬R ++ (x ⋈ e1 ▷ e2) :: Q⟭ H ⊢ KE_OWNS t @ e2,
-       ⟬R ++ (x ⋈ e1 □ e2) :: Q⟭ H ⊢ a]
-      (⟬R ++ (x ⋈ e1 ▷ e2) :: Q⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_owns_implies_local_true :
-    forall x t {eo : EventOrdering} e1 e2 R Q H a,
-      rule_true (DERIVED_RULE_owns_implies_local x t e1 e2 R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "o1" (KE_OWNS t @ e1).
-    LOCKcut "o2" (KE_OWNS t @ e2).
-    { LOCKclear "o1". }
-    Transparent KE_OWNS.
-    LOCKelim "o1".
-    LOCKelim "o2".
-    Opaque KE_OWNS.
-    LOCKelim "o1" "o1'".
-    LOCKelim "o2" "o2'".
-    LOCKcut "eq" (KE_NODE_EQ n n0 @ e2).
-    { LOCKapply (PRIMITIVE_RULE_has_owner_implies_eq_true t); try LOCKauto.
-      LOCKapply (PRIMITIVE_RULE_has_owner_change_event_true e2 e1); try LOCKauto. }
-    LOCKapply@ x (PRIMITIVE_RULE_at_implies_local_true x n); try LOCKauto.
-    { LOCKapply (PRIMITIVE_RULE_subst_node_in_at_true n0); try LOCKauto.
-      LOCKapply PRIMITIVE_RULE_node_eq_sym_true; try LOCKauto. }
-    LOCKclear "o1" "o1'" "o2" "o2'" "eq".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_owns_implies_localle x t {eo : EventOrdering} e1 e2 R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e1 ▶ e2) :: Q⟭ H ⊢ KE_OWNS t @ e1,
-       ⟬R ++ (x ⋈ e1 ▶ e2) :: Q⟭ H ⊢ KE_OWNS t @ e2,
-       ⟬R ++ (x ⋈ e1 ■ e2) :: Q⟭ H ⊢ a]
-      (⟬R ++ (x ⋈ e1 ▶ e2) :: Q⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_owns_implies_localle_true :
-    forall x t {eo : EventOrdering} e1 e2 R Q H a,
-      rule_true (DERIVED_RULE_owns_implies_localle x t e1 e2 R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "o1" (KE_OWNS t @ e1).
-    LOCKcut "o2" (KE_OWNS t @ e2).
-    { LOCKclear "o1". }
-    Transparent KE_OWNS.
-    LOCKelim "o1".
-    LOCKelim "o2".
-    Opaque KE_OWNS.
-    LOCKelim "o1" "o1'".
-    LOCKelim "o2" "o2'".
-    LOCKcut "eq" (KE_NODE_EQ n n0 @ e2).
-    { LOCKapply (PRIMITIVE_RULE_has_owner_implies_eq_true t); try LOCKauto.
-      LOCKapply (PRIMITIVE_RULE_has_owner_change_event_true e2 e1); try LOCKauto. }
-    LOCKapply@ x (PRIMITIVE_RULE_at_implies_localle_true x n); try LOCKauto.
-    { LOCKapply (PRIMITIVE_RULE_subst_node_in_at_true n0); try LOCKauto.
-      LOCKapply PRIMITIVE_RULE_node_eq_sym_true; try LOCKauto. }
-    LOCKclear "o1" "o1'" "o2" "o2'" "eq".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_hyp u x {eo : EventOrdering} e R H J a b :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e' □ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unlocal_before_hyp_true :
-    forall u x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_unlocal_before_hyp u x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-    LOCKelim x "x".
-    LOCKapply@ x (PRIMITIVE_RULE_unhappened_before_hyp_true u).
-    LOCKelim x "y".
-    inst_hyp e0 hyp.
-    LOCKapply@ u (PRIMITIVE_RULE_at_implies_local_true u n); try LOCKauto.
-    LOCKclear "x" "y".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_if_causal x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ a @ e']
-      (⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_if_causal_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_if_causal x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    destruct (implies_ex_node e) as [n cond].
-    LOCKintro n.
-    LOCKintro; try LOCKauto.
-    LOCKapply@ x (PRIMITIVE_RULE_duplicate_guard_true x "u").
-    LOCKapply@ "u" PRIMITIVE_RULE_local_if_causal_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_unhappened_before_if_causal_true.
-    LOCKintro.
-    { LOCKapply@ x PRIMITIVE_RULE_local_if_localle_true.
-      LOCKapply@ x PRIMITIVE_RULE_at_change_localle_fwd_true; try LOCKauto. }
-    LOCKapply@ "u" PRIMITIVE_RULE_remove_causal_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_if_local_trans x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE a @ e']
-      (⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_if_causal_local_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_if_local_trans x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_LOCAL_BEFORE a @ e').
-    LOCKelim "x".
-    LOCKintro n.
-    LOCKelim "x" "y".
-    LOCKintro.
-    { LOCKapply@ x PRIMITIVE_RULE_local_if_localle_true.
-      LOCKapply@ x PRIMITIVE_RULE_at_change_localle_true; try LOCKauto. }
-    LOCKapply@ "x" (PRIMITIVE_RULE_unhappened_before_hyp_true "u").
-    LOCKapply@ x (PRIMITIVE_RULE_duplicate_guard_true x "v").
-    LOCKapply@ "v" PRIMITIVE_RULE_local_if_causal_true.
-    LOCKapply@ "v" PRIMITIVE_RULE_unhappened_before_if_causal_trans_eq_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_unhappened_before_if_causal_true; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_knew_before_implies_knows
-             {eo : EventOrdering} (e : EventN) R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_KNEW i @ e]
-      (⟬R⟭ H ⊢ KE_RIGHT_BEFORE (KE_KNOWS i) @ e).
-
-  Lemma DERIVED_RULE_knew_before_implies_knows_true :
-    forall {eo : EventOrdering} (e : EventN) R H (i : kc_data),
-      rule_true (DERIVED_RULE_knew_before_implies_knows e R H i).
-  Proof.
-    start_proving_derived st; auto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_knows_before_implies_knew
-             {eo : EventOrdering} (e : EventN) R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE (KE_KNOWS i) @ e]
-      (⟬R⟭ H ⊢ KE_KNEW i @ e).
-
-  Lemma DERIVED_RULE_knows_before_implies_knew_true :
-    forall {eo : EventOrdering} (e : EventN) R H (i : kc_data),
-      rule_true (DERIVED_RULE_knows_before_implies_knew e R H i).
-  Proof.
-    start_proving_derived st; auto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_knew_implies_knows
-             {eo : EventOrdering} (e : EventN) R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_KNEW i @ e]
-      (⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_KNOWS i) @ e).
-
-  Lemma DERIVED_RULE_knew_implies_knows_true :
-    forall {eo : EventOrdering} (e : EventN) R H (i : kc_data),
-      rule_true (DERIVED_RULE_knew_implies_knows e R H i).
-  Proof.
-    start_proving_derived st.
-    LOCKintro 0.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_trusted_knew_implies_knows {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TKNEW t @ e]
-      (⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_TKNOWS t) @ e).
-
-  Lemma DERIVED_RULE_trusted_knew_implies_knows_true :
-    forall {eo : EventOrdering} (e : EventN) R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_knew_implies_knows e R H t).
-  Proof.
-    introv; apply DERIVED_RULE_knew_implies_knows_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_revert x {eo : EventOrdering} e R H c J (a : KExpression) :=
-    MkRule0
-      [⟬R⟭ H » J ⊢ KE_IMPLIES c a @ e]
-      (⟬R⟭ H • (x › c @ e) » J ⊢ a @ e).
-
-  Lemma DERIVED_RULE_revert_true :
-    forall x {eo : EventOrdering} (e : EventN) R H c J a,
-      rule_true (DERIVED_RULE_revert x e R H c J a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" x (KE_IMPLIES c a @ e).
-    { LOCKclear x. }
-    LOCKelim "x"; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_revert_last {eo : EventOrdering} e R H x a (b : KExpression) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_IMPLIES a b @ e]
-      (⟬R⟭ H • (x › a @ e) ⊢ b @ e).
-
-  Lemma DERIVED_RULE_revert_last_true :
-    forall {eo : EventOrdering} (e : EventN) R H x a b,
-      rule_true (DERIVED_RULE_revert_last e R H x a b).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_IMPLIES a b @ e); try complete LOCKclear.
-    LOCKelim "x"; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_thin_last {eo : EventOrdering} R H h a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a]
-      (⟬R⟭ H • h ⊢ a).
-
-  Lemma DERIVED_RULE_thin_last_true :
-    forall {eo : EventOrdering} R H h a,
-      rule_true (DERIVED_RULE_thin_last R H h a).
-  Proof.
-    start_proving_derived st.
-    destruct h as [x h]; LOCKapply@ x PRIMITIVE_RULE_thin_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_implies_elim x {eo : EventOrdering} e R H a b c :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ e,
-       ⟬R⟭ H • (x › b @ e) ⊢ c]
-      (⟬R⟭ H • (x › KE_IMPLIES a b @ e) ⊢ c).
-
-  Lemma DERIVED_RULE_implies_elim_true :
-    forall x {eo : EventOrdering} e R H a b c,
-      rule_true (DERIVED_RULE_implies_elim x e R H a b c).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_or_elim x {eo : EventOrdering} e R H A B c :=
-    MkRule0
-      [⟬R⟭ H • (x › A @ e) ⊢ c,
-       ⟬R⟭ H • (x › B @ e) ⊢ c]
-      (⟬R⟭ H • (x › KE_OR A B @ e) ⊢ c).
-
-  Lemma DERIVED_RULE_or_elim_true :
-    forall x {eo : EventOrdering} e R H A B c,
-      rule_true (DERIVED_RULE_or_elim x e R H A B c).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_and_elim x y {eo : EventOrdering} e R H A B c :=
-    MkRule0
-      [⟬R⟭ H • (x › B @ e) • (y › A @ e) ⊢ c]
-      (⟬R⟭ H • (x › KE_AND A B @ e) ⊢ c).
-
-  Lemma DERIVED_RULE_and_elim_true :
-    forall x y {eo : EventOrdering} e R H A B c,
-      rule_true (DERIVED_RULE_and_elim x y e R H A B c).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x y.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_hypothesis_last {eo : EventOrdering} R H x a :=
-    MkRule0
-      []
-      (⟬R⟭ H • (x › a) ⊢ a).
-
-  Lemma DERIVED_RULE_hypothesis_last_true :
-    forall {eo : EventOrdering} R H x a,
-      rule_true (DERIVED_RULE_hypothesis_last R H x a).
-  Proof.
-    start_proving_derived st; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_implies_not_first a {eo : EventOrdering} e R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE a @ e]
-      (⟬R⟭ H ⊢ KE_NOT_FIRST @ e).
-
-  Lemma DERIVED_RULE_right_before_implies_not_first_true :
-    forall a {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_right_before_implies_not_first a e R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_RIGHT_BEFORE a @ e).
-    LOCKapply@ "x" (PRIMITIVE_RULE_unright_before_hyp_if_causal_true "u").
-    LOCKapply@ "u" PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-    LOCKapply@ "u" DERIVED_RULE_not_first_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_knew_implies_not_first c {eo : EventOrdering} e R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_KNEW c @ e]
-      (⟬R⟭ H ⊢ KE_NOT_FIRST @ e).
-
-  Lemma DERIVED_RULE_knew_implies_not_first_true :
-    forall c {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_knew_implies_not_first c e R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_KNEW c @ e).
-    LOCKcut "y" (KE_RIGHT_BEFORE (KE_KNOWS c) @ e).
-    { LOCKapply DERIVED_RULE_knew_before_implies_knows_true; try LOCKauto. }
-    LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_KNOWS c)); try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_first_implies_at_local_pred {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ e,
-       ⟬R⟭ H ⊢ KE_FIRST @ e]
-      (⟬R⟭ H ⊢ a @ local_pred_n e).
-
-  Lemma DERIVED_RULE_first_implies_at_local_pred_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_first_implies_at_local_pred e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_introduce_direct_pred_eq_true "u" e).
-    LOCKapply@ "u" PRIMITIVE_RULE_causal_eq_sym_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_subst_causal_eq_concl_true.
-    LOCKclear "u".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_at_local_pred_first_implies {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ local_pred_n e,
-       ⟬R⟭ H ⊢ KE_FIRST @ e]
-      (⟬R⟭ H ⊢ a @ e).
-
-  Lemma DERIVED_RULE_at_local_pred_first_implies_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_at_local_pred_first_implies e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_introduce_direct_pred_eq_true "u" e).
-    LOCKapply@ "u" PRIMITIVE_RULE_subst_causal_eq_concl_true.
-    LOCKclear "u".
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_add_local_pred_localle x {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬(x ⋈ local_pred_n e ■ e) :: R⟭ H ⊢ a]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_add_local_pred_localle_true :
-    forall x {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_add_local_pred_localle x e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_OR KE_FIRST KE_NOT_FIRST @ e); try LOCKauto.
-    LOCKelim "x".
-    { LOCKapply (PRIMITIVE_RULE_introduce_direct_pred_eq_true x e); try LOCKauto.
-      LOCKclear.
-      causal_norm_with x; LOCKapply PRIMITIVE_RULE_localle_if_eq_true. }
-    LOCKapply (PRIMITIVE_RULE_introduce_direct_pred_true x e); try LOCKauto.
-    LOCKapply@ "x" (PRIMITIVE_RULE_thin_true "x").
-    LOCKapply@ x PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-    LOCKapply@ x PRIMITIVE_RULE_local_if_localle_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_add_local_pred_local x {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬(x ⋈ local_pred_n e □ e) :: R⟭ H ⊢ a,
-       ⟬R⟭ H ⊢ KE_NOT_FIRST @ e]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_add_local_pred_local_true :
-    forall x {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_add_local_pred_local x e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_introduce_direct_pred_true x e).
-    LOCKapply@ x PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unright_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
-    MkRule0
-      [⟬R⟭ H • (x › a @ local_pred_n e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unright_before_eq_hyp_true :
-    forall x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_unright_before_eq_hyp x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" x (a @ local_pred_n e).
-    { LOCKelim x.
-      { LOCKapply PRIMITIVE_RULE_unright_before_hyp_true; try LOCKauto. }
-      LOCKelim x "y".
-      LOCKapply DERIVED_RULE_first_implies_at_local_pred_true; try LOCKauto. }
-    LOCKclear x.
-    LOCKapply@ "x"(PRIMITIVE_RULE_rename_hyp_true "x" x).
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_add_localle_refl x {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬(x ⋈ e ■ e) :: R⟭ H ⊢ a]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_add_localle_refl_true :
-    forall x {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_add_localle_refl x e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_add_eq_refl_true x e).
-    LOCKapply@ x PRIMITIVE_RULE_localle_if_eq_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_hyp u x {eo : EventOrdering} e R H J a b :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_hyp_true :
-    forall u x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_unlocal_before_eq_hyp u x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-
-    { LOCKapply (DERIVED_RULE_unlocal_before_hyp_true u).
-      LOCKapply@ u PRIMITIVE_RULE_local_if_localle_true.
-      inst_hyp e0 st. }
-
-    { LOCKelim x "x".
-      LOCKclear x.
-      LOCKapply@ "x"(PRIMITIVE_RULE_rename_hyp_true "x" x).
-      LOCKapply (DERIVED_RULE_add_localle_refl_true u e).
-      inst_hyp e st. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_eq_hyp u x {eo : EventOrdering} e R H J a b :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e' ▶ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_HAPPENED_BEFORE_EQ a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unhappened_before_eq_hyp_true :
-    forall u x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_unhappened_before_eq_hyp u x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKelim x.
-
-    { LOCKapply (PRIMITIVE_RULE_unhappened_before_hyp_true u).
-      LOCKapply@ u PRIMITIVE_RULE_causal_if_causalle_true.
-      inst_hyp e0 st. }
-
-    { LOCKapply (DERIVED_RULE_add_localle_refl_true u e).
-      LOCKapply@ u (PRIMITIVE_RULE_localle_if_causalle_true u).
-      LOCKelim x "y".
-      LOCKclear x.
-      LOCKapply@ "y"(PRIMITIVE_RULE_rename_hyp_true "y" x).
-      inst_hyp e st. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_remove_first_causal {eo : EventOrdering} c R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a]
-      (⟬c :: R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_remove_first_causal_true :
-    forall {eo : EventOrdering} c R H a,
-      rule_true (DERIVED_RULE_remove_first_causal c R H a).
-  Proof.
-    start_proving_derived st.
-    destruct c as [n r].
-    LOCKclear n.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_if_causalle x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ a @ e']
-      (⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_if_causalle_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_if_causalle x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_duplicate_guard_true x "u").
-    LOCKapply PRIMITIVE_RULE_split_local_before_eq2_true.
-    { LOCKintro 1.
-      LOCKapply PRIMITIVE_RULE_subst_causal_eq_concl_true.
-      LOCKapply@ "u" PRIMITIVE_RULE_remove_causal_true.
-      LOCKintro; try LOCKauto. }
-    { LOCKintro 0.
-      LOCKapply@ "u" DERIVED_RULE_unlocal_before_if_causal_true.
-      LOCKapply@ "u" PRIMITIVE_RULE_remove_causal_true. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_if_causal x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ a @ e']
-      (⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_if_causal_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_if_causal x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-    apply DERIVED_RULE_unlocal_before_if_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_if_causal_trans x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e']
-      (⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_if_causal_trans_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_if_causal_trans x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_LOCAL_BEFORE_EQ a @ e').
-    LOCKapply (PRIMITIVE_RULE_duplicate_guard_true x "u").
-    LOCKapply PRIMITIVE_RULE_split_local_before_eq2_true.
-
-    { LOCKapply PRIMITIVE_RULE_subst_causal_eq_concl_true; try LOCKauto. }
-
-    LOCKelim "x".
-
-    { LOCKintro 0.
-      LOCKapply DERIVED_RULE_unlocal_before_if_causal_local_true; try LOCKauto. }
-
-    LOCKapply DERIVED_RULE_unlocal_before_eq_if_causal_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_remove_causal_true; try LOCKauto.
-    LOCKelim "x" "y"; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_if_causal_trans x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e']
-      (⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_if_causal_trans_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_if_causal_trans x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE_EQ a @ e')); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_or_elim_true "x"); simseqs j.
-
-    { apply DERIVED_RULE_unlocal_before_if_causal_local_true; simseqs j.
-      norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-
-    apply DERIVED_RULE_unlocal_before_if_causal_true; simseqs j.
-    LOCKelim "x" "y".
-    norm_with "y"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (* DISCUSS *)
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_if_causalle_trans_eq x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE a @ e']
-      (⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unhappened_before_if_causalle_trans_eq_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unhappened_before_if_causalle_trans_eq x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE a @ e')); simseqs j.
-    apply (PRIMITIVE_RULE_duplicate_guard_true x "u"); simseqs j.
-
-    causal_norm_with "u"; apply PRIMITIVE_RULE_split_happened_before_eq2_true; simseqs j.
-    { causal_norm_with "u"; apply PRIMITIVE_RULE_subst_causal_eq_concl_true; simseqs j.
-      norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-
-    causal_norm_with "u"; apply PRIMITIVE_RULE_unhappened_before_if_causal_trans_eq_true; simseqs j.
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_if_causal_trans x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ▷ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e']
-      (⟬R ++ (x ⋈ e' ▷ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unhappened_before_if_causal_trans_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unhappened_before_if_causal_trans x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE_EQ a @ e')); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_or_elim_true "x"); simseqs j.
-
-    { apply PRIMITIVE_RULE_unhappened_before_if_causal_trans_eq_true; simseqs j.
-      norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-
-    apply PRIMITIVE_RULE_unhappened_before_if_causal_true; simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    norm_with "c"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_eq_if_causalle x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ a @ e']
-      (⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unhappened_before_eq_if_causalle_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unhappened_before_eq_if_causalle x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (a @ e')); simseqs j.
-    apply (PRIMITIVE_RULE_duplicate_guard_true x "u"); simseqs j.
-
-    apply PRIMITIVE_RULE_split_happened_before_eq2_true; simseqs j.
-    { apply PRIMITIVE_RULE_subst_causal_eq_concl_true; simseqs j.
-      apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-      apply DERIVED_RULE_node_true; simseqs j. }
-
-    apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-    apply PRIMITIVE_RULE_unhappened_before_if_causal_true; simseqs j.
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_eq_if_causalle_trans x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e']
-      (⟬R ++ (x ⋈ e' ▶ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unhappened_before_eq_if_causalle_trans_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unhappened_before_eq_if_causalle_trans x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE_EQ a @ e')); simseqs j.
-    apply (PRIMITIVE_RULE_duplicate_guard_true x "u"); simseqs j.
-    apply PRIMITIVE_RULE_split_happened_before_eq2_true; simseqs j.
-
-    { apply PRIMITIVE_RULE_subst_causal_eq_concl_true; simseqs j.
-      norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-
-    apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-    apply DERIVED_RULE_unhappened_before_if_causal_trans_true; simseqs j.
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_add_happenedle_refl x {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬(x ⋈ e ▶ e) :: R⟭ H ⊢ a]
-      (⟬R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_add_happenedle_refl_true :
-    forall x {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_add_happenedle_refl x e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_localle_refl_true x e); simseqs j.
-    apply add_nil2guards.
-    apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_weaken_local_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_weaken_local_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_weaken_local_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKapply PRIMITIVE_RULE_or_intro_right_true.
-    LOCKintro; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_pred {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ (local_pred_n e)]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_pred_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_pred e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_local_pred_localle_true "x" e); simseqs j.
-    causal_norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_if_causalle_true "x"); simseqs j.
-    apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_if_causal_lt x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ a @ e']
-      (⟬R ++ (x ⋈ e' □ e) :: Q⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_if_causal_lt_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_if_causal_lt x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (a @ e')); simseqs j.
-    apply PRIMITIVE_RULE_local_if_localle_true; simseqs j.
-    apply DERIVED_RULE_unlocal_before_eq_if_causalle_true; simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_if_pred {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ (local_pred_n e)]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_if_pred_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_if_pred e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_local_pred_localle_true "v" e); simseqs j.
-    causal_norm_with "v"; apply (DERIVED_RULE_unlocal_before_eq_if_causal_trans_true "v"); simseqs j.
-    apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unhappened_before_eq_if_pred {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ (local_pred_n e)]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unhappened_before_eq_if_pred_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unhappened_before_eq_if_pred e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_local_pred_localle_true "v" e); simseqs j.
-    causal_norm_with "v"; apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-    causal_norm_with "v"; apply DERIVED_RULE_unhappened_before_eq_if_causalle_trans_true; simseqs j.
-    apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unright_before {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ local_pred_n e,
-       ⟬R⟭ H ⊢ KE_NOT_FIRST @ e]
-      (⟬R⟭ H ⊢ KE_RIGHT_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unright_before_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unright_before e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_introduce_direct_pred_true "u" e); simseqs j.
-    causal_norm_with "u"; apply PRIMITIVE_RULE_unright_before_if_causal_true; simseqs j.
-    apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unright_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ (local_pred_n e)]
-      (⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unright_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unright_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_OR KE_FIRST KE_NOT_FIRST @ e)); simseqs j.
-    { apply PRIMITIVE_RULE_first_dec_true; simseqs j. }
-    apply (DERIVED_RULE_or_elim_true "x"); simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { apply DERIVED_RULE_at_local_pred_first_implies_true; simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j. }
-        apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-    apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-    apply DERIVED_RULE_unright_before_true; simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j. }
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_before_implies_happened_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE a @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_before_implies_happened_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_before_implies_happened_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE a @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_hyp_true "u" "x"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_local_if_causal_true); simseqs j.
-    causal_norm_with "u"; apply PRIMITIVE_RULE_causal_if_causalle_true; simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "u"); simseqs j.
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_implies {eo : EventOrdering} e R H a b :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e]
-      (⟬R⟭ H ⊢ KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
-
-  Lemma DERIVED_RULE_right_before_over_implies_true :
-    forall {eo : EventOrdering} e R H a b,
-      rule_true (DERIVED_RULE_right_before_over_implies e R H a b).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e)).
-    LOCKintro "y".
-    LOCKapply@ "x" DERIVED_RULE_unright_before_eq_hyp_true.
-    LOCKapply@ "y" DERIVED_RULE_unright_before_eq_hyp_true.
-    LOCKapply DERIVED_RULE_unright_before_eq_true.
-    LOCKapply@ "x" PRIMITIVE_RULE_implies_elim_true; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_forall_before_eq_hyp u x {eo : EventOrdering} e' e Q R H J a b :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unlocal_forall_before_eq_hyp_true :
-    forall u x {eo : EventOrdering} e' e Q R H J a b,
-      rule_true (DERIVED_RULE_unlocal_forall_before_eq_hyp u x e' e Q R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_duplicate_guard_true u "v"); simseqs j.
-    causal_norm_with "v"; apply PRIMITIVE_RULE_split_local_before_eq2_true; simseqs j.
-    { apply PRIMITIVE_RULE_causal_eq_sym_true; simseqs j.
-      apply PRIMITIVE_RULE_subst_causal_eq_hyp_true; simseqs j.
-      apply (PRIMITIVE_RULE_and_elim_true x "y"); simseqs j.
-      norm_with "y"; apply (PRIMITIVE_RULE_thin_true "y"); simseqs j.
-      causal_norm_with "v"; apply PRIMITIVE_RULE_remove_causal_true; simseqs j. }
-    apply (PRIMITIVE_RULE_and_elim_true x "y"); simseqs j.
-    causal_norm_with "v"; norm_with "y"; apply (DERIVED_RULE_unlocal_forall_before_hyp_true "v" "y"); simseqs j.
-    norm_with x; apply (PRIMITIVE_RULE_thin_true x); simseqs j.
-    norm_with "y"; apply (PRIMITIVE_RULE_rename_hyp_true "y" x); simseqs j.
-    causal_norm_with "v"; apply PRIMITIVE_RULE_remove_causal_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_happened_before_over_implies {eo : EventOrdering} e R H a b :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_FORALL_BEFORE (KE_IMPLIES a b) @ e]
-      (⟬R⟭ H ⊢ KE_IMPLIES (KE_HAPPENED_BEFORE a) (KE_HAPPENED_BEFORE b) @ e).
-
-  Lemma DERIVED_RULE_happened_before_over_implies_true :
-    forall {eo : EventOrdering} e R H a b,
-      rule_true (DERIVED_RULE_happened_before_over_implies e R H a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_FORALL_BEFORE (KE_IMPLIES a b) @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-    norm_with "y"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "u" "y"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_unhappened_before_if_causal_true "u" e0); simseqs j.
-    causal_norm_with "u"; norm_with "x"; apply (PRIMITIVE_RULE_forall_before_elim_true "u" "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { norm_with "y"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (* NOTE: We don't need [KE_FORALL_BEFORE] as in [DERIVED_RULE_happened_before_over_implies] *)
-  (***********************************************************)
-  Definition DERIVED_RULE_happened_before_over_implies2 u {eo : EventOrdering} e R H a b :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e' ▷ e) :: R⟭ H ⊢ KE_IMPLIES a b @ e'])
-      (⟬R⟭ H ⊢ KE_IMPLIES (KE_HAPPENED_BEFORE a) (KE_HAPPENED_BEFORE b) @ e).
-
-  Lemma DERIVED_RULE_happened_before_over_implies2_true :
-    forall u {eo : EventOrdering} e R H a b,
-      rule_true (DERIVED_RULE_happened_before_over_implies2 u e R H a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-    norm_with "y"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true u "y"); simseqs j.
-    causal_norm_with u; apply (PRIMITIVE_RULE_unhappened_before_if_causal_true u e0); simseqs j.
-    inst_hyp e0 st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_IMPLIES a b @ e0)); simseqs j.
-    { norm_with "y"; apply (PRIMITIVE_RULE_thin_true "y"); simseqs j. }
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { norm_with "y"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_or {eo : EventOrdering} e R H a b :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e]
-      (⟬R⟭ H ⊢ KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
-
-  Lemma DERIVED_RULE_right_before_over_or_true :
-    forall {eo : EventOrdering} e R H a b,
-      rule_true (DERIVED_RULE_right_before_over_or e R H a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unright_before_eq_hyp_true "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_or_elim_true "x"); simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply DERIVED_RULE_unright_before_eq_true; simseqs j.
-      norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-    apply DERIVED_RULE_unright_before_eq_true; simseqs j.
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_implies_seq x {eo : EventOrdering} e R H J a b :=
-    MkRule0
-      []
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) » J ⊢ KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
-
-  Lemma DERIVED_RULE_right_before_over_implies_seq_true :
-    forall x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_right_before_over_implies_seq x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_right_before_over_implies_true; simseqs j.
-    apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_or_seq x {eo : EventOrdering} e R H J a b :=
-    MkRule0
-      []
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) » J ⊢ KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
-
-  Lemma DERIVED_RULE_right_before_over_or_seq_true :
-    forall x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_right_before_over_or_seq x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_right_before_over_or_true; simseqs j.
-    apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_implies_hyp x {eo : EventOrdering} e R H J a b c :=
-    MkRule0
-      [⟬R⟭ H • (x › KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) » J ⊢ c).
-
-  Lemma DERIVED_RULE_right_before_over_implies_hyp_true :
-    forall x {eo : EventOrdering} e R H J a b c,
-      rule_true (DERIVED_RULE_right_before_over_implies_hyp x e R H J a b c).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_after_true "z" x (KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e)); simseqs j.
-    { apply DERIVED_RULE_right_before_over_implies_seq_true; simseqs j. }
-    norm_with x; apply (PRIMITIVE_RULE_thin_true x); simseqs j.
-    norm_with "z"; apply (PRIMITIVE_RULE_rename_hyp_true "z" x); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_over_or_hyp x {eo : EventOrdering} e R H J a b c :=
-    MkRule0
-      [⟬R⟭ H • (x › KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) » J ⊢ c).
-
-  Lemma DERIVED_RULE_right_before_over_or_hyp_true :
-    forall x {eo : EventOrdering} e R H J a b c,
-      rule_true (DERIVED_RULE_right_before_over_or_hyp x e R H J a b c).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "z" (KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e)); simseqs j.
-    { apply DERIVED_RULE_right_before_over_or_seq_true; simseqs j. }
-    (* FIX *)
-    introv ct ht; apply st0; simpl in *; tcsp.
-    introv i; allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; simpl in *; tcsp;
-      try (complete (apply ht; allrw hyp_in_add; allrw hyp_in_adds; allrw hyp_in_add; simpl in *; tcsp)).
-    unfold hyp_event; simpl.
-    pose proof (ht ("z" › KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e)) as ht;
-      allrw hyp_in_add; allrw hyp_in_adds; allrw hyp_in_add; simpl in *; tcsp.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_happened_before_eq {eo : EventOrdering} e R H c :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ c) @ e,
-       ⟬R⟭ H ⊢ KE_NOT_FIRST @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE c @ e).
-
-  Lemma DERIVED_RULE_right_before_happened_before_eq_true :
-    forall {eo : EventOrdering} e R H c,
-      rule_true (DERIVED_RULE_right_before_happened_before_eq e R H c).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_local_pred_local_true "u" e); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "z" (KE_RIGHT_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ c) @ e)); simseqs j.
-    { apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-    norm_with "z"; apply (DERIVED_RULE_unright_before_eq_hyp_true "z"); simseqs j.
-    norm_with "z"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "v" "z"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_local_if_causal_true "u"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_if_causal_trans_true "u"); simseqs j.
-    causal_norm_with "v"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "v"); simseqs j.
-    norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_not_first_implies_not_first {eo : EventOrdering} e R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_NOT_FIRST @ e]
-      (⟬R⟭ H ⊢ KE_NOT KE_FIRST @ e).
-
-  Lemma DERIVED_RULE_not_first_implies_not_first_true :
-    forall {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_not_first_implies_not_first e R H).
-  Proof.
-    start_proving_derived st.
-    LOCKintro "x".
-    LOCKelim "x"; try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_first_implies_not_knew {eo : EventOrdering} e R H c :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_FIRST @ e]
-      (⟬R⟭ H ⊢ KE_NOT (KE_KNEW c) @ e).
-
-  Lemma DERIVED_RULE_first_implies_not_knew_true :
-    forall {eo : EventOrdering} e R H c,
-      rule_true (DERIVED_RULE_first_implies_not_knew e R H c).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "y" (KE_FIRST @ e).
-    LOCKintro "x".
-    LOCKelim "y"; try LOCKauto.
-    LOCKapply (DERIVED_RULE_knew_implies_not_first_true c); try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_exists_before_idem {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_LOCAL_BEFORE_EQ a) @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_exists_before_idem_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_exists_before_idem e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE_EQ (KE_LOCAL_BEFORE_EQ a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "v" "x"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_eq_if_causal_trans_true "u"); simseqs j.
-    causal_norm_with "v"; apply (DERIVED_RULE_unlocal_before_eq_if_causalle_true "v"); simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_learned_local_pred_implies {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_LEARNED i) @ e]
-      (⟬R⟭ H ⊢ KE_LEARNED i @ e).
-
-  Lemma DERIVED_RULE_learned_local_pred_implies_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_learned_local_pred_implies e R H i).
-  Proof.
-    introv; apply DERIVED_RULE_exists_before_idem_true.
-  Qed.
-
-
-  (****************************************************************************************)
-  Definition DERIVED_RULE_trusted_learned_local_pred_implies {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_TLEARNED t) @ e]
-      (⟬R⟭ H ⊢ KE_TLEARNED t @ e).
-
-  Lemma DERIVED_RULE_trusted_learned_local_pred_implies_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_learned_local_pred_implies e R H t).
-  Proof.
-    introv; apply DERIVED_RULE_exists_before_idem_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_owns_change_localle x {eo : EventOrdering} e1 e2 R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e1 ■ e2) :: Q⟭ H ⊢ KE_OWNS a @ e1]
-      (⟬R ++ (x ⋈ e1 ■ e2) :: Q⟭ H ⊢ KE_OWNS a @ e2).
-
-  Lemma DERIVED_RULE_owns_change_localle_true :
-    forall x {eo : EventOrdering} e1 e2 R Q H a,
-      rule_true (DERIVED_RULE_owns_change_localle x e1 e2 R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_OWNS a @ e1).
-    Transparent KE_OWNS.
-    LOCKelim "x".
-    LOCKintro n.
-    Opaque KE_OWNS.
-    LOCKelim "x" "y".
-    LOCKintro.
-    { LOCKapply PRIMITIVE_RULE_at_change_localle_true; try LOCKauto. }
-    LOCKapply (PRIMITIVE_RULE_has_owner_change_event_true e2 e1); try LOCKauto.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_owns_implies {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_OWNS a) @ e]
-      (⟬R⟭ H ⊢ KE_OWNS a @ e).
-
-  Lemma DERIVED_RULE_right_before_owns_implies_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_right_before_owns_implies e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_OWNS a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unright_before_eq_hyp_true "x"); simseqs j.
-    apply (DERIVED_RULE_add_local_pred_localle_true "u" e); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_owns_change_localle_true "u"); simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_owns_local_pred_implies {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_OWNS a @ local_pred_n e]
-      (⟬R⟭ H ⊢ KE_OWNS a @ e).
-
-  Lemma DERIVED_RULE_owns_local_pred_implies_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_owns_local_pred_implies e R H a).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_right_before_owns_implies_true; simseqs j.
-    apply DERIVED_RULE_unright_before_eq_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_owned_happened_before_tgens_implies_before {eo : EventOrdering} e R H t :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TOWNED t @ e,
-       ⟬R⟭ H ⊢ KE_HAPPENED_BEFORE (KE_TDISS_OWN t) @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE (KE_TDISS_OWN t) @ e).
-
-  Lemma DERIVED_RULE_owned_happened_before_tgens_implies_before_true :
-    forall {eo : EventOrdering} e R H t,
-      rule_true (DERIVED_RULE_owned_happened_before_tgens_implies_before e R H t).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE (KE_TDISS_OWN t) @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "o" (KE_TOWNED t @ e)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    norm_with "o"; apply (DERIVED_RULE_unright_before_eq_hyp_true "o"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "u" "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_owns_implies_local_true "u" (kc_trust2data t)); simseqs j.
-
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    { apply DERIVED_RULE_owns_local_pred_implies_true; simseqs j.
-      norm_with "o"; apply (PRIMITIVE_RULE_hypothesis_true "o"); simseqs j. }
-
-    causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_if_causal_true "u"); simseqs j.
-
-    apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-    { norm_with "c"; apply (PRIMITIVE_RULE_hypothesis_true "c"); simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_trusted_knew {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_gen t @ local_pred_n e,
-       ⟬R⟭ H ⊢ KE_TKNEW t @ e,
-       ⟬R⟭ H ⊢ KE_TOWNED t @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE (KE_TDISS_OWN t) @ e).
-
-  Lemma DERIVED_RULE_trusted_knew_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_knew e R H t).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_TKNOWS t) @ e)); simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true
-             "y"
-             (KE_IMPLIES
-                (KE_RIGHT_BEFORE_EQ (KE_TKNOWS t))
-                (KE_RIGHT_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ (KE_TDISS_OWN t))) @ e)); simseqs i.
-
-    { apply DERIVED_RULE_right_before_over_implies_true; simseqs i.
-      apply DERIVED_RULE_unright_before_eq_true; simseqs i.
-      apply DERIVED_RULE_thin_last_true; simseqs i. }
-
-    apply DERIVED_RULE_implies_elim_true; simseqs i.
-
-    { apply DERIVED_RULE_hypothesis_last_true; simseqs i. }
-
-    apply (PRIMITIVE_RULE_cut_true
-             "z"
-             (KE_HAPPENED_BEFORE (KE_TDISS_OWN t) @ e)); simseqs i.
-
-    { apply DERIVED_RULE_right_before_happened_before_eq_true; simseqs i.
-
-      { apply PRIMITIVE_RULE_thin_but_last_true; simseqs i.
-        apply DERIVED_RULE_hypothesis_last_true; simseqs i. }
-
-      { apply DERIVED_RULE_thin_last_true; simseqs i.
-        apply DERIVED_RULE_thin_last_true; simseqs i.
-        apply (DERIVED_RULE_knew_implies_not_first_true (kc_trust2data t)); simseqs i. } }
-
-    apply DERIVED_RULE_owned_happened_before_tgens_implies_before_true; simseqs i.
-
-    { apply DERIVED_RULE_thin_last_true; simseqs i.
-      apply DERIVED_RULE_thin_last_true; simseqs i.
-      apply DERIVED_RULE_thin_last_true; simseqs i. }
-
-    apply DERIVED_RULE_hypothesis_last_true; simseqs i.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_pred_eq_induction {eo : EventOrdering} e R H a :=
-    MkRule1
-      (fun e => [⟬R⟭ H ⊢ KE_IMPLIES KE_FIRST a @ e,
-                 ⟬R⟭ H ⊢ KE_IMPLIES KE_NOT_FIRST (KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) a) @ e])
-      (⟬R⟭ H ⊢ a @ e).
-
-  Lemma DERIVED_RULE_pred_eq_induction_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_pred_eq_induction e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_pred_induction_true "x"); simseqs j; inst_hyp e0 st;
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j; auto;[].
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_IMPLIES KE_NOT_FIRST (KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) a) @ e0)); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { apply (DERIVED_RULE_right_before_implies_not_first_true a); simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs i. }
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs i. }
-    norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_decidable_knew {eo : EventOrdering} e R H a :=
-    MkRule0
-      []
-      (⟬R⟭ H ⊢ KE_OR (KE_KNEW a) (KE_NOT (KE_KNEW a)) @ e).
-
-  Lemma DERIVED_RULE_decidable_knew_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_decidable_knew e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "or" (KE_OR KE_FIRST KE_NOT_FIRST @ e)); simseqs j.
-    { apply PRIMITIVE_RULE_first_dec_true; simseqs j. }
-    norm_with "or"; apply PRIMITIVE_RULE_or_elim_true; simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply DERIVED_RULE_first_implies_not_knew_true; simseqs j.
-      norm_with "or"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    apply (PRIMITIVE_RULE_introduce_direct_pred_true "u" e); simseqs j.
-    { norm_with "or"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    apply (PRIMITIVE_RULE_cut_true "h" (KE_OR (KE_KNOWS a) (KE_NOT (KE_KNOWS a)) @ local_pred_n e)); simseqs j.
-    { apply PRIMITIVE_RULE_decidable_knows_true; simseqs j. }
-    norm_with "h"; apply PRIMITIVE_RULE_or_elim_true; simseqs j.
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      causal_norm_with "u"; apply PRIMITIVE_RULE_unright_before_if_causal_true; simseqs j.
-      norm_with "h"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "q"); simseqs j.
-    LOCKelim "h"; try LOCKauto.
-    norm_with "q"; apply PRIMITIVE_RULE_unright_before_hyp_true; simseqs j.
-    norm_with "q"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_local_before_eq_implies {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_LOCAL_BEFORE_EQ a) @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_right_before_local_before_eq_implies_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_right_before_local_before_eq_implies e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_LOCAL_BEFORE_EQ a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unright_before_eq_hyp_true "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "x"); simseqs j.
-    apply DERIVED_RULE_unlocal_before_eq_if_pred_true; simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_eq_if_causalle_true "u"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_happened_before_eq_implies {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_RIGHT_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ a) @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_right_before_happened_before_eq_implies_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_right_before_happened_before_eq_implies e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_RIGHT_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unright_before_eq_hyp_true "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "u" "x"); simseqs j.
-    apply DERIVED_RULE_unhappened_before_eq_if_pred_true; simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "u"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_knowledge_acquired {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_KNOWS i @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_AND (KE_KNOWS i) (KE_NOT (KE_KNEW i))) @ e).
-
-  Lemma DERIVED_RULE_knowledge_acquired_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_knowledge_acquired e R H i).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "k" (KE_KNOWS i @ e)); simseqs j;[].
-    clear st0.
-
-    apply DERIVED_RULE_revert_last_true; simseqs j;[].
-
-    apply DERIVED_RULE_pred_eq_induction_true; simseqs j.
-
-    { apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-      apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-      apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-
-      { apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-      apply DERIVED_RULE_thin_last_true; simseqs j.
-      apply DERIVED_RULE_first_implies_not_knew_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "z"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true
-             "w"
-             (KE_IMPLIES
-                (KE_RIGHT_BEFORE_EQ (KE_KNOWS i))
-                (KE_RIGHT_BEFORE_EQ (KE_LOCAL_BEFORE_EQ (KE_AND (KE_KNOWS i) (KE_NOT (KE_KNEW i))))) @ e0)); simseqs j.
-
-    { norm_with "y".
-      apply (DERIVED_RULE_right_before_over_implies_seq_true "y"); simseqs j. }
-
-    norm_with "y".
-    apply (PRIMITIVE_RULE_thin_true "y"); simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_OR (KE_KNEW i) (KE_NOT (KE_KNEW i)) @ e0)); simseqs j.
-
-    { apply DERIVED_RULE_decidable_knew_true; simseqs j. }
-
-    apply (DERIVED_RULE_or_elim_true "y"); simseqs j.
-
-    { norm_with "w".
-      apply (PRIMITIVE_RULE_implies_elim_true "w"); simseqs j.
-
-      { apply DERIVED_RULE_knew_implies_knows_true; simseqs j.
-        apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-      apply DERIVED_RULE_right_before_local_before_eq_implies_true; simseqs j.
-      norm_with "w".
-      apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-
-    apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-    apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-
-    { norm_with "z".
-      apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_learns_or_knows_implies_learns_or_knows_if_knew {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns i @ local_pred_n e]
-      (⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns_if_knew i @ e).
-
-  Lemma DERIVED_RULE_learns_or_knows_implies_learns_or_knows_if_new_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_learns_or_knows_implies_learns_or_knows_if_knew e R H i).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_RIGHT_BEFORE_EQ (KE_KNOWS i) @ e)); simseqs j.
-
-    { apply DERIVED_RULE_knew_implies_knows_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-    norm_with "y"; apply DERIVED_RULE_unright_before_eq_hyp_true; simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true "z" (KE_RIGHT_BEFORE_EQ (KE_OR (KE_LEARNED i) (KE_OWNS i)) @ e)); simseqs j.
-    { apply DERIVED_RULE_unright_before_eq_true; simseqs j.
-      norm_with "y"; apply (DERIVED_RULE_revert_true "y"); simseqs j. }
-
-    norm_with "y"; apply (PRIMITIVE_RULE_thin_true "y"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "w" (KE_OR (KE_RIGHT_BEFORE_EQ (KE_LEARNED i)) (KE_RIGHT_BEFORE_EQ (KE_OWNS i)) @ e)); simseqs j.
-
-    { norm_with "z"; apply (DERIVED_RULE_right_before_over_or_seq_true "z"); simseqs j. }
-
-    apply PRIMITIVE_RULE_thin_but_last_true; simseqs j.
-
-    apply (DERIVED_RULE_or_elim_true "w"); simseqs j.
-
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply DERIVED_RULE_right_before_local_before_eq_implies_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply DERIVED_RULE_right_before_owns_implies_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_happened_before {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_HAPPENED_BEFORE a) @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_happened_before_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_happened_before e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE_EQ (KE_HAPPENED_BEFORE a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "v" "x"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_localle_if_causalle_true "u"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_if_causalle_trans_eq_true "u"); simseqs j.
-    causal_norm_with "v"; apply (PRIMITIVE_RULE_unhappened_before_if_causal_true "v"); simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unlocal_before_eq_happened_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ a) @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_unlocal_before_eq_happened_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_unlocal_before_eq_happened_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE_EQ (KE_HAPPENED_BEFORE_EQ a) @ e)); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "v" "x"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_localle_if_causalle_true "u"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_trans_true "u"); simseqs j.
-    causal_norm_with "v"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "v"); simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_unall_before_correct_trace_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
-    MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_unall_before_correct_trace_before_eq_hyp_true :
-    forall x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_unall_before_correct_trace_before_eq_hyp x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_after_true "x" x (KE_LOCAL_FORALL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e)); simseqs j.
-    { apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { apply PRIMITIVE_RULE_unall_before_correct_trace_before_hyp_true; simseqs j.
-        norm_with x; apply (PRIMITIVE_RULE_hypothesis_true x); simseqs j. }
-      norm_with x; apply (PRIMITIVE_RULE_hypothesis_true x); simseqs j. }
-    norm_with x; apply (PRIMITIVE_RULE_thin_true x); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_rename_hyp_true "x" x); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_happened_before_if_local_eq x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE a @ e']
-      (⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE a @ e).
-
-  Lemma DERIVED_RULE_happened_before_if_local_eq_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_happened_before_if_local_eq x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE a @ e')); simseqs j.
-    apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-    apply DERIVED_RULE_unhappened_before_if_causalle_trans_eq_true; simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_happened_before_eq_if_local_eq x {eo : EventOrdering} e' e R Q H a :=
-    MkRule0
-      [⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e']
-      (⟬R ++ (x ⋈ e' ■ e) :: Q⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_happened_before_eq_if_local_eq_true :
-    forall x {eo : EventOrdering} e' e R Q H a,
-      rule_true (DERIVED_RULE_happened_before_eq_if_local_eq x e' e R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE_EQ a @ e')); simseqs j.
-    apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-    apply DERIVED_RULE_unhappened_before_eq_if_causalle_trans_true; simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_learns_if_knows_implies_learned_if_knows {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule1
-      (fun e => [⟬R⟭ H ⊢ ASSUMPTION_learns_if_knows i @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_learned_if_knows i @ e).
-
-  Lemma DERIVED_RULE_learns_if_knows_implies_learned_if_knows_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_learns_if_knows_implies_learned_if_knows e R H i).
-  Proof.
-    introv st; simpl in *.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "x"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "z" (ASSUMPTION_learns_if_knows i @ e0)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j.
-      apply DERIVED_RULE_thin_last_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-      inst_hyp e0 st. }
-
-    norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-    { causal_norm_with "u"; apply (PRIMITIVE_RULE_correct_trace_before_if_causal_true "u"); simseqs j.
-      norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-
-    norm_with "y"; apply (PRIMITIVE_RULE_thin_true "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-    norm_with "z"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "v" "z"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_happened_before_if_local_eq_true "u"); simseqs j.
-    causal_norm_with "v"; apply (PRIMITIVE_RULE_unhappened_before_if_causal_true "v"); simseqs j.
-    norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_trusted_knowledge_acquired {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TKNOWS t @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_AND (KE_TKNOWS t) (KE_NOT (KE_TKNEW t))) @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_acquired_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_knowledge_acquired e R H t).
-  Proof.
-    introv exe h; simpl in *.
-    apply DERIVED_RULE_knowledge_acquired_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_trusted_knows_implies_correct (t : kc_trust) {eo : EventOrdering} e R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TKNOWS t @ e]
-      (⟬R⟭ H ⊢ KE_LOCAL_CORRECT_TRACE_BEFORE @ e).
-
-  Lemma DERIVED_RULE_trusted_knows_implies_correct_true :
-    forall (t : kc_trust) {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_trusted_knows_implies_correct t e R H).
-  Proof.
-    introv; apply PRIMITIVE_RULE_knows_implies_correct_true.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_happened_before_implies_happened_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_HAPPENED_BEFORE a @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_happened_before_implies_happened_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_happened_before_implies_happened_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_HAPPENED_BEFORE a @ e)); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "u" "x"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_causal_if_causalle_true "u"); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "u"); simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_weaken_happened_before_eq {eo : EventOrdering} e R H a :=
-    MkRule0
-      [⟬R⟭ H ⊢ a @ e]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ a @ e).
-
-  Lemma DERIVED_RULE_weaken_happened_before_eq_true :
-    forall {eo : EventOrdering} e R H a,
-      rule_true (DERIVED_RULE_weaken_happened_before_eq e R H a).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_add_happenedle_refl_true "u" e); simseqs j.
-    causal_norm_with "u"; apply (DERIVED_RULE_unhappened_before_eq_if_causalle_true "u"); simseqs j.
-    apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-  Qed.
-
-
-  (****************************************************************)
-  Definition DERIVED_RULE_knows_propagates {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [
-        ⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns i @ e,
-        ⟬R⟭ H ⊢ KE_LOCAL_FORALL_BEFORE_EQ (ASSUMPTION_learns_if_knows i) @ e,
-        ⟬R⟭ H ⊢ KE_KNOWS i @ e,
-        ⟬R⟭ H ⊢ KE_CORRECT_TRACE_BEFORE (kc_data2owner i) @ e
-      ]
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE_EQ (KE_AND (KE_KNOWS i) (KE_OWNS i)) @ e).
-
-  Lemma DERIVED_RULE_knows_propagates_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_knows_propagates e R H i).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule.
-    dLin_hyp st.
-
-    apply (PRIMITIVE_RULE_cut_true "k" (KE_KNOWS i @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (ASSUMPTION_learns_or_owns i @ e)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    apply DERIVED_RULE_implies_elim_true; simseqs j.
-    { apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-    apply (DERIVED_RULE_or_elim_true "y"); simseqs j.
-
-    { norm_with "y"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "y"); simseqs j.
-      apply (PRIMITIVE_RULE_cut_true "z" (KE_LOCAL_FORALL_BEFORE_EQ (ASSUMPTION_learns_if_knows i) @ e)); simseqs j.
-      { apply DERIVED_RULE_thin_last_true; simseqs j.
-        apply DERIVED_RULE_thin_last_true; simseqs j.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-      norm_with "z"; causal_norm_with "u"; apply (DERIVED_RULE_unlocal_forall_before_eq_hyp_true "u" "z"); simseqs j.
-      norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_implies_elim_true "z"); simseqs j.
-      { apply (PRIMITIVE_RULE_cut_true "z" (KE_CORRECT_TRACE_BEFORE (kc_data2owner i) @ e)); simseqs j.
-        { apply DERIVED_RULE_thin_last_true; simseqs j.
-          apply DERIVED_RULE_thin_last_true; simseqs j.
-          apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-        causal_norm_with "u"; apply (PRIMITIVE_RULE_correct_trace_before_if_causal_true "u"); simseqs j.
-        norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      causal_norm_with "u"; apply (DERIVED_RULE_happened_before_eq_if_local_eq_true "u"); simseqs j.
-      apply DERIVED_RULE_happened_before_implies_happened_before_eq_true; simseqs j.
-      norm_with "z"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "v" "z"); simseqs j.
-      causal_norm_with "v"; apply (PRIMITIVE_RULE_unhappened_before_if_causal_true "v"); simseqs j.
-      norm_with "z"; apply (PRIMITIVE_RULE_and_elim_true "z" "w"); simseqs j.
-      apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-      { norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-
-    apply DERIVED_RULE_weaken_happened_before_eq_true; simseqs j.
-    apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-    { norm_with "k"; apply (PRIMITIVE_RULE_hypothesis_true "k"); simseqs j. }
-    norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_trusted_learns_or_knows_implies_learns_or_knows_if_knew {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_or_owns t @ local_pred_n e]
-      (⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_or_owns_if_knew t @ e).
-
-  Lemma DERIVED_RULE_trusted_learns_or_knows_implies_learns_or_knows_if_knew_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_learns_or_knows_implies_learns_or_knows_if_knew e R H t).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule.
-    dLin_hyp st.
-
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_RIGHT_BEFORE_EQ (KE_TKNOWS t) @ e)); simseqs j.
-
-    { apply DERIVED_RULE_knew_implies_knows_true; simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-    norm_with "y"; apply (DERIVED_RULE_unright_before_eq_hyp_true "y"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "z" (KE_OR (KE_TLEARNED t) (KE_TOWNS t) @ local_pred_n e)); simseqs j.
-    { apply (PRIMITIVE_RULE_cut_true "w" (ASSUMPTION_trusted_learns_or_owns t @ local_pred_n e)); simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_thin_true "y"); simseqs j. }
-      norm_with "w"; apply (PRIMITIVE_RULE_implies_elim_true "w"); simseqs j.
-      { apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    apply (DERIVED_RULE_or_elim_true "z"); simseqs j.
-
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      norm_with "z"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "z"); simseqs j.
-      apply DERIVED_RULE_unlocal_before_eq_if_pred_true; simseqs j.
-      causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_eq_if_causalle_true "u"); simseqs j.
-      apply DERIVED_RULE_hypothesis_last_true; simseqs j. }
-
-    apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-    apply DERIVED_RULE_owns_local_pred_implies_true; simseqs j.
-    apply DERIVED_RULE_hypothesis_last_true; simseqs j.
-  Qed.
-
-
-
-(*  (* NOT USED *)
-  (****************************************************************)
-  Definition OLD_RULE_TGEN_MONOTONICITY_local_trusted_component {eo : EventOrdering} e R H t1 t2 c1 c2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ KE_TGENS t2 @ e,
-          ⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_TGENS t1) @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e])
-      (⟬R⟭ H ⊢ KE_ID_LE c1 c2 @ e).
-
-  Lemma OLD_RULE_TGEN_MONOTONICITY_local_trusted_component_true :
-    forall {eo : EventOrdering} e R H t1 t2 c1 c2,
-      rule_true (OLD_RULE_TGEN_MONOTONICITY_local_trusted_component e R H t1 t2 c1 c2).
-  Proof.
-    start_proving_primitive st ct ht.
-    pose proof (st (mk_v1 e)) as st'; simpl_sem_rule; dLin_hyp st'.
-    unfold sequent_true in *; simpl in *.
-    clear st'0.
-    repeat (autodimp st'1 hyp); tcsp.
-    repeat (autodimp st'2 hyp); tcsp.
-    repeat (autodimp st'3 hyp); tcsp.
-    repeat (autodimp st'4 hyp); tcsp.
-    exrepnd.
-    allrw interpret_tgens.
-    unfold seq_event in *; simpl in *.
-
-    assert (monotonicity eo) as mon.
-    { introv exe.
-      pose proof (st (mk_v1 (MkEventN e0 exe))) as st; simpl_sem_rule; dLin_hyp st; simpl in *.
-      clear st1 st2.
-      repeat (autodimp st0 hyp); tcsp.
-      allrw interpret_no_tgens; allrw interpret_exists_tgens; tcsp. }
-
-    assert (c1 ⋘ c2) as q; try omega; subst; tcsp.
-    eapply generates_trusted_kc_id_increases; eauto; tcsp; eauto 3 with kn.
-  Qed.*)
-
-
-(*  (* NOT USED *)
-  (************************************************************************************************)
-  Definition OLD_RULE_trusted_learns_or_gens {eo : EventOrdering} e R H (t : kc_trust):=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_or_owns t @ e,
-       ⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_gen t @ e,
-       ⟬R⟭ H ⊢ KE_TKNOWS t @ e]
-      (⟬R⟭ H ⊢ KE_OR
-           (KE_TLEARNED t)
-           (KE_LOCAL_BEFORE_EQ (KE_DISS_OWN t)) @ e).
-
-  Lemma OLD_RULE_trusted_learns_or_gens_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (OLD_RULE_trusted_learns_or_gens e R H t).
-  Proof.
-    start_proving_primitive st ct ht.
-    unfold sequent_true in *; simpl in *.
-    repeat (autodimp st0 hyp); tcsp.
-    repeat (autodimp st1 hyp); tcsp.
-    repeat (autodimp st2 hyp); tcsp.
-    unfold seq_event in *; simpl in *.
-
-    destruct st0 as [LER|OWN].
-
-    { (* learned *)
-      clear st1.
-      exrepnd.
-      left.
-      exists e'; dands; eauto.
-    }
-
-    {
-      (* owned *)
-      allrw interp_towns.
-      exrepnd.
-      right; exists e'; dands; auto.
-      allrw interpret_tgens.
-      applydup generates_trusted_implies_data_is_owned in st0.
-      assert (loc e' = loc e) as eqloc; eauto 3 with kn eo.
-    }
-  Qed.*)
-
-
-(*  (* NOT USED *)
-  (************************************************************************************************)
-  Definition OLD_RULE_learns_or_gens {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns i @ e,
-       ⟬R⟭ H ⊢ ASSUMPTION_knows_and_owns i @ e,
-       ⟬R⟭ H ⊢ KE_KNOWS i @ e]
-      (⟬R⟭ H ⊢ KE_OR
-           (KE_LEARNED i)
-           (KE_LOCAL_BEFORE_EQ (KE_GENS i)) @ e).
-
-  Lemma OLD_RULE_learns_or_gens_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (OLD_RULE_learns_or_gens e R H i).
-  Proof.
-    start_proving_primitive st ct ht.
-    unfold sequent_true in *; simpl in *.
-    repeat (autodimp st0 hyp); tcsp.
-    autodimp st1 hyp; tcsp.
-    autodimp st1 hyp; tcsp.
-    repeat (autodimp st2 hyp); tcsp.
-    unfold seq_event in *; simpl in *.
-
-    destruct st0 as [LER|OWN].
-
-    { (* learned *)
-      exrepnd.
-      left.
-      exists e'; dands; eauto.
-    }
-
-    {
-      (* owned *)
-      autodimp st1 hyp; eauto 3 with kn.
-    }
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_it_owns_owned_implies_at d {eo : EventOrdering} e p R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_OWNS d @ e,
-       ⟬R⟭ H ⊢ KE_HAS_OWNER d p @ e]
-      (⟬R⟭ H ⊢ KE_AT p @ e).
-
-  Lemma DERIVED_RULE_it_owns_owned_implies_at_true :
-    forall d {eo : EventOrdering} e p R H,
-      rule_true (DERIVED_RULE_it_owns_owned_implies_at d e p R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_OWNS d @ e)); simseqs j.
-    Transparent KE_OWNS.
-    norm_with "x"; apply (PRIMITIVE_RULE_exists_node_elim_true "x"); simseqs j.
-    Opaque KE_OWNS.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "y"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "z" (KE_HAS_OWNER d p @ e)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    apply (PRIMITIVE_RULE_cut_true "w" (KE_NODE_EQ n p @ e)); simseqs j.
-    { apply (PRIMITIVE_RULE_has_owner_implies_eq_true d); simseqs j.
-      { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-    apply (PRIMITIVE_RULE_subst_node_in_at_true n); simseqs j.
-    { norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-    norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_knows_and_not_owns_implies_learns {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns i @ e,
-       ⟬R⟭ H ⊢ KE_KNOWS i @ e,
-       ⟬R⟭ H ⊢ KE_NOT (KE_OWNS i) @ e]
-      (⟬R⟭ H ⊢ KE_LEARNED i @ e).
-
-  Lemma DERIVED_RULE_knows_and_not_owns_implies_learns_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (DERIVED_RULE_knows_and_not_owns_implies_learns e R H i).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "ass" (ASSUMPTION_learns_or_owns i @ e)); simseqs j.
-    norm_with "ass"; apply PRIMITIVE_RULE_implies_elim_true; simseqs j.
-    norm_with "ass"; apply PRIMITIVE_RULE_or_elim_true; simseqs j.
-    { norm_with "ass"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    apply (PRIMITIVE_RULE_cut_true "not" (KE_NOT (KE_OWNS i) @ e)); simseqs j.
-    { norm_with "ass"; apply PRIMITIVE_RULE_thin_true; simseqs j. }
-    LOCKelim "not"; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_knows_and_not_owns_implies_learns2
-             p a {eo : EventOrdering} e R H d :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_learns_or_owns d @ e,
-       ⟬R⟭ H ⊢ KE_KNOWS d        @ e,
-       ⟬R⟭ H ⊢ KE_HAS_OWNER d p  @ e,
-       ⟬R⟭ H ⊢ KE_AT a           @ e,
-       ⟬R⟭ H ⊢ KE_NOT (KE_NODE_EQ p a) @ e]
-      (⟬R⟭ H ⊢ KE_LEARNED d       @ e).
-
-  Lemma DERIVED_RULE_knows_and_not_owns_implies_learns2_true :
-    forall p a {eo : EventOrdering} (e : EventN) R H (d : kc_data),
-      rule_true (DERIVED_RULE_knows_and_not_owns_implies_learns2 p a e R H d).
-  Proof.
-    start_proving_derived st.
-
-    apply DERIVED_RULE_knows_and_not_owns_implies_learns_true; simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "own"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "ho" (KE_AT p @ e)); simseqs j.
-    { apply (DERIVED_RULE_it_owns_owned_implies_at_true d); simseqs j.
-      { norm_with "own"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-      norm_with "own"; apply PRIMITIVE_RULE_thin_true; simseqs j. }
-
-    apply (PRIMITIVE_RULE_cut_true "d" (KE_NOT (KE_NODE_EQ p a) @ e)); simseqs j.
-    { norm_with "own"; apply PRIMITIVE_RULE_thin_true; simseqs j.
-      norm_with "ho"; apply PRIMITIVE_RULE_thin_true; simseqs j. }
-
-    norm_with "d"; apply PRIMITIVE_RULE_implies_elim_true; simseqs j.
-
-    { apply PRIMITIVE_RULE_at_implies_same_node_true; simseqs j.
-      { norm_with "own"; apply PRIMITIVE_RULE_thin_true; simseqs j.
-        norm_with "ho"; apply PRIMITIVE_RULE_thin_true; simseqs j. }
-      norm_with "ho"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-
-    norm_with "d"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_knows_and_not_owns_implies_learns {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_or_owns t @ e,
-       ⟬R⟭ H ⊢ KE_TKNOWS t @ e,
-       ⟬R⟭ H ⊢ KE_NOT (KE_TOWNS t) @ e]
-      (⟬R⟭ H ⊢ KE_TLEARNED t @ e).
-
-  Lemma DERIVED_RULE_trusted_knows_and_not_owns_implies_learns_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (DERIVED_RULE_trusted_knows_and_not_owns_implies_learns e R H t).
-  Proof.
-    start_proving_derived st; apply DERIVED_RULE_knows_and_not_owns_implies_learns_true; simseqs j.
-  Qed.
-
-
-
-  (***************************************************************************)
-  Definition DERIVED_RULE_implies_learned_if_gen
-             {eo : EventOrdering} e d R H :=
-    MkRule1
-      (fun e' => [⟬R⟭ H ⊢ ASSUMPTION_learns_if_gen d @ e'])
-      (⟬R⟭ H ⊢ ASSUMPTION_learned_if_gen d @ e).
-
-  Lemma DERIVED_RULE_implies_learned_if_gen_true :
-    forall {eo : EventOrdering} (e : EventN) d R H,
-      rule_true (DERIVED_RULE_implies_learned_if_gen e d R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    norm_with "x"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (ASSUMPTION_learns_if_gen d @ e0)); simseqs j.
-    { inst_hyp e0 h.
-      norm_with "x"; apply PRIMITIVE_RULE_thin_true; simseqs j.
-      causal_norm_with "u"; apply PRIMITIVE_RULE_remove_causal_true; simseqs j. }
-    norm_with "y"; apply PRIMITIVE_RULE_implies_elim_true; simseqs j.
-    { norm_with "x"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    causal_norm_with "u"; apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-    causal_norm_with "u"; apply DERIVED_RULE_unhappened_before_if_causalle_trans_eq_true; simseqs j.
-    norm_with "y"; apply PRIMITIVE_RULE_hypothesis_true; simseqs j.
-  Qed.
-
-
-(*  (* NOT USED *)
-  (************************************************************************************************)
-  Definition OLD_RULE_trusted_learned_implies_generates_and_owns {eo : EventOrdering} e R H (t : kc_trust) :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_if_gen t @ e',
-          ⟬R⟭ H ⊢ KE_TLEARNED t @ e])
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE
-           (KE_AND
-              (KE_TGENS t)
-              (KE_TOWNS t)) @ e).
-
-  Lemma OLD_RULE_trusted_learned_implies_generates_trusted_true :
-    forall {eo : EventOrdering} e R H (t : kc_trust),
-      rule_true (OLD_RULE_trusted_learned_implies_generates_and_owns e R H t).
-  Proof.
-    start_proving_primitive st ct ht.
-    pose proof (st (mk_v1 e)) as st'; simpl_sem_rule; dLin_hyp st'; simpl in *.
-    clear st'0.
-    unfold sequent_true in *; simpl in *.
-    repeat (autodimp st'1 hyp); tcsp.
-    unfold seq_event in *; simpl in *.
-    exrepnd.
-
-    assert (ex_node_e e') as exe by eauto 3 with kn.
-    pose proof (st (mk_v1 (MkEventN e' exe))) as st; simpl_sem_rule; dLin_hyp st; simpl in *.
-    clear st1.
-
-    repeat (autodimp st0 hyp); exrepnd.
-    exists e'0; dands; eauto 3 with eo; eauto.
-    allrw interp_towns.
-    allrw interpret_tgens; eauto 3 with kn.
-  Qed.*)
-
-
-(*  (* NOT USED *)
-  (************************************************************************************************)
-  Definition OLD_RULE_learned_implies_generates {eo : EventOrdering} e R H (i : kc_data) :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_learned_if_knows i @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_knows_and_owns i @ e',
-          ⟬R⟭ H ⊢ KE_LEARNED i @ e,
-          ⟬R⟭ H ⊢ KE_CORRECT_TRACE_BEFORE (kc_data2name i) @ e])
-      (⟬R⟭ H ⊢ KE_HAPPENED_BEFORE (KE_GENS i) @ e).
-
-  Lemma OLD_RULE_learned_implies_generated_true :
-    forall {eo : EventOrdering} e R H (i : kc_data),
-      rule_true (OLD_RULE_learned_implies_generates e R H i).
-  Proof.
-    start_proving_primitive st ct ht.
-    pose proof (st (mk_v1 e)) as st'; simpl_sem_rule; dLin_hyp st'; simpl in *.
-    unfold sequent_true in *; simpl in *.
-    clear st'1.
-    repeat (autodimp st'0 hyp); tcsp.
-    repeat (autodimp st'2 hyp); tcsp.
-    repeat (autodimp st'3 hyp); tcsp.
-    unfold seq_event in *; simpl in *.
-    exrepnd.
-
-    pose proof (st (mk_v1 (MkEventN e'0 st'0))) as st; simpl_sem_rule; dLin_hyp st; simpl in *.
-    clear st0 st2 st3.
-    repeat (autodimp st1 hyp); tcsp; eauto 3 with kn;[].
-    exrepnd.
-
-    exists e'1; dands; eauto 3 with kn eo.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_local_before_implies_not_first u x {eo : EventOrdering} e1 e2 R Q H a :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e1 □ e2) :: R⟭ H • (x › KE_NOT_FIRST @ e2) ⊢ a]
-      (⟬Q ++ (u ⋈ e1 □ e2) :: R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_local_before_implies_not_first_true :
-    forall u x {eo : EventOrdering} e1 e2 R Q H a,
-      rule_true (DERIVED_RULE_local_before_implies_not_first u x e1 e2 R Q H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut x (KE_NOT_FIRST @ e2).
-    LOCKapply DERIVED_RULE_not_first_true.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_after_is_id_before u {eo : EventOrdering} e1 e2 c Q R H :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_AFTER c @ e1]
-      (⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_BEFORE c @ e2).
-
-  Lemma DERIVED_RULE_id_after_is_id_before_true :
-    forall u {eo : EventOrdering} e1 e2 c Q R H,
-      rule_true (DERIVED_RULE_id_after_is_id_before u e1 e2 c Q R H).
-  Proof.
-    start_proving_derived st.
-    LOCKintro 0.
-    LOCKapply@ u PRIMITIVE_RULE_unright_before_if_causal_true.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_ids_before_imply_eq_ids {eo : EventOrdering} e c1 c2 R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_ID_BEFORE c1 @ e,
-       ⟬R⟭ H ⊢ KE_ID_BEFORE c2 @ e]
-      (⟬R⟭ H ⊢ KE_ID_EQ c1 c2 @ e).
-
-  Lemma DERIVED_RULE_ids_before_imply_eq_ids_true :
-    forall {eo : EventOrdering} e c1 c2 R H,
-      rule_true (DERIVED_RULE_ids_before_imply_eq_ids e c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "h" (KE_ID_BEFORE c1 @ e).
-    LOCKcut "q" (KE_ID_BEFORE c2 @ e).
-    { LOCKclear "h". }
-    LOCKelim "h"; LOCKelim "q".
-    { LOCKapply@ "h" PRIMITIVE_RULE_unright_before_hyp_true.
-      LOCKapply@ "q" PRIMITIVE_RULE_unright_before_hyp_true.
-      LOCKapply (PRIMITIVE_RULE_id_eq_change_event_true e (local_pred_n e)).
-      LOCKapply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; try LOCKauto. }
-    { LOCKelim "q" "x".
-      LOCKelim "x"; try LOCKauto.
-      LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c1)); try LOCKauto. }
-    { LOCKelim "h" "x".
-      LOCKelim "x"; try LOCKauto.
-      LOCKapply (DERIVED_RULE_right_before_implies_not_first_true (KE_ID_AFTER c2)); try LOCKauto. }
-    { LOCKelim "h" "x".
-      LOCKelim "h" "y".
-      LOCKelim "q" "a".
-      LOCKelim "q" "b".
-      LOCKapply PRIMITIVE_RULE_has_init_id_unique_true; try LOCKauto. }
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_right_before_elim u x {eo : EventOrdering} e e' Q R H J a b :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › KE_RIGHT_BEFORE a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_right_before_elim_true :
-    forall u x {eo : EventOrdering} e e' Q R H J a b,
-      rule_true (DERIVED_RULE_right_before_elim u x e e' Q R H J a b).
-  Proof.
-    start_proving_derived st.
-    LOCKapply@ x PRIMITIVE_RULE_unright_before_hyp_true.
-    LOCKapply@ u (PRIMITIVE_RULE_duplicate_guard_true u "u").
-    LOCKapply@ "u" PRIMITIVE_RULE_weaken_direct_pred_to_local_pred_true.
-    LOCKapply@ "u" PRIMITIVE_RULE_causal_eq_sym_true.
-    LOCKapply@ "u" x PRIMITIVE_RULE_subst_causal_eq_hyp_true.
-    LOCKclear "u".
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_move_to_concl x {eo : EventOrdering} e b c R H J :=
-    MkRule0
-      [⟬R⟭ H » J ⊢ KE_IMPLIES b c @ e]
-      (⟬R⟭ H • (x › b @ e) » J ⊢ c @ e).
-
-  Lemma DERIVED_RULE_move_to_concl_true :
-    forall x {eo : EventOrdering} e b c R H J,
-      rule_true (DERIVED_RULE_move_to_concl x e b c R H J).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "h" (KE_IMPLIES b c @ e).
-    { LOCKclear x. }
-    LOCKelim "h"; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_before_is_id_after u {eo : EventOrdering} e1 e2 c Q R H :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_BEFORE c @ e2]
-      (⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_AFTER c @ e1).
-
-  Lemma DERIVED_RULE_id_before_is_id_after_true :
-    forall u {eo : EventOrdering} e1 e2 c Q R H,
-      rule_true (DERIVED_RULE_id_before_is_id_after u e1 e2 c Q R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "h" (KE_ID_BEFORE c @ e2).
-    LOCKelim "h".
-    { LOCKapply@ u "h" DERIVED_RULE_right_before_elim_true; LOCKauto. }
-    LOCKelim "h" "x".
-    LOCKelim "h" "y".
-    LOCKelim "x"; try LOCKauto.
-    LOCKapply PRIMITIVE_RULE_direct_pred_if_local_pred_true.
-    LOCKapply DERIVED_RULE_not_first_true.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_causalle_is_equal_if_first u {eo : EventOrdering} e1 e2 R H a :=
-    MkRule0
-      [⟬ (u ⋈ e1 ■ e2) :: R ⟭ H ⊢ KE_FIRST @ e2,
-       ⟬ (u ⋈ e1 ≡ e2) :: R ⟭ H ⊢ a]
-      (⟬ (u ⋈ e1 ■ e2) :: R ⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_causalle_is_equal_if_first_true :
-    forall u {eo : EventOrdering} e1 e2 R H a,
-      rule_true (DERIVED_RULE_causalle_is_equal_if_first u e1 e2 R H a).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "w" (KE_FIRST @ e2).
-    LOCKapply@ u PRIMITIVE_RULE_split_local_before_eq2_true.
-    { LOCKclear "w". }
-    LOCKelim "w"; try LOCKauto.
-    LOCKapply@ u DERIVED_RULE_not_first_true.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_split_local_before_eq u {eo : EventOrdering} e1 e2 R Q H a :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e1 ≡ e2) :: R⟭ H ⊢ a,
-       ⟬Q ++ (u ⋈ e1 ■ local_pred_n e2) :: R⟭ H ⊢ a]
-      (⟬Q ++ (u ⋈ e1 ■ e2) :: R⟭ H ⊢ a).
-
-  Lemma DERIVED_RULE_split_local_before_eq_true :
-    forall u {eo : EventOrdering} e1 e2 R Q H a,
-      rule_true (DERIVED_RULE_split_local_before_eq u e1 e2 R Q H a).
-  Proof.
-    start_proving_derived st.
-    apply PRIMITIVE_RULE_split_local_before_eq2_true; simseqs j.
-    apply (PRIMITIVE_RULE_split_local_before2_true u "v" "w"); simseqs j.
-    causal_norm_with "w"; apply PRIMITIVE_RULE_remove_causal_true; simseqs j.
-    causal_norm_with u; apply PRIMITIVE_RULE_remove_causal_true; simseqs j.
-    apply (PRIMITIVE_RULE_rename_causal_true u); simseqs j.
-  Qed.
-
-
-  (***********************************************************)
-  Definition DERIVED_RULE_relocal_before_eq_hyp u x {eo : EventOrdering} e e' R H J a b :=
-    MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b]
-      (⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b).
-
-  Lemma DERIVED_RULE_relocal_before_eq_hyp_true :
-    forall u x {eo : EventOrdering} e e' R H J a b,
-      rule_true (DERIVED_RULE_relocal_before_eq_hyp u x e e' R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_after_true "z" x (KE_LOCAL_BEFORE_EQ a @ e)); simseqs j.
-    { causal_norm_with u; apply DERIVED_RULE_unlocal_before_eq_if_causalle_true; simseqs j.
-      norm_with x; apply PRIMITIVE_RULE_hypothesis_true; simseqs j. }
-    norm_with x; apply (PRIMITIVE_RULE_thin_true x); simseqs j.
-    norm_with "z"; apply (PRIMITIVE_RULE_rename_hyp_true "z" x); simseqs j.
-    causal_norm_with u; apply PRIMITIVE_RULE_remove_causal_true; simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_le_trans c {eo : EventOrdering} e c1 c2 R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_ID_LE c1 c @ e,
-       ⟬R⟭ H ⊢ KE_ID_LE c c2 @ e]
-      (⟬R⟭ H ⊢ KE_ID_LE c1 c2 @ e).
-
-  Lemma DERIVED_RULE_id_le_trans_true :
-    forall c {eo : EventOrdering} e c1 c2 R H,
-      rule_true (DERIVED_RULE_id_le_trans c e c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_ID_LE c1 c @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_ID_LE c c2 @ e)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_or_elim_true "x"); simseqs j.
-
-    { norm_with "y"; apply (PRIMITIVE_RULE_or_elim_true "y"); simseqs j.
-
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        apply (PRIMITIVE_RULE_id_lt_trans_lt_lt_true c); simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        apply (PRIMITIVE_RULE_id_lt_trans_lt_eq_true c); simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. } }
-
-    { norm_with "y"; apply (PRIMITIVE_RULE_or_elim_true "y"); simseqs j.
-
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        apply (PRIMITIVE_RULE_id_lt_trans_eq_lt_true c); simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-
-      { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-        apply (PRIMITIVE_RULE_id_eq_trans_true c); simseqs j.
-        { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. } }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_le_change_event {eo : EventOrdering} e1 e2 c1 c2 R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_ID_LE c1 c2 @ e2]
-      (⟬R⟭ H ⊢ KE_ID_LE c1 c2 @ e1).
-
-  Lemma DERIVED_RULE_id_le_change_event_true :
-    forall {eo : EventOrdering} e1 e2 c1 c2 R H,
-      rule_true (DERIVED_RULE_id_le_change_event e1 e2 c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_ID_LE c1 c2 @ e2)); simseqs j.
-
-    norm_with "x"; apply (PRIMITIVE_RULE_or_elim_true "x"); simseqs j.
-
-    { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply (PRIMITIVE_RULE_id_lt_change_event_true _ e2); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply (PRIMITIVE_RULE_id_eq_change_event_true _ e2); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-  Qed.
-
-
-(*  (************************************************************************************************)
-  Definition DERIVED_RULE_generates_trusted_implies_id_after t {eo : EventOrdering} e c R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TGENS t @ e,
-       ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t c @ e]
-      (⟬R⟭ H ⊢ KE_ID_AFTER c @ e).
-
-  Lemma DERIVED_RULE_generates_trusted_implies_id_after_true :
-    forall t {eo : EventOrdering} e c R H,
-      rule_true (DERIVED_RULE_generates_trusted_implies_id_after t e c R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "w" (KE_TRUST_HAS_ID t c @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TGENS t @ e)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    Transparent KE_TGENS.
-    norm_with "x"; apply (PRIMITIVE_RULE_unexists_id_true "x"); simseqs j.
-    Opaque KE_TGENS.
-    norm_with "x"; apply (PRIMITIVE_RULE_unexists_id_true "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "z"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "u"); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "p" (KE_ID_EQ c h0 @ e)); simseqs j.
-    { apply (PRIMITIVE_RULE_has_ids_imply_eq_ids_true t); simseqs j.
-      { norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-      norm_with "u"; apply (PRIMITIVE_RULE_hypothesis_true "u"); simseqs j. }
-    apply (PRIMITIVE_RULE_id_after_subst_true h0); simseqs j.
-    { norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-    norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j.
-  Qed.*)
-
-
-  (* Lemma generates_trusted_implies_id_after :
-    forall {eo : EventOrdering} (e : Event) (t : kc_trust),
-      generates_trusted e t
-      -> id_after e (kc_id t).
-  Proof.
-    introv gen.
-    unfold generates_trusted in *; exrepnd; allrw; auto.
-  Qed.*)
-
-
-
-  (************************************************************************************************)
-  Definition KE_EX_ID_BETWEEN c :=
-    KE_EX_ID2 (fun c1 c2 => KE_ANDS
-                                 [KE_ID_BEFORE c1,
-                                  KE_ID_AFTER c2,
-                                  KE_ID_LT c1 c,
-                                  KE_ID_LE c c2]).
-
-  Definition DERIVED_RULE_disseminate_implies_id
-             t {eo : EventOrdering} e c R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e,
-       ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e,
-       ⟬R⟭ H ⊢ KE_TDISS_OWN t @ e,
-       ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t c @ e]
-      (⟬R⟭ H ⊢ KE_EX_ID_BETWEEN c @ e).
-
-  Lemma DERIVED_RULE_disseminate_implies_id_true :
-    forall t {eo : EventOrdering} e c R H,
-      rule_true (DERIVED_RULE_disseminate_implies_id
-                   t e c R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "dis" (KE_TDISS_OWN t @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "hid" (KE_TRUST_HAS_ID t c @ e)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    apply (PRIMITIVE_RULE_cut_true "new" (ASSUMPTION_generates_new @ e)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    apply (PRIMITIVE_RULE_cut_true "mon" (ASSUMPTION_monotonicity @ e)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    apply (DERIVED_RULE_or_elim_true "mon"); simseqs j.
-
-    { Transparent KE_NO_TGENS.
-      LOCKelim "mon".
-      Opaque KE_NO_TGENS.
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-
-      LOCKelim "new" t.
-      LOCKelim "new" c.
-      LOCKelim "new" c0.
-      LOCKelim "new" c0.
-
-      norm_with "new"; apply (PRIMITIVE_RULE_implies_elim_true "new"); simseqs j.
-      { repeat (LOCKintro; try LOCKauto). }
-
-      norm_with "new"; apply (PRIMITIVE_RULE_and_elim_true "new" "new1"); simseqs j.
-
-      LOCKcut "p" (KE_ID_LT c c @ e); try LOCKauto.
-      LOCKapply (PRIMITIVE_RULE_id_lt_trans_le_lt_true c0); try LOCKauto. }
-
-    { Transparent KE_TGENS.
-      LOCKelim "mon".
-      LOCKelim "mon".
-      Opaque KE_TGENS.
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-      LOCKelim "mon" "mon3".
-
-      LOCKelim "new" t.
-      LOCKelim "new" c.
-      LOCKelim "new" c0.
-      LOCKelim "new" c1.
-
-      LOCKelim "new".
-      { repeat (LOCKintro; try LOCKauto). }
-
-      LOCKelim "new" "new1".
-      LOCKintro c0.
-      LOCKintro c1.
-
-      repeat (LOCKintro; try LOCKauto). }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred
-             u t2 {eo : EventOrdering} e1 e2 e c1 c2 Q R H :=
-    MkRule0
-      [⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity @ e2,
-       ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ ASSUMPTION_generates_new @ e2,
-       ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TDISS_OWN t2 @ e2,
-       ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2,
-       ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_AFTER c1 @ e1]
-      (⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_LT c1 c2 @ e).
-
-  Lemma DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred_true :
-    forall u t2 {eo : EventOrdering} e1 e2 e c1 c2 Q R H,
-      rule_true (DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred
-                   u t2 e1 e2 e c1 c2 Q R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_cut_true "bid" (KE_ID_BEFORE c1 @ e2)); simseqs j.
-    { apply DERIVED_RULE_id_after_is_id_before_true; simseqs j. }
-    apply (PRIMITIVE_RULE_cut_true "hid" (KE_TRUST_HAS_ID t2 c2 @ e2)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    apply (PRIMITIVE_RULE_cut_true "dis" (KE_TDISS_OWN t2 @ e2)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    apply (PRIMITIVE_RULE_cut_true "between" (KE_EX_ID_BETWEEN c2 @ e2)); simseqs j.
-    { apply (DERIVED_RULE_disseminate_implies_id_true t2); simseqs j;
-        try (complete (repeat (apply DERIVED_RULE_thin_last_true; simseqs j))). }
-    LOCKelim "between".
-    LOCKelim "between".
-    LOCKelim "between" "between1".
-    LOCKelim "between" "between2".
-    LOCKelim "between" "between3".
-    LOCKelim "between" "between4".
-
-    apply (PRIMITIVE_RULE_cut_true "p" (KE_ID_EQ c1 c @ e)); simseqs j.
-    { apply (PRIMITIVE_RULE_id_eq_change_event_true _ e2); simseqs j.
-      apply DERIVED_RULE_ids_before_imply_eq_ids_true; simseqs j.
-      { norm_with "bid"; apply (PRIMITIVE_RULE_hypothesis_true "bid"); simseqs j. }
-      norm_with "between1"; apply (PRIMITIVE_RULE_hypothesis_true "between1"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_id_lt_trans_eq_lt_true c); simseqs j.
-    { norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-    apply (PRIMITIVE_RULE_id_lt_change_event_true _ e2); simseqs j.
-    norm_with "between3"; apply (PRIMITIVE_RULE_hypothesis_true "between3"); simseqs j.
-  Qed.
-
-  (*Lemma generates_trusted_kc_id_increases_direct_pred :
-    forall {eo : EventOrdering} (e1 e2 : Event) (c : nat) (t2 : kc_trust),
-      e1 ⊂ e2
-      -> id_after e1 c
-      -> generates_trusted e2 t2
-      -> c < kc_id t2.
-  Proof.
-    introv dp gt1 gt2.
-    dup dp as dp'.
-    eapply pred_implies_local_pred in dp.
-    rewrite dp in *.
-    unfold generates_trusted, id_after, id_before in *.
-    exrepnd; subst.
-
-    pose proof (trusted_state_before_implies_trusted_state_after_not_first e2 mem0) as xx.
-    repeat (autodimp xx hyp); eauto 3 with eo.
-    eq_states; tcsp; try omega.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred2
-             u t1 t2 {eo : EventOrdering} e1 e2 e c1 c2 Q R H :=
-    MkRule1
-      (fun e' =>
-         [⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TDISS_OWN t1 @ e1,
-          ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TDISS_OWN t2 @ e2,
-          ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-          ⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2])
-      (⟬Q ++ (u ⋈ e1 ⋄ e2) :: R⟭ H ⊢ KE_ID_LT c1 c2 @ e).
-
-  Lemma DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred2_true :
-    forall u t1 t2 {eo : EventOrdering} e1 e2 e c1 c2 Q R H,
-      rule_true (DERIVED_RULE_generates_trusted_kc_id_increases_direct_pred2 u t1 t2 e1 e2 e c1 c2 Q R H).
-  Proof.
-    start_proving_derived st.
-
-    inst_hyp e1 sta; inst_hyp e2 stb; clear st1; GC.
-
-    apply (PRIMITIVE_RULE_cut_true "hida" (KE_TRUST_HAS_ID t1 c1 @ e1)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "hidb" (KE_TRUST_HAS_ID t2 c2 @ e2)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    apply (PRIMITIVE_RULE_cut_true "disa" (KE_TDISS_OWN t1 @ e1)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    apply (PRIMITIVE_RULE_cut_true "disb" (KE_TDISS_OWN t2 @ e2)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    apply (PRIMITIVE_RULE_cut_true "betweena" (KE_EX_ID_BETWEEN c1 @ e1)); simseqs j.
-    { apply (DERIVED_RULE_disseminate_implies_id_true t1); simseqs j;
-        try (complete (repeat (apply DERIVED_RULE_thin_last_true; simseqs j))). }
-    LOCKelim "betweena".
-    LOCKelim "betweena".
-    LOCKelim "betweena" "betweena1".
-    LOCKelim "betweena" "betweena2".
-    LOCKelim "betweena" "betweena3".
-    LOCKelim "betweena" "betweena4".
-
-    apply (PRIMITIVE_RULE_cut_true "betweenb" (KE_EX_ID_BETWEEN c2 @ e2)); simseqs j.
-    { apply (DERIVED_RULE_disseminate_implies_id_true t2); simseqs j;
-        try (complete (repeat (apply DERIVED_RULE_thin_last_true; simseqs j))). }
-    LOCKelim "betweenb".
-    LOCKelim "betweenb".
-    LOCKelim "betweenb" "betweenb1".
-    LOCKelim "betweenb" "betweenb2".
-    LOCKelim "betweenb" "betweenb3".
-    LOCKelim "betweenb" "betweenb4".
-
-    apply (PRIMITIVE_RULE_cut_true "id" (KE_ID_AFTER c3 @ e1)); simseqs j.
-    { apply DERIVED_RULE_id_before_is_id_after_true; simseqs j.
-      norm_with "betweenb1"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb1"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_cut_true "p" (KE_ID_EQ c3 c0 @ e)); simseqs j.
-    { apply (PRIMITIVE_RULE_id_eq_change_event_true _ e1); simseqs j.
-      apply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; simseqs j.
-      { norm_with "id"; apply (PRIMITIVE_RULE_hypothesis_true "id"); simseqs j. }
-      norm_with "betweena2"; apply (PRIMITIVE_RULE_hypothesis_true "betweena2"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_id_lt_trans_le_lt_true c0); simseqs j.
-    { apply (DERIVED_RULE_id_le_change_event_true _ e1); simseqs j.
-      norm_with "betweena4"; apply (PRIMITIVE_RULE_hypothesis_true "betweena4"); simseqs j. }
-    apply (PRIMITIVE_RULE_id_lt_trans_eq_lt_true c3); simseqs j.
-    { apply PRIMITIVE_RULE_id_eq_sym_true; simseqs j.
-      norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-    apply (PRIMITIVE_RULE_id_lt_change_event_true _ e2); simseqs j.
-    norm_with "betweenb3"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb3"); simseqs j.
-  Qed.
-
-
-  (*Lemma generates_trusted_kc_id_increases_direct_pred2 :
-    forall {eo : EventOrdering} (e1 e2 : Event) (t1 t2 : kc_trust),
-      e1 ⊂ e2 (* this implies that the events have the same location *)
-      -> generates_trusted e1 t1
-      -> generates_trusted e2 t2
-      -> kc_id t1 < kc_id t2.
-  Proof.
-    introv dp gt1 gt2.
-    apply generates_trusted_implies_id_after in gt1.
-    eapply generates_trusted_kc_id_increases_direct_pred; eauto.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_no_trusted_generation_implies_id_after {eo : EventOrdering} e R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_NO_TGENS @ e]
-      (⟬R⟭ H ⊢ KE_EX_ID (fun c => KE_ID_AFTER c) @ e).
-
-  Lemma DERIVED_RULE_no_trusted_generation_implies_id_after_true :
-    forall {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_no_trusted_generation_implies_id_after e R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "x" (KE_NO_TGENS @ e).
-    Transparent KE_NO_TGENS.
-    LOCKelim "x".
-    Opaque KE_NO_TGENS.
-    LOCKelim "x" "y".
-    LOCKelim "x" "z".
-    LOCKintro c; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_split_local_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
-    MkRule0
-      [⟬R⟭ H • (x › a @ e) » J ⊢ b,
-       ⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ local_pred_n e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b).
-
-  Lemma DERIVED_RULE_split_local_before_hyp_true :
-    forall x {eo : EventOrdering} e R H J a b,
-      rule_true (DERIVED_RULE_split_local_before_eq_hyp x e R H J a b).
-  Proof.
-    start_proving_derived st.
-    apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u"); simseqs j.
-    causal_norm_with "u"; apply DERIVED_RULE_split_local_before_eq_true; simseqs j.
-    { causal_norm_with "u"; apply PRIMITIVE_RULE_subst_causal_eq_hyp_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-    apply DERIVED_RULE_relocal_before_eq_hyp_true; simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition ID_INCREASES c1 :=
-    KE_IMPLIES
-      (KE_LOCAL_BEFORE_EQ (KE_ID_AFTER c1))
-      (KE_ALL_ID (fun c2 =>
-                    KE_IMPLIES
-                      (KE_ID_AFTER c2)
-                      (KE_ID_LE c1 c2))).
-
-  Definition DERIVED_RULE_id_after_increases0 {eo : EventOrdering} e c1 R H :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e'])
-      (⟬R⟭ H ⊢ ID_INCREASES c1 @ e).
-
-  Lemma DERIVED_RULE_id_after_increases0_true :
-    forall {eo : EventOrdering} e c1 R H,
-      rule_true (DERIVED_RULE_id_after_increases0 e c1 R H).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_pred_eq_induction_true; simseqs j.
-
-    { apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-      apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-      apply PRIMITIVE_RULE_all_id_intro_true; simseqs j.
-      rename c into c2.
-      apply (PRIMITIVE_RULE_implies_intro_true "z"); simseqs j.
-      norm_with "y"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "y"); simseqs j.
-      apply DERIVED_RULE_causalle_is_equal_if_first_true; simseqs j.
-      { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      causal_norm_with "u"; norm_with "y"; apply (PRIMITIVE_RULE_subst_causal_eq_hyp_true "u" "y"); simseqs j.
-      apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_implies_intro_true "nf"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "rb"); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "lb"); simseqs j.
-    apply PRIMITIVE_RULE_all_id_intro_true; simseqs j.
-    rename c into c2.
-    apply (PRIMITIVE_RULE_implies_intro_true "ca"); simseqs j.
-    norm_with "rb"; apply (DERIVED_RULE_unright_before_eq_hyp_true "rb"); simseqs j.
-    norm_with "lb"; apply DERIVED_RULE_split_local_before_hyp_true; simseqs j.
-
-    { apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; simseqs j.
-      { norm_with "lb"; apply (PRIMITIVE_RULE_hypothesis_true "lb"); simseqs j. }
-      norm_with "ca"; apply (PRIMITIVE_RULE_hypothesis_true "ca"); simseqs j. }
-
-    norm_with "rb"; apply (PRIMITIVE_RULE_implies_elim_true "rb"); simseqs j.
-    { norm_with "lb"; apply (PRIMITIVE_RULE_hypothesis_true "lb"); simseqs j. }
-
-    inst_hyp e0 st.
-    apply (PRIMITIVE_RULE_cut_true "mon" (ASSUMPTION_monotonicity @ e0)); simseqs j.
-    { repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    apply (DERIVED_RULE_or_elim_true "mon"); simseqs j.
-
-    { Transparent KE_NO_TGENS.
-      LOCKelim "mon".
-      Opaque KE_NO_TGENS.
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-      apply (PRIMITIVE_RULE_cut_true "mon" (KE_ID_EQ c2 c @ e0)); simseqs j.
-      { apply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; simseqs j.
-        { norm_with "ca"; apply (PRIMITIVE_RULE_hypothesis_true "ca"); simseqs j. }
-        norm_with "mon2"; apply (PRIMITIVE_RULE_hypothesis_true "mon2"); simseqs j. }
-      norm_with "rb"; apply (PRIMITIVE_RULE_all_id_elim_true "rb" c); simseqs j.
-      norm_with "rb"; apply (PRIMITIVE_RULE_implies_elim_true "rb"); simseqs j.
-      { apply (PRIMITIVE_RULE_introduce_direct_pred_true "u" e0); simseqs j.
-        { norm_with "nf"; apply (PRIMITIVE_RULE_hypothesis_true "nf"); simseqs j. }
-        causal_norm_with "u"; apply DERIVED_RULE_id_before_is_id_after_true; simseqs j.
-        norm_with "mon1"; apply (PRIMITIVE_RULE_hypothesis_true "mon1"); simseqs j. }
-      apply (DERIVED_RULE_id_le_trans_true c); simseqs j.
-      { apply (DERIVED_RULE_id_le_change_event_true _ (local_pred_n e0)); simseqs j.
-        norm_with "rb"; apply (PRIMITIVE_RULE_hypothesis_true "rb"); simseqs j. }
-      apply PRIMITIVE_RULE_or_intro_right_true; simseqs j.
-      apply PRIMITIVE_RULE_id_eq_sym_true; simseqs j.
-      norm_with "mon"; apply (PRIMITIVE_RULE_hypothesis_true "mon"); simseqs j. }
-
-    { Transparent KE_TGENS.
-      LOCKelim "mon".
-      LOCKelim "mon".
-      Opaque KE_TGENS.
-      LOCKelim "mon" "mon0".
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-      apply (PRIMITIVE_RULE_cut_true "mon" (KE_ID_EQ c2 c0 @ e0)); simseqs j.
-      { apply PRIMITIVE_RULE_ids_after_imply_eq_ids_true; simseqs j.
-        { norm_with "ca"; apply (PRIMITIVE_RULE_hypothesis_true "ca"); simseqs j. }
-        norm_with "mon2"; apply (PRIMITIVE_RULE_hypothesis_true "mon2"); simseqs j. }
-      norm_with "rb"; apply (PRIMITIVE_RULE_all_id_elim_true "rb" c); simseqs j.
-      norm_with "rb"; apply (PRIMITIVE_RULE_implies_elim_true "rb"); simseqs j.
-      { apply (PRIMITIVE_RULE_introduce_direct_pred_true "u" e0); simseqs j.
-        { norm_with "nf"; apply (PRIMITIVE_RULE_hypothesis_true "nf"); simseqs j. }
-        causal_norm_with "u"; apply DERIVED_RULE_id_before_is_id_after_true; simseqs j.
-        norm_with "mon1"; apply (PRIMITIVE_RULE_hypothesis_true "mon1"); simseqs j. }
-      apply (DERIVED_RULE_id_le_trans_true c); simseqs j.
-      { apply (DERIVED_RULE_id_le_change_event_true _ (local_pred_n e0)); simseqs j.
-        norm_with "rb"; apply (PRIMITIVE_RULE_hypothesis_true "rb"); simseqs j. }
-      apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-      apply (PRIMITIVE_RULE_id_lt_trans_lt_eq_true c0); simseqs j.
-      { norm_with "mon0"; apply (PRIMITIVE_RULE_hypothesis_true "mon0"); simseqs j. }
-      apply (PRIMITIVE_RULE_id_eq_sym_true); simseqs j.
-      norm_with "mon"; apply (PRIMITIVE_RULE_hypothesis_true "mon"); simseqs j. }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_after_increases u {eo : EventOrdering} e1 e2 e c1 c2 R H :=
-    MkRule1
-      (fun e' =>
-         [⟬(u ⋈ e1 ■ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬(u ⋈ e1 ■ e2) :: R⟭ H ⊢ KE_ID_AFTER c1 @ e1,
-          ⟬(u ⋈ e1 ■ e2) :: R⟭ H ⊢ KE_ID_AFTER c2 @ e2])
-      (⟬(u ⋈ e1 ■ e2) :: R⟭ H ⊢ KE_ID_LE c1 c2 @ e).
-
-  Lemma DERIVED_RULE_id_after_increases_true :
-    forall u {eo : EventOrdering} e1 e2 e c1 c2 R H,
-      rule_true (DERIVED_RULE_id_after_increases u e1 e2 e c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ID_INCREASES c1 @ e2)); simseqs j.
-    { apply DERIVED_RULE_id_after_increases0_true; simseqs j.
-      inst_hyp e0 st. }
-
-    inst_hyp e1 st.
-
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { causal_norm_with u; apply DERIVED_RULE_unlocal_before_eq_if_causalle_true; simseqs j. }
-    norm_with "x"; apply (PRIMITIVE_RULE_all_id_elim_true "x" c2); simseqs j.
-
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    apply (DERIVED_RULE_id_le_change_event_true _ e2); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_id_after_increases2 u {eo : EventOrdering} e1 e2 e c1 c2 R H :=
-    MkRule1
-      (fun e' =>
-         [⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_ID_AFTER c1 @ e1,
-          ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_ID_BEFORE c2 @ e2])
-      (⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_ID_LE c1 c2 @ e).
-
-  Lemma DERIVED_RULE_id_after_increases2_true :
-    forall u {eo : EventOrdering} e1 e2 e c1 c2 R H,
-      rule_true (DERIVED_RULE_id_after_increases2 u e1 e2 e c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-    inst_hyp e2 sta.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_ID_AFTER c1 @ e1)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "y" (KE_ID_BEFORE c2 @ e2)); simseqs j.
-    { apply DERIVED_RULE_thin_last_true; simseqs j. }
-    causal_norm_with u; apply (PRIMITIVE_RULE_split_local_before2_true u "v" "w"); simseqs j.
-    causal_norm_with "v"; apply (DERIVED_RULE_id_after_increases_true "v"); simseqs j.
-    { inst_hyp e0 st.
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j).
-      repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j). }
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-    causal_norm_with "w"; apply (DERIVED_RULE_id_before_is_id_after_true "w"); simseqs j.
-    norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j.
-  Qed.
-
-  (*Lemma id_after_increases :
-    forall {eo : EventOrdering} e1 e2 c1 c2,
-      ex_node_e e2
-      -> monotonicity eo
-      -> e1 ⊑ e2
-      -> id_after e2 c2
-      -> id_after e1 c1
-      -> c1 <= c2.
-  Proof.
-    introv exe mon lte sbe2 sbe1.
-
-    revert dependent c2.
-    revert dependent e2.
-
-    induction e2 as [e2 ind] using predHappenedBeforeInd.
-    introv exe lte sbe2.
-
-    applydup @localHappenedBeforeLe_implies_or in lte; repndors; subst; eq_states; tcsp;[].
-
-    destruct (dec_isFirst e2) as [d|d]; ginv; simpl in *;[|].
-
-    { apply isFirst_localHappenedBeforeLe_implies_eq in lte; subst; auto; eq_states; auto. }
-
-    pose proof (ind (local_pred e2)) as ind; repeat (autodimp ind hyp); eauto 3 with eo kn;[].
-
-    pose proof (mon e2) as mon; repeat (autodimp mon hyp);[].
-    repndors; exrepnd;[|].
-
-    {
-      unfold no_trusted_generation in *; exrepnd; eq_states.
-      apply id_before_implies_id_after in mon1; auto.
-    }
-
-    {
-      unfold generates_trusted in *; exrepnd; eq_states.
-      apply id_before_implies_id_after in mon0; auto.
-    }
-  Qed.*)
-
-
-(*  (************************************************************************************************)
-  Definition DERIVED_RULE_tgens_implies_has_id {eo : EventOrdering} e R H t :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TGENS t @ e]
-      (⟬R⟭ H ⊢ KE_EX_ID (fun c => KE_AND (KE_TRUST_HAS_ID t c) (KE_ID_AFTER c)) @ e).
-
-  Lemma DERIVED_RULE_tgens_implies_has_id_true :
-    forall {eo : EventOrdering} e R H t,
-      rule_true (DERIVED_RULE_tgens_implies_has_id e R H t).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule; dLin_hyp st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TGENS t @ e)); simseqs j.
-    clear st0.
-    Transparent KE_TGENS.
-    norm_with "x"; apply (PRIMITIVE_RULE_unexists_id_true "x"); simseqs j.
-    Opaque KE_TGENS.
-    norm_with "x"; apply (PRIMITIVE_RULE_unexists_id_true "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "z"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "w"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "u"); simseqs j.
-    apply (PRIMITIVE_RULE_exists_id_intro_true h0); simseqs j.
-    apply PRIMITIVE_RULE_and_intro_true; simseqs j.
-    { norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-    norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_generates_trusted_kc_id_increases_strict_before
-             u t1 t2 {eo : EventOrdering} e1 e2 e c1 c2 R H :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TDISS_OWN t1 @ e1,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TDISS_OWN t2 @ e2,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2])
-      (⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_ID_LT c1 c2 @ e).
-
-  Lemma DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_true :
-    forall u t1 t2 {eo : EventOrdering} e1 e2 e c1 c2 R H,
-      rule_true (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before u t1 t2 e1 e2 e c1 c2 R H).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "betweena" (KE_EX_ID_BETWEEN c1 @ e1)); simseqs j.
-    { inst_hyp e1 sta.
-      apply (DERIVED_RULE_disseminate_implies_id_true t1); simseqs j. }
-
-    apply (PRIMITIVE_RULE_cut_true "betweenb" (KE_EX_ID_BETWEEN c2 @ e2)); simseqs j.
-    { inst_hyp e2 stb.
-      apply DERIVED_RULE_thin_last_true; simseqs j.
-      apply (DERIVED_RULE_disseminate_implies_id_true t2); simseqs j. }
-
-    LOCKelim "betweena".
-    LOCKelim "betweena".
-    LOCKelim "betweena" "betweena1".
-    LOCKelim "betweena" "betweena2".
-    LOCKelim "betweena" "betweena3".
-    LOCKelim "betweena" "betweena4".
-
-    LOCKelim "betweenb".
-    LOCKelim "betweenb".
-    LOCKelim "betweenb" "betweenb1".
-    LOCKelim "betweenb" "betweenb2".
-    LOCKelim "betweenb" "betweenb3".
-    LOCKelim "betweenb" "betweenb4".
-
-    apply (PRIMITIVE_RULE_id_lt_trans_le_lt_true c0); simseqs j.
-    { apply (DERIVED_RULE_id_le_change_event_true _ e1); simseqs j.
-      norm_with "betweena4"; apply (PRIMITIVE_RULE_hypothesis_true "betweena4"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_id_lt_trans_le_lt_true c3); simseqs j.
-    { apply (DERIVED_RULE_id_after_increases2_true u); simseqs j.
-      { inst_hyp e0 sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "betweena2"; apply (PRIMITIVE_RULE_hypothesis_true "betweena2"); simseqs j. }
-      norm_with "betweenb1"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb1"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_id_lt_change_event_true _ e2); simseqs j.
-    norm_with "betweenb3"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb3"); simseqs j.
-  Qed.
-
-
-  (*Lemma generates_trusted_kc_id_increases_strict_before :
-    forall {eo : EventOrdering} (e1 e2 : Event) (t1 t2 : kc_trust),
-      ex_node_e e2
-      -> monotonicity eo
-      -> e1 ⊏ e2  (* this implies that the location is same *)
-      -> generates_trusted e2 t2
-      -> generates_trusted e1 t1 (* This could be replaced by [id_after] *)
-      -> kc_id t1 < kc_id t2.
-  Proof.
-    introv exe mon lte gen2 gen1.
-
-    apply local_implies_pred_or_local in lte; repndors; exrepnd;[|].
-
-    { eapply generates_trusted_kc_id_increases_direct_pred2; eauto. }
-
-    dup lte1 as lteb.
-    pose proof (mon e) as q; repeat (autodimp q hyp); eauto 3 with eo kn; repndors; exrepnd;[|].
-
-    { apply no_trusted_generation_implies_id_after in q; exrepnd.
-      eapply generates_trusted_kc_id_increases_direct_pred in lte1;
-        try exact q0; try exact gen2.
-      apply generates_trusted_implies_id_after in gen1.
-      eapply id_after_increases in gen1; try exact q0; eauto 3 with eo kn; try omega. }
-
-    { eapply generates_trusted_kc_id_increases_direct_pred2 in lte1;
-        try exact q0; try exact gen2.
-      pose proof (generates_trusted_kc_id_increases e1 e t1 t) as h.
-      repeat (autodimp h hyp); eauto 3 with eo kn; try omega. }
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_same_output_before_implies_false t1 t2 c1 c2 {eo : EventOrdering} e R H :=
-    MkRule1
-      (fun e =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_same_output_before_implies_false t1 t2 c1 c2 @ e).
-
-  Lemma DERIVED_RULE_same_output_before_implies_false_true :
-    forall t1 t2 c1 c2 {eo : EventOrdering} e R H,
-      rule_true (DERIVED_RULE_same_output_before_implies_false t1 t2 c1 c2 e R H).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "z"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "w"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "p"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "q"); simseqs j.
-    norm_with "z"; apply (DERIVED_RULE_unlocal_before_hyp_true "u" "z"); simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true "lt" (KE_ID_LT c1 c2 @ e)); simseqs j.
-    { causal_norm_with "u"; apply (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_true "u" t1 t2); simseqs j.
-      { inst_hyp e1 st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { inst_hyp e1 st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      { apply (PRIMITIVE_RULE_has_id_change_event_true _ e); simseqs j.
-        norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-      norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-
-    LOCKcut "lt" (KE_ID_LT c1 c1 @ e); try LOCKauto.
-    LOCKapply (PRIMITIVE_RULE_id_lt_trans_lt_eq_true c2); try LOCKauto.
-    LOCKapply PRIMITIVE_RULE_id_eq_sym_true; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_same_event_same_output_implies_same_input {eo : EventOrdering} e R H t1 t2 c1 c2 :=
-    MkRule1
-      (fun e =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_same_event_same_output_implies_same_input t1 t2 c1 c2 @ e).
-
-  Lemma DERIVED_RULE_same_event_same_output_implies_same_input_true :
-    forall {eo : EventOrdering} e R H t1 t2 c1 c2,
-      rule_true (DERIVED_RULE_same_event_same_output_implies_same_input e R H t1 t2 c1 c2).
-  Proof.
-    start_proving_derived st.
-    LOCKapply (PRIMITIVE_RULE_implies_intro_true "x").
-    LOCKelim "x" "y".
-    LOCKelim "x" "z".
-    LOCKelim "x" "w".
-    LOCKelim "x" "p".
-    LOCKelim "x" "q".
-
-    LOCKelim "z".
-    { LOCKapply (PRIMITIVE_RULE_cut_true "ass" (ASSUMPTION_same_output_before_implies_false t1 t2 c1 c2 @ e)).
-      { repeat LOCKclear.
-        LOCKapply DERIVED_RULE_same_output_before_implies_false_true; inst_hyp e0 st. }
-      LOCKapply@ "ass" PRIMITIVE_RULE_implies_elim_true; try LOCKauto.
-      repeat (LOCKintro; try LOCKauto). }
-
-    apply (PRIMITIVE_RULE_unicity_true c1 c2); simseqs j; try LOCKauto.
-    { inst_hyp e st; repeat LOCKclear. }
-    LOCKelim "z" "u"; try LOCKauto.
-  Qed.
-
-
-(*  (* NOT USED *)
-  (************************************************************************************************)
-  Definition DERIVED_RULE_TGEN_MONOTONICITY_local_trusted_component_strictly_less {eo : EventOrdering} e R H t1 t2 c1 c2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ KE_TGENS t2 @ e,
-          ⟬R⟭ H ⊢ KE_LOCAL_BEFORE (KE_TGENS t1) @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e])
-      (⟬R⟭ H ⊢ KE_ID_LT c1 c2 @ e).
-
-  Lemma DERIVED_RULE_TGEN_MONOTONICITY_local_trusted_component_strictly_less_true :
-    forall {eo : EventOrdering} e R H t1 t2 c1 c2,
-      rule_true (DERIVED_RULE_TGEN_MONOTONICITY_local_trusted_component_strictly_less e R H t1 t2 c1 c2).
-  Proof.
-    start_proving_derived st.
-
-    pose proof (st (mk_v1 e)) as st'; simpl_sem_rule; dLin_hyp st'; simpl in *.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_LOCAL_BEFORE (KE_TGENS t1) @ e)); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_unlocal_before_hyp_true "x"); simseqs j.
-
-    apply (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_true "x" t1 t2 h e); simseqs j;
-      try (complete (apply DERIVED_RULE_remove_first_causal_true; simseqs j;
-                     apply DERIVED_RULE_thin_last_true; simseqs j)).
-
-    { apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-      apply DERIVED_RULE_thin_last_true; simseqs j.
-      pose proof (st (mk_v1 h0)) as st; simpl_sem_rule; dLin_hyp st; simpl in *; auto. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_same_id_before_implies_false c1 c2 {eo : EventOrdering} e R H t1 t2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t2 @ e,
-          ⟬R⟭ H ⊢ KE_LOCAL_BEFORE (KE_TDISS_OWN t1) @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e])
-      (⟬R⟭ H ⊢ KE_FALSE @ e).
-
-  Lemma DERIVED_RULE_same_id_before_implies_false_true :
-    forall c1 c2 {eo : EventOrdering} e R H (t1 t2 : kc_trust),
-      rule_true (DERIVED_RULE_same_id_before_implies_false c1 c2 e R H t1 t2).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule.
-    inst_hyp e st'.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_same_output_before_implies_false t1 t2 c1 c2 @ e)); simseqs j.
-    { apply DERIVED_RULE_same_output_before_implies_false_true; simseqs j;
-        inst_hyp e0 st. }
-
-    apply DERIVED_RULE_implies_elim_true; simseqs j; repeat LOCKintro; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_same_input_if_same_id c1 c2 {eo : EventOrdering} e R H t1 t2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t2 @ e,
-          ⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_TDISS_OWN t1) @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e).
-
-  Lemma DERIVED_RULE_trusted_same_input_if_same_id_true :
-    forall c1 c2 {eo : EventOrdering} e R H (t1 t2 : kc_trust),
-      rule_true (DERIVED_RULE_trusted_same_input_if_same_id c1 c2 e R H t1 t2).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule.
-    inst_hyp e st'.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_same_event_same_output_implies_same_input t1 t2 c1 c2 @ e)); simseqs j.
-    { apply DERIVED_RULE_same_event_same_output_implies_same_input_true; simseqs j;
-        inst_hyp e0 st. }
-
-    apply DERIVED_RULE_implies_elim_true; simseqs j; try LOCKauto.
-    repeat (LOCKintro;[]); LOCKauto.
-  Qed.
-
-
-(*
-(* NOT USED *)
-
-  (************************************************************************************************)
-  Lemma OLD_RULE_trusted_same_input_if_same_id_true_from_mon :
-    forall {eo : EventOrdering} (t' t'' : kc_trust),
-      assume_eo eo (ASSUMPTION_monotonicity)
-      -> rule_true_eo eo (OLD_RULE_trusted_same_input_if_same_id t' t'').
-  Proof.
-    introv mon exe ht h; simpl in *.
-    dLin_hyp h.
-    unfold sequent_true_at_event in *; simpl in *.
-    autodimp h0 hyp; tcsp.
-    autodimp h1 hyp; tcsp.
-    autodimp h2 hyp; tcsp.
-    simpl in *.
-    exrepnd.
-
-    eapply localHappenedBeforeLe_implies_or2 in h1; repndors; subst.
-
-    { eapply generates_trusted_unique in h0; try exact h3; subst; auto. }
-
-    apply (OLD_RULE_TGEN_MONOTONICITY_local_trusted_component_strictly_less_true t' t'') in mon.
-
-    pose proof (mon e) as mon; simpl in mon; autodimp mon hyp.
-    unfold rule_true_at_event in mon; simpl in *.
-    repeat (autodimp mon hyp); eauto 3 with kn;
-      try (complete (unfold sequent_true_at_event in *; simpl in *;
-                     autodimp mon hyp; tcsp; omega)).
-    introv q ht; repndors; tcsp; subst; simpl; auto.
-    exists e'; dands; auto.
-  Qed.*)
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_tgens_implies_towns {eo : EventOrdering} e R H t :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TDISS_OWN t @ e]
-      (⟬R⟭ H ⊢ KE_TOWNS t @ e).
-
-  Lemma DERIVED_RULE_tgens_implies_towns_true :
-    forall {eo : EventOrdering} e R H t,
-      rule_true (DERIVED_RULE_tgens_implies_towns e R H t).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule; dLin_hyp st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TDISS_OWN t @ e)); simseqs j.
-    clear st0.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_disseminate_unique
-             c1 c2 n {eo : EventOrdering} e1 e2 R H (t1 t2 : kc_trust) :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t1 @ e1,
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t2 @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2,
-          ⟬R⟭ H ⊢ KE_AT n @ e1,
-          ⟬R⟭ H ⊢ KE_AT n @ e2,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2 @ e2])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e2).
-
-  Lemma DERIVED_RULE_trusted_disseminate_unique_true :
-    forall c1 c2 n {eo : EventOrdering} e1 e2 R H (t1 t2 : kc_trust),
-      rule_true (DERIVED_RULE_trusted_disseminate_unique c1 c2 n e1 e2 R H t1 t2).
-  Proof.
-    introv st; simpl in *; simpl_sem_rule.
-    inst_hyp e1 st'.
-
-    apply (PRIMITIVE_RULE_tri_if_towned_true "u" n e1 e2); simseqs j.
-
-    { (* e1 = e2 *)
-      apply (DERIVED_RULE_trusted_same_input_if_same_id_true c1 c2); simseqs j;
-      try (complete (inst_hyp e st; apply DERIVED_RULE_remove_first_causal_true; simseqs j)).
-
-      inst_hyp e st.
-      apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-      causal_norm_with "u"; apply PRIMITIVE_RULE_subst_causal_eq_concl_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-
-    { (* (e1) ⊏ (e2) *)
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_FALSE @ e2)); simseqs j; try LOCKauto.
-      apply (DERIVED_RULE_same_id_before_implies_false_true c1 c2 _ _ _ t1 t2); simseqs j;
-        try (complete (apply DERIVED_RULE_remove_first_causal_true; simseqs j; inst_hyp e st)).
-      causal_norm_with "u"; apply DERIVED_RULE_unlocal_before_if_causal_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-
-    { (* (e2) ⊏ (e1) *)
-      apply PRIMITIVE_RULE_trust_eq_sym_true; simseqs j.
-      apply (PRIMITIVE_RULE_trust_eq_change_event_true e2 e1); simseqs j.
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_FALSE @ e1)); simseqs j; try LOCKauto.
-      apply (DERIVED_RULE_same_id_before_implies_false_true c2 c1 _ _ _ t2 t1); simseqs j;
-        try (complete (apply DERIVED_RULE_remove_first_causal_true; simseqs j; inst_hyp e st)).
-      { causal_norm_with "u"; apply DERIVED_RULE_unlocal_before_if_causal_true; simseqs j.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-      apply PRIMITIVE_RULE_id_eq_sym_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_knows_implies_learned_or_gen_implies_gen {eo : EventOrdering} e R H d :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_learns_if_gen d @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_knows_implies_learned_or_gen d @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_knows_implies_gen d @ e).
-
-  Lemma DERIVED_RULE_knows_implies_learned_or_gen_implies_gen_true :
-    forall (eo : EventOrdering) e R H d,
-      rule_true (DERIVED_RULE_knows_implies_learned_or_gen_implies_gen e R H d).
-  Proof.
-    start_proving_derived st.
-    inst_hyp e st'.
-
-    apply (PRIMITIVE_RULE_cut_true "a" (ASSUMPTION_knows_implies_learned_or_gen d @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_implies_intro_true "kn"); simseqs j.
-    norm_with "a"; apply (PRIMITIVE_RULE_implies_elim_true "a"); simseqs j.
-    { norm_with "kn"; apply (PRIMITIVE_RULE_hypothesis_true "kn"); simseqs j. }
-
-    norm_with "a"; apply (PRIMITIVE_RULE_or_elim_true "a"); simseqs j.
-
-    { norm_with "a"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "a"); simseqs j.
-      inst_hyp e0 st.
-      apply (PRIMITIVE_RULE_cut_true "b" (ASSUMPTION_learns_if_gen d @ e0)); simseqs j.
-      { apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      norm_with "b"; apply (PRIMITIVE_RULE_implies_elim_true "b"); simseqs j.
-      { norm_with "a"; apply (PRIMITIVE_RULE_hypothesis_true "a"); simseqs j. }
-      norm_with "b"; apply (PRIMITIVE_RULE_unhappened_before_hyp_true "v" "b"); simseqs j.
-      causal_norm_with "u"; apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-      causal_norm_with "u"; apply DERIVED_RULE_unhappened_before_eq_if_causalle_trans_true; simseqs j.
-      causal_norm_with "v"; apply PRIMITIVE_RULE_causal_if_causalle_true; simseqs j.
-      causal_norm_with "v"; apply DERIVED_RULE_unhappened_before_eq_if_causalle_true; simseqs j.
-      norm_with "b"; apply (PRIMITIVE_RULE_hypothesis_true "b"); simseqs j. }
-
-    norm_with "a"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u"); simseqs j.
-    causal_norm_with "u"; apply PRIMITIVE_RULE_localle_if_causalle_true; simseqs j.
-    causal_norm_with "u"; apply DERIVED_RULE_unhappened_before_eq_if_causalle_true; simseqs j.
-    norm_with "a"; apply (PRIMITIVE_RULE_hypothesis_true "a"); simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_knows_implies_learned_or_gen_implies_gen {eo : EventOrdering} e R H t :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_if_gen t @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_learned_or_gen t @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_gen t @ e).
-
-  Lemma DERIVED_RULE_trusted_knows_implies_learned_or_gen_implies_gen_true :
-    forall (eo : EventOrdering) e R H t,
-      rule_true (DERIVED_RULE_trusted_knows_implies_learned_or_gen_implies_gen e R H t).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_knows_implies_learned_or_gen_implies_gen_true; simseqs j;
-      inst_hyp e0 st'.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_KLD_implies_or {eo : EventOrdering} e R H d :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_knew_or_learns_or_gen d @ e'])
-      (⟬R⟭ H ⊢ ASSUMPTION_knows_implies_learned_or_gen d @ e).
-
-  Lemma DERIVED_RULE_KLD_implies_or_true :
-    forall {eo : EventOrdering} e R H d,
-      rule_true (DERIVED_RULE_KLD_implies_or e R H d).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_pred_eq_induction_true; simseqs j.
-
-    { inst_hyp e0 st'.
-      apply (PRIMITIVE_RULE_cut_true "z" (ASSUMPTION_knew_or_learns_or_gen d @ e0)); simseqs j.
-      apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-      apply (PRIMITIVE_RULE_implies_intro_true "y"); simseqs j.
-
-      LOCKelim "z"; try LOCKauto.
-      LOCKelim "z".
-      { LOCKelim "x"; try LOCKauto.
-        LOCKapply (DERIVED_RULE_knew_implies_not_first_true d); try LOCKauto. }
-      LOCKelim "z".
-      { LOCKintro 0.
-        LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
-      LOCKelim "z"; try LOCKauto.
-      LOCKintro 1.
-      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
-
-    inst_hyp e0 st'.
-    LOCKcut "z" (ASSUMPTION_knew_or_learns_or_gen d @ e0).
-    LOCKintro "x".
-    LOCKintro "w".
-    LOCKintro "y".
-
-    LOCKelim "z"; try LOCKauto.
-
-    LOCKelim "z".
-    { LOCKapply@ "w" DERIVED_RULE_right_before_over_implies_hyp_true.
-      LOCKelim "w".
-      { LOCKapply DERIVED_RULE_knew_implies_knows_true; try LOCKauto. }
-      LOCKapply@ "w" DERIVED_RULE_right_before_over_or_hyp_true.
-      LOCKelim "w".
-      { LOCKintro 0.
-        LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
-      LOCKintro 1.
-      LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
-
-    LOCKelim "z".
-    { LOCKintro 0.
-      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
-
-    LOCKelim "z"; try LOCKauto.
-    { LOCKintro 1.
-      LOCKapply DERIVED_RULE_weaken_local_before_eq_true; try LOCKauto. }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_KLD_implies_or {eo : EventOrdering} e R H t :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_trusted_knew_or_learns_or_gen t @ e'])
-      (⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_learned_or_gen t @ e).
-
-  Lemma DERIVED_RULE_trusted_KLD_implies_or_true :
-    forall {eo : EventOrdering} e R H t,
-      rule_true (DERIVED_RULE_trusted_KLD_implies_or e R H t).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_KLD_implies_or_true; simseqs j; inst_hyp e0 st'.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_KLD_implies_gen {eo : EventOrdering} e R H d :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_learns_if_gen d @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_knew_or_learns_or_gen d @ e'])
-      (⟬R⟭ H ⊢ ASSUMPTION_knows_implies_gen d @ e).
-
-  Lemma DERIVED_RULE_KLD_implies_gen_true :
-    forall {eo : EventOrdering} e R H d,
-      rule_true (DERIVED_RULE_KLD_implies_gen e R H d).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_knows_implies_learned_or_gen_implies_gen_true; simseqs j.
-    { inst_hyp e0 st. }
-    apply DERIVED_RULE_KLD_implies_or_true; simseqs j.
-    inst_hyp e1 st.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_KLD_implies_gen {eo : EventOrdering} e R H t :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_trusted_learns_if_gen t @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_trusted_knew_or_learns_or_gen t @ e'])
-      (⟬R⟭ H ⊢ ASSUMPTION_trusted_knows_implies_gen t @ e).
-
-  Lemma DERIVED_RULE_trusted_KLD_implies_gen_true :
-    forall {eo : EventOrdering} e R H t,
-      rule_true (DERIVED_RULE_trusted_KLD_implies_gen e R H t).
-  Proof.
-    start_proving_derived st.
-    apply DERIVED_RULE_KLD_implies_gen_true; simseqs j; inst_hyp e0 st'.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_it_owns_tgens_implies_at t {eo : EventOrdering} e p R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ KE_TDISS_OWN t @ e,
-       ⟬R⟭ H ⊢ KE_HAS_TOWNER t p @ e]
-      (⟬R⟭ H ⊢ KE_AT p @ e).
-
-  Lemma DERIVED_RULE_it_owns_tgens_implies_at_true :
-    forall t {eo : EventOrdering} e p R H,
-      rule_true (DERIVED_RULE_it_owns_tgens_implies_at t e p R H).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "o" (KE_HAS_TOWNER t p @ e)); simseqs j.
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TDISS_OWN t @ e)); simseqs j.
-    { norm_with "o"; apply (PRIMITIVE_RULE_thin_true "o"); simseqs j. }
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "c"); simseqs j.
-    apply (DERIVED_RULE_it_owns_owned_implies_at_true (kc_trust2data t)); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-    norm_with "o"; apply (PRIMITIVE_RULE_hypothesis_true "o"); simseqs j.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_knowledge_unique
-             p c1 c2 {eo : EventOrdering} e1 e2 e R H t1 t2 :=
-    MkRule1
-      (fun e =>
-         [⟬R⟭ H ⊢ KE_TKNOWS t1 @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2 @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2,
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e,
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2 @ e])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique_true :
-    forall p c1 c2 {eo : EventOrdering} e1 e2 e R H t1 t2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique p c1 c2 e1 e2 e R H t1 t2).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_trusted_knows_implies_gen t1 @ e1)); simseqs j.
-    { apply DERIVED_RULE_trusted_KLD_implies_gen_true; simseqs j.
-      { inst_hyp e0 st'.
-        apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e0)); simseqs j.
-        norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t1); simseqs j.
-        norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      inst_hyp e0 st'.
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e0)); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t1); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { inst_hyp e st'. }
-
-    norm_with "x"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "u" "x"); simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true "y" (ASSUMPTION_trusted_knows_implies_gen t2 @ e2)); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-      apply (DERIVED_RULE_remove_first_causal_true); simseqs j.
-      apply DERIVED_RULE_trusted_KLD_implies_gen_true; simseqs j.
-      { inst_hyp e3 st'.
-        apply (PRIMITIVE_RULE_cut_true "y" (KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e3)); simseqs j.
-        norm_with "y"; apply (PRIMITIVE_RULE_all_trust_elim_true "y" t2); simseqs j.
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      inst_hyp e3 st'.
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e3)); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t2); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    norm_with "y"; apply (PRIMITIVE_RULE_implies_elim_true "y"); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-      apply (DERIVED_RULE_remove_first_causal_true); simseqs j.
-      inst_hyp e st'. }
-
-    norm_with "y"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "v" "y"); simseqs j.
-    apply (PRIMITIVE_RULE_trust_eq_change_event_true e e3); simseqs j.
-    apply (DERIVED_RULE_trusted_disseminate_unique_true c1 c2 p e0 e3); simseqs j;
-      try (complete (repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j);
-                     repeat (apply DERIVED_RULE_thin_last_true; simseqs j);
-                     inst_hyp e4 st)).
-
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-
-    { apply (DERIVED_RULE_it_owns_tgens_implies_at_true t1); simseqs j.
-      { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      inst_hyp e3 st.
-      apply (PRIMITIVE_RULE_has_owner_change_event_true _ e1); simseqs j.
-      repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j).
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    { apply (DERIVED_RULE_it_owns_tgens_implies_at_true t2); simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      inst_hyp e4 st.
-      apply (PRIMITIVE_RULE_has_owner_change_event_true _ e1); simseqs j.
-      repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j).
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-  Qed.
-
-
-  Definition DERIVED_RULE_trusted_knowledge_unique2
-             {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e',
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TKNOWS t1           @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p     @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1  @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2           @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p     @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2  @ e2,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2    @ e,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d1 t1       @ e,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d2 t2       @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_DATA d1 d2  @ e])
-      (⟬R⟭ H ⊢ KE_DATA_EQ d1 d2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique2_true :
-    forall (eo : EventOrdering) e1 e2 e R H p t1 t2 c1 c2 d1 d2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique2 e1 e2 e R H p t1 t2 c1 c2 d1 d2).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TRUST_EQ t1 t2 @ e)); simseqs j.
-    { apply (DERIVED_RULE_trusted_knowledge_unique_true p c1 c2 e1 e2); simseqs j; inst_hyp e0 st. }
-
-    apply (PRIMITIVE_RULE_collision_resistant_true t1 t2); simseqs j; try LOCKauto;
-      norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j;
-        inst_hyp e st.
-  Qed.
-
-
-  Definition DERIVED_RULE_trusted_knowledge_unique3
-             {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e',
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TKNOWS t1           @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p     @ e1,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d1 t1       @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1  @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2           @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p     @ e2,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d2 t2       @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2  @ e2,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2         @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_DATA d1 d2  @ e])
-      (⟬R⟭ H ⊢ KE_DATA_EQ d1 d2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique3_true :
-    forall {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique3 e1 e2 e R H p t1 t2 c1 c2 d1 d2).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TRUST_EQ t1 t2 @ e)); simseqs j.
-    { apply (DERIVED_RULE_trusted_knowledge_unique_true p c1 c2 e1 e2); simseqs j; inst_hyp e0 st. }
-
-    apply (PRIMITIVE_RULE_collision_resistant_true t1 t2); simseqs j; try LOCKauto;
-      norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j;
-        inst_hyp e st.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition KE_EX_TRUST_BETWEEN t :=
-    KE_EX_ID3 (fun i i1 i2 => KE_ANDS
-                                [KE_ID_BEFORE i1,
-                                 KE_ID_AFTER i2,
-                                 KE_TRUST_HAS_ID t i,
-                                 KE_TRUST_DOESNT_HAVE_ID t i1,
-                                 KE_ID_LT i1 i,
-                                 KE_ID_LE i i2]).
-
-  Definition DERIVED_RULE_disseminate_implies_id_ex
-             {eo : EventOrdering} e t R H :=
-    MkRule0
-      [⟬R⟭ H ⊢ ASSUMPTION_monotonicity @ e,
-       ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex @ e,
-       ⟬R⟭ H ⊢ KE_TDISS_OWN t @ e]
-      (⟬R⟭ H ⊢ KE_EX_TRUST_BETWEEN t @ e).
-
-  Lemma DERIVED_RULE_disseminate_implies_id_ex_true :
-    forall {eo : EventOrdering} e t R H,
-      rule_true (DERIVED_RULE_disseminate_implies_id_ex
-                   e t R H).
-  Proof.
-    start_proving_derived st.
-    LOCKcut "dis" (KE_TDISS_OWN t @ e).
-    LOCKcut "new" (ASSUMPTION_generates_new_ex @ e).
-    { repeat LOCKclear. }
-    LOCKcut "mon" (ASSUMPTION_monotonicity @ e).
-    { repeat LOCKclear. }
-
-    LOCKelim "mon".
-
-    { Transparent KE_NO_TGENS.
-      LOCKelim "mon".
-      Opaque KE_NO_TGENS.
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-
-      LOCKelim "new" t.
-      LOCKelim "new" c.
-      LOCKelim "new" c.
-
-      LOCKelim "new".
-      { repeat (LOCKintro; try LOCKauto). }
-
-      LOCKelim "new".
-      LOCKelim "new" "new1".
-      LOCKelim "new" "new2".
-      LOCKelim "new" "new3".
-      LOCKelim "new" "new4".
-
-      LOCKcut "p" (KE_ID_LT c0 c0 @ e); try LOCKauto.
-      LOCKapply (PRIMITIVE_RULE_id_lt_trans_le_lt_true c); try LOCKauto. }
-
-    { Transparent KE_TGENS.
-      LOCKelim "mon".
-      LOCKelim "mon".
-      Opaque KE_TGENS.
-      LOCKelim "mon" "mon1".
-      LOCKelim "mon" "mon2".
-      LOCKelim "mon" "mon3".
-
-      LOCKelim "new" t.
-      LOCKelim "new" c.
-      LOCKelim "new" c0.
-
-      LOCKelim "new".
-      { repeat (LOCKintro; try LOCKauto). }
-
-      LOCKelim "new".
-      LOCKelim "new" "new1".
-      LOCKelim "new" "new2".
-      LOCKelim "new" "new3".
-      LOCKelim "new" "new4".
-
-      LOCKintro c1.
-      LOCKintro c.
-      LOCKintro c0.
-
-      repeat (LOCKintro; try LOCKauto). }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex
-             u t1 t2 {eo : EventOrdering} e1 e2 e c R H :=
-    MkRule1
-      (fun e' => [⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ ASSUMPTION_monotonicity     @ e',
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ ASSUMPTION_generates_new_ex @ e',
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2 @ e,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TDISS_OWN t1        @ e1,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TDISS_OWN t2        @ e2,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t1 c   @ e1,
-                  ⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_TRUST_HAS_ID t2 c   @ e2])
-      (⟬(u ⋈ e1 □ e2) :: R⟭ H ⊢ KE_FALSE @ e).
-
-  Lemma DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex_true :
-    forall u t1 t2 {eo : EventOrdering} e1 e2 e c R H,
-      rule_true (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex u t1 t2 e1 e2 e c R H).
-  Proof.
-    start_proving_derived st.
-
-    LOCKcut "betweena" (KE_EX_TRUST_BETWEEN t1 @ e1).
-    { inst_hyp e1 sta.
-      apply DERIVED_RULE_disseminate_implies_id_ex_true; simseqs j. }
-
-    LOCKcut "betweenb" (KE_EX_TRUST_BETWEEN t2 @ e2).
-    { inst_hyp e2 stb.
-      apply DERIVED_RULE_thin_last_true; simseqs j.
-      apply DERIVED_RULE_disseminate_implies_id_ex_true; simseqs j. }
-
-    LOCKelim "betweena".
-    LOCKelim "betweena".
-    LOCKelim "betweena".
-    LOCKelim "betweena" "betweena1".
-    LOCKelim "betweena" "betweena2".
-    LOCKelim "betweena" "betweena3".
-    LOCKelim "betweena" "betweena4".
-    LOCKelim "betweena" "betweena5".
-    LOCKelim "betweena" "betweena6".
-
-    LOCKelim "betweenb".
-    LOCKelim "betweenb".
-    LOCKelim "betweenb".
-    LOCKelim "betweenb" "betweenb1".
-    LOCKelim "betweenb" "betweenb2".
-    LOCKelim "betweenb" "betweenb3".
-    LOCKelim "betweenb" "betweenb4".
-    LOCKelim "betweenb" "betweenb5".
-    LOCKelim "betweenb" "betweenb6".
-
-    apply (PRIMITIVE_RULE_cut_true "ile1" (KE_ID_LE c2 c4 @ e1)); simseqs j.
-    { apply (DERIVED_RULE_id_after_increases2_true u); simseqs j.
-      { inst_hyp e0 sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "betweena2"; apply (PRIMITIVE_RULE_hypothesis_true "betweena2"); simseqs j. }
-      norm_with "betweenb1"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb1"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_cut_true "ile2" (KE_ID_LE c0 c4 @ e1)); simseqs j.
-    { apply (DERIVED_RULE_id_le_trans_true c2); simseqs j.
-      { norm_with "betweena6"; apply (PRIMITIVE_RULE_hypothesis_true "betweena6"); simseqs j. }
-      norm_with "ile1"; apply (PRIMITIVE_RULE_hypothesis_true "ile1"); simseqs j. }
-
-    apply (PRIMITIVE_RULE_cut_true "thi1" (KE_TRUST_HAS_ID t1 c3 @ e2)); simseqs j.
-    { apply (PRIMITIVE_RULE_similar_trust_preserves_true t2 c); simseqs j.
-      { apply (PRIMITIVE_RULE_similar_trust_change_event_true _ e); simseqs j.
-        inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "betweenb3"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb3"); simseqs j. }
-      { apply (PRIMITIVE_RULE_has_id_change_event_true _ e1); simseqs j.
-        inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). } }
-
-    apply (PRIMITIVE_RULE_cut_true "thi2" (KE_TRUST_HAS_ID t1 c4 @ e2)); simseqs j.
-    { apply (PRIMITIVE_RULE_trust_has_id_preserves_true c0 c3); simseqs j.
-      { apply (PRIMITIVE_RULE_has_id_change_event_true _ e1); simseqs j.
-        norm_with "betweena3"; apply (PRIMITIVE_RULE_hypothesis_true "betweena3"); simseqs j. }
-      { norm_with "thi1"; apply (PRIMITIVE_RULE_hypothesis_true "thi1"); simseqs j. }
-      { apply (DERIVED_RULE_id_le_change_event_true _ e1); simseqs j.
-        norm_with "ile2"; apply (PRIMITIVE_RULE_hypothesis_true "ile2"); simseqs j. }
-      { apply PRIMITIVE_RULE_or_intro_left_true; simseqs j.
-        norm_with "betweenb5"; apply (PRIMITIVE_RULE_hypothesis_true "betweenb5"); simseqs j. } }
-
-    apply (PRIMITIVE_RULE_cut_true "thi3" (KE_TRUST_HAS_ID t2 c4 @ e2)); simseqs j.
-    { apply (PRIMITIVE_RULE_similar_trust_preserves_true t1 c); simseqs j.
-      { apply (PRIMITIVE_RULE_similar_trust_change_event_true _ e); simseqs j.
-        apply PRIMITIVE_RULE_similar_trust_sym_true; simseqs j.
-        inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "thi2"; apply (PRIMITIVE_RULE_hypothesis_true "thi2"); simseqs j. }
-      { inst_hyp e sta.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). } }
-
-    LOCKelim "betweenb4"; try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_same_event_same_output_implies_same_input_ex {eo : EventOrdering} e R H t1 t2 c1 c2 :=
-    MkRule1
-      (fun e =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity       @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex   @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2        @ e])
-      (⟬R⟭ H ⊢ ASSUMPTION_same_event_same_output_implies_same_input t1 t2 c1 c2 @ e).
-
-  Lemma DERIVED_RULE_same_event_same_output_implies_same_input_ex_true :
-    forall {eo : EventOrdering} e R H t1 t2 c1 c2,
-      rule_true (DERIVED_RULE_same_event_same_output_implies_same_input_ex e R H t1 t2 c1 c2).
-  Proof.
-    start_proving_derived st.
-    apply (PRIMITIVE_RULE_implies_intro_true "x"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "y"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "z"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "w"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "p"); simseqs j.
-    norm_with "x"; apply (PRIMITIVE_RULE_and_elim_true "x" "q"); simseqs j.
-    norm_with "z"; apply (DERIVED_RULE_unlocal_before_eq_hyp_true "u" "z"); simseqs j.
-    causal_norm_with "u"; apply (PRIMITIVE_RULE_split_local_before_eq2_true "u"); simseqs j.
-
-    { causal_norm_with "u"; norm_with "z"; apply (PRIMITIVE_RULE_subst_causal_eq_hyp_true "u" "z"); simseqs j.
-      apply (PRIMITIVE_RULE_unicity_true c1 c2); simseqs j.
-      { inst_hyp e st.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-        repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-      { norm_with "z"; apply (PRIMITIVE_RULE_hypothesis_true "z"); simseqs j. }
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      { norm_with "w"; apply (PRIMITIVE_RULE_hypothesis_true "w"); simseqs j. }
-      { norm_with "p"; apply (PRIMITIVE_RULE_hypothesis_true "p"); simseqs j. }
-      norm_with "q"; apply (PRIMITIVE_RULE_hypothesis_true "q"); simseqs j. }
-
-    LOCKcut "false" (KE_FALSE @ e); try LOCKauto.
-    LOCKapply@ "u" (DERIVED_RULE_generates_trusted_kc_id_increases_strict_before_ex_true "u" t1 t2 e0 e e c1); try LOCKauto.
-    { inst_hyp e1 st.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    { inst_hyp e1 st.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    { inst_hyp e1 st.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j.
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-    { LOCKapply (PRIMITIVE_RULE_has_id_change_event_true e0 e); LOCKauto. }
-
-    LOCKapply (PRIMITIVE_RULE_trust_has_id_subst_id_true c2); try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_same_input_if_same_id_ex c1 c2 {eo : EventOrdering} e R H t1 t2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity       @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex   @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t2 @ e,
-          ⟬R⟭ H ⊢ KE_LOCAL_BEFORE_EQ (KE_TDISS_OWN t1) @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2    @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2 @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1  @ e,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2  @ e])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e).
-
-  Lemma DERIVED_RULE_trusted_same_input_if_same_id_ex_true :
-    forall c1 c2 {eo : EventOrdering} e R H (t1 t2 : kc_trust),
-      rule_true (DERIVED_RULE_trusted_same_input_if_same_id_ex c1 c2 e R H t1 t2).
-  Proof.
-    start_proving_derived st.
-    inst_hyp e st'.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_same_event_same_output_implies_same_input t1 t2 c1 c2 @ e)); simseqs j.
-    { apply DERIVED_RULE_same_event_same_output_implies_same_input_ex_true; simseqs j; inst_hyp e0 st. }
-
-    apply DERIVED_RULE_implies_elim_true; simseqs j; try LOCKauto.
-    repeat (apply PRIMITIVE_RULE_and_intro_true; simseqs j;[]); try LOCKauto.
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_disseminate_unique_ex
-             c1 c2 n {eo : EventOrdering} e1 e2 R H (t1 t2 : kc_trust) :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ ASSUMPTION_monotonicity       @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex   @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique @ e',
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t1 @ e1,
-          ⟬R⟭ H ⊢ KE_TDISS_OWN t2 @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2,
-          ⟬R⟭ H ⊢ KE_AT n @ e1,
-          ⟬R⟭ H ⊢ KE_AT n @ e2,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2 @ e2,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2    @ e2])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e2).
-
-  Lemma DERIVED_RULE_trusted_disseminate_unique_ex_true :
-    forall c1 c2 n {eo : EventOrdering} e1 e2 R H (t1 t2 : kc_trust),
-      rule_true (DERIVED_RULE_trusted_disseminate_unique_ex c1 c2 n e1 e2 R H t1 t2).
-  Proof.
-    start_proving_derived st.
-    inst_hyp e1 st'.
-
-    apply (PRIMITIVE_RULE_tri_if_towned_true "u" n e1 e2); simseqs j.
-
-    { (* e1 = e2 *)
-      apply (DERIVED_RULE_trusted_same_input_if_same_id_ex_true c1 c2); simseqs j;
-        try (complete (inst_hyp e st; apply DERIVED_RULE_remove_first_causal_true; simseqs j)).
-
-      inst_hyp e st.
-      apply DERIVED_RULE_weaken_local_before_eq_true; simseqs j.
-      causal_norm_with "u"; apply PRIMITIVE_RULE_subst_causal_eq_concl_true; simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-
-    { (* (e1) ⊏ (e2) *)
-      apply (DERIVED_RULE_trusted_same_input_if_same_id_ex_true c1 c2); simseqs j;
-        try (complete (inst_hyp e st; apply DERIVED_RULE_remove_first_causal_true; simseqs j)).
-
-      inst_hyp e st.
-      causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_eq_if_causal_lt_true "u"); simseqs j.
-      apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-
-    { (* (e2) ⊏ (e1) *)
-      apply PRIMITIVE_RULE_trust_eq_sym_true; simseqs j.
-      apply (PRIMITIVE_RULE_trust_eq_change_event_true e2 e1); simseqs j.
-      apply (DERIVED_RULE_trusted_same_input_if_same_id_ex_true c2 c1); simseqs j;
-        try (complete (inst_hyp e st; apply DERIVED_RULE_remove_first_causal_true; simseqs j)).
-
-      { inst_hyp e st.
-        causal_norm_with "u"; apply (DERIVED_RULE_unlocal_before_eq_if_causal_lt_true "u"); simseqs j.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j. }
-
-      { inst_hyp e st.
-        apply PRIMITIVE_RULE_id_eq_sym_true; simseqs j.
-        apply (DERIVED_RULE_remove_first_causal_true); simseqs j. }
-
-      { apply PRIMITIVE_RULE_similar_trust_sym_true; simseqs j.
-        apply (PRIMITIVE_RULE_similar_trust_change_event_true _ e2); simseqs j.
-        apply DERIVED_RULE_remove_first_causal_true; simseqs j. } }
-  Qed.
-
-
-  (************************************************************************************************)
-  Definition DERIVED_RULE_trusted_knowledge_unique_ex
-             p c1 c2 {eo : EventOrdering} e1 e2 e R H t1 t2 :=
-    MkRule1
-      (fun e =>
-         [⟬R⟭ H ⊢ KE_TKNOWS t1          @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p    @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1 @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2          @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p    @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2 @ e2,
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e,
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen         @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity                               @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex                           @ e,
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique                         @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2                                @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2                                        @ e])
-      (⟬R⟭ H ⊢ KE_TRUST_EQ t1 t2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique_ex_true :
-    forall p c1 c2 {eo : EventOrdering} e1 e2 e R H t1 t2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique_ex p c1 c2 e1 e2 e R H t1 t2).
-  Proof.
-    start_proving_derived st.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (ASSUMPTION_trusted_knows_implies_gen t1 @ e1)); simseqs j.
-    { apply DERIVED_RULE_trusted_KLD_implies_gen_true; simseqs j.
-      { inst_hyp e0 st'.
-        apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e0)); simseqs j.
-        norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t1); simseqs j.
-        norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      inst_hyp e0 st'.
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e0)); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t1); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    norm_with "x"; apply (PRIMITIVE_RULE_implies_elim_true "x"); simseqs j.
-    { inst_hyp e st'. }
-
-    norm_with "x"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "u" "x"); simseqs j.
-
-    apply (PRIMITIVE_RULE_cut_true "y" (ASSUMPTION_trusted_knows_implies_gen t2 @ e2)); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-      apply (DERIVED_RULE_remove_first_causal_true); simseqs j.
-      apply DERIVED_RULE_trusted_KLD_implies_gen_true; simseqs j.
-      { inst_hyp e3 st'.
-        apply (PRIMITIVE_RULE_cut_true "y" (KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e3)); simseqs j.
-        norm_with "y"; apply (PRIMITIVE_RULE_all_trust_elim_true "y" t2); simseqs j.
-        norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      inst_hyp e3 st'.
-      apply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e3)); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_all_trust_elim_true "x" t2); simseqs j.
-      norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    norm_with "y"; apply (PRIMITIVE_RULE_implies_elim_true "y"); simseqs j.
-    { norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j.
-      apply (DERIVED_RULE_remove_first_causal_true); simseqs j.
-      inst_hyp e st'. }
-
-    norm_with "y"; apply (DERIVED_RULE_unhappened_before_eq_hyp_true "v" "y"); simseqs j.
-    apply (PRIMITIVE_RULE_trust_eq_change_event_true e e3); simseqs j.
-
-    apply (DERIVED_RULE_trusted_disseminate_unique_ex_true c1 c2 p e0 e3); simseqs j;
-      try (complete (repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j);
-                     repeat (apply DERIVED_RULE_thin_last_true; simseqs j);
-                     inst_hyp e4 st)).
-
-    { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-
-    { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-
-    { apply (DERIVED_RULE_it_owns_tgens_implies_at_true t1); simseqs j.
-      { norm_with "x"; apply (PRIMITIVE_RULE_hypothesis_true "x"); simseqs j. }
-      inst_hyp e4 st.
-      apply (PRIMITIVE_RULE_has_owner_change_event_true _ e1); simseqs j.
-      repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j).
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-
-    { apply (DERIVED_RULE_it_owns_tgens_implies_at_true t2); simseqs j.
-      { norm_with "y"; apply (PRIMITIVE_RULE_hypothesis_true "y"); simseqs j. }
-      inst_hyp e4 st.
-      apply (PRIMITIVE_RULE_has_owner_change_event_true _ e1); simseqs j.
-      repeat (apply DERIVED_RULE_remove_first_causal_true; simseqs j).
-      repeat (apply DERIVED_RULE_thin_last_true; simseqs j). }
-  Qed.
-
-  Definition DERIVED_RULE_trusted_knowledge_unique2_ex
-             {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen         @ e',
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity                               @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex                           @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique                         @ e',
-          ⟬R⟭ H ⊢ KE_TKNOWS t1           @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p     @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1  @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2           @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p     @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2  @ e2,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2 @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2         @ e,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d1 t1       @ e,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d2 t2       @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_DATA d1 d2  @ e])
-      (⟬R⟭ H ⊢ KE_DATA_EQ d1 d2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique2_ex_true :
-    forall (eo : EventOrdering) e1 e2 e R H p t1 t2 c1 c2 d1 d2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique2_ex e1 e2 e R H p t1 t2 c1 c2 d1 d2).
-  Proof.
-    introv st; simpl in *.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TRUST_EQ t1 t2 @ e)); simseqs j.
-    { apply (DERIVED_RULE_trusted_knowledge_unique_ex_true p c1 c2 e1 e2); simseqs j;inst_hyp e0 st. }
-
-    apply (PRIMITIVE_RULE_collision_resistant_true t1 t2); simseqs j; try LOCKauto;
-      norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j;
-        inst_hyp e st.
-  Qed.
-
-  Definition DERIVED_RULE_trusted_knowledge_unique3_ex
-             {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2 :=
-    MkRule1
-      (fun e' =>
-         [⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen         @ e',
-          ⟬R⟭ H ⊢ KE_ALL_TRUST ASSUMPTION_trusted_knew_or_learns_or_gen @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_monotonicity                               @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_generates_new_ex                           @ e',
-          ⟬R⟭ H ⊢ ASSUMPTION_disseminate_unique                         @ e',
-          ⟬R⟭ H ⊢ KE_TKNOWS t1           @ e1,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t1 p     @ e1,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d1 t1       @ e1,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t1 c1  @ e1,
-          ⟬R⟭ H ⊢ KE_TKNOWS t2           @ e2,
-          ⟬R⟭ H ⊢ KE_HAS_TOWNER t2 p     @ e2,
-          ⟬R⟭ H ⊢ KE_GEN_FOR d2 t2       @ e2,
-          ⟬R⟭ H ⊢ KE_TRUST_HAS_ID t2 c2  @ e2,
-          ⟬R⟭ H ⊢ KE_SIMILAR_TRUST t1 t2 @ e,
-          ⟬R⟭ H ⊢ KE_SIMILAR_DATA d1 d2  @ e,
-          ⟬R⟭ H ⊢ KE_ID_EQ c1 c2         @ e])
-      (⟬R⟭ H ⊢ KE_DATA_EQ d1 d2 @ e).
-
-  Lemma DERIVED_RULE_trusted_knowledge_unique3_ex_true :
-    forall {eo : EventOrdering} e1 e2 e R H p t1 t2 c1 c2 d1 d2,
-      rule_true (DERIVED_RULE_trusted_knowledge_unique3_ex e1 e2 e R H p t1 t2 c1 c2 d1 d2).
-  Proof.
-    introv st; simpl in *.
-
-    apply (PRIMITIVE_RULE_cut_true "x" (KE_TRUST_EQ t1 t2 @ e)); simseqs j.
-    { apply (DERIVED_RULE_trusted_knowledge_unique_ex_true p c1 c2 e1 e2); simseqs j; inst_hyp e0 st. }
-
-    apply (PRIMITIVE_RULE_collision_resistant_true t1 t2); simseqs j; try LOCKauto;
-      norm_with "x"; apply (PRIMITIVE_RULE_thin_true "x"); simseqs j;
-        inst_hyp e st.
-   Qed.
-
 End KnowledgeCalculus.
 
 
@@ -10502,12 +6855,21 @@ Notation "a › b" := (MkHyp a b) (at level 69) : kn.
 Notation "∅" := emHyps : kn.
 Notation "H • h" := (addHyp H h) (at level 70) : kn.
 Notation "H » J" := (addHyps H J) (at level 70) : kn.
+
 Notation "e1 ≡ e2" := (causal_rel_eq                 e1 e2) (at level 69) : kn.
-Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2) (at level 69) : kn.
-Notation "e1 □ e2" := (causal_rel_local_before       e1 e2) (at level 69) : kn.
-Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2) (at level 69) : kn.
-Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2) (at level 69) : kn.
-Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2) (at level 69) : kn.
+
+Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2 None) (at level 69).
+Notation "e1 □ e2" := (causal_rel_local_before       e1 e2 None) (at level 69).
+Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2 None) (at level 69).
+Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2 None) (at level 69).
+Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2 None) (at level 69).
+
+Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before       e1 e2 (Some t)) (at level 69).
+Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before       e1 e2 (Some t)) (at level 69).
+Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq    e1 e2 (Some t)) (at level 69).
+Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before    e1 e2 (Some t)) (at level 69).
+Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq e1 e2 (Some t)) (at level 69).
+
 Notation "a ⋈ b" := (MkNamedCausalRel a b) (at level 70) : kn.
 Notation "⟬ R ⟭ H ⊢ C" := (MkSeq R H C) (at level 70) : kn.
 Close Scope kn.
