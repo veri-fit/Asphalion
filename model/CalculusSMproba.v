@@ -751,41 +751,25 @@ Section Ex1.
     end.
 
   Lemma ex1 :
-    forall n,
-      ((\sum_(i in 'I_p_numNodes) (1-LostDist) * (1-LostDist))%R
-       < Pr (steps2dist' n received_1_echo) (finset.set1 true))%R.
+    exists s,
+      forall n,
+        (maxTime > n)%nat ->
+        (n > s)%nat ->
+        ((\sum_(i in 'I_p_numNodes) (1-LostDist) * (1-LostDist))%R
+                         < Pr (steps2dist' n received_1_echo) (finset.set1 true))%R.
   Proof.
-    introv.
-    destruct n; simpl.
+    exists (2 * (maxRound + 1))%nat; introv gtn ltn.
+    destruct n; simpl in *.
+    { assert False; tcsp. }
 
     { unfold steps2dist'; simpl.
       unfold Pr.
-      rewrite FDistBind1f; simpl.
+      rewrite finset.big_set1; simpl.
+      rewrite FDistBindA; simpl.
+      unfold step; simpl; unfold initHistory; simpl.
+      rewrite ffunE; simpl.
 
 
-From infotheo
-Require Import pproba ssrR logb ssr_ext ssralg_ext bigop_ext.
-
-SearchAbout (\sum__ _ _).
-
-
-(*unfold finset.set1.*)
-
-
-SearchAbout (\sum__ _ _).
-SearchAbout finset.SetDef.pred_of_set finset.set1.
-
-
-Set Printing All.
-Check finset.in_set1.
-SearchAbout bool bool_finType.
-
-rewrite <- finset.set1P.
-
-
-
-SearchAbout FDistBind.d FDist1.d.
-SearchAbout Pr FDistBind.d.
   Qed.
 
   (* TODO: probability to receive 1 echo by some time *)
