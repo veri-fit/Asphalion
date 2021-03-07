@@ -38,8 +38,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unlocal_forall_before_hyp u x {eo : EventOrdering} e' e Q R H J a b :=
     MkRule0
-      [⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE a @ e) » J ⊢ b).
+      [⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b]
+      (⟬Q ++ (u ⋈ e' □ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unlocal_forall_before_hyp_true :
     forall u x {eo : EventOrdering} e' e Q R H J a b,
@@ -126,8 +126,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unlocal_before_hyp u x {eo : EventOrdering} e R H J a b :=
     MkRule1
-      (fun e' => [⟬(u ⋈ e' □ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE a @ e) » J ⊢ b).
+      (fun e' => [⟬(u ⋈ e' □ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b])
+      (⟬R⟭ H • (x › KE_LOCAL_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unlocal_before_hyp_true :
     forall u x {eo : EventOrdering} e R H J a b,
@@ -257,8 +257,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_revert x {eo : EventOrdering} e R H c J (a : KExpression) :=
     MkRule0
-      [⟬R⟭ H » J ⊢ KE_IMPLIES c a @ e]
-      (⟬R⟭ H • (x › c @ e) » J ⊢ a @ e).
+      [⟬R⟭ H ⊕ J ⊢ KE_IMPLIES c a @ e]
+      (⟬R⟭ H • (x › c @ e) ⊕ J ⊢ a @ e).
 
   Lemma DERIVED_RULE_revert_true :
     forall x {eo : EventOrdering} (e : EventN) R H c J a,
@@ -479,8 +479,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unright_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › a @ local_pred_n e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › a @ local_pred_n e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unright_before_eq_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -516,8 +516,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unlocal_before_eq_hyp u x {eo : EventOrdering} e R H J a b :=
     MkRule1
-      (fun e' => [⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b).
+      (fun e' => [⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b])
+      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unlocal_before_eq_hyp_true :
     forall u x {eo : EventOrdering} e R H J a b,
@@ -541,8 +541,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unhappened_before_eq_hyp u x {eo : EventOrdering} e R H J a b :=
     MkRule1
-      (fun e' => [⟬(u ⋈ e' ▶ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_HAPPENED_BEFORE_EQ a @ e) » J ⊢ b).
+      (fun e' => [⟬(u ⋈ e' ▶ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b])
+      (⟬R⟭ H • (x › KE_HAPPENED_BEFORE_EQ a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unhappened_before_eq_hyp_true :
     forall u x {eo : EventOrdering} e R H J a b,
@@ -959,8 +959,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unlocal_forall_before_eq_hyp u x {eo : EventOrdering} e' e Q R H J a b :=
     MkRule0
-      [⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ a @ e) » J ⊢ b).
+      [⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b]
+      (⟬Q ++ (u ⋈ e' ■ e) :: R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unlocal_forall_before_eq_hyp_true :
     forall u x {eo : EventOrdering} e' e Q R H J a b,
@@ -1055,7 +1055,7 @@ Section CalculusSM_derived0.
   Definition DERIVED_RULE_right_before_over_implies_seq x {eo : EventOrdering} e R H J a b :=
     MkRule0
       []
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) » J ⊢ KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) ⊕ J ⊢ KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
 
   Lemma DERIVED_RULE_right_before_over_implies_seq_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -1071,7 +1071,7 @@ Section CalculusSM_derived0.
   Definition DERIVED_RULE_right_before_over_or_seq x {eo : EventOrdering} e R H J a b :=
     MkRule0
       []
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) » J ⊢ KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) ⊕ J ⊢ KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e).
 
   Lemma DERIVED_RULE_right_before_over_or_seq_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -1086,8 +1086,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_right_before_over_implies_hyp x {eo : EventOrdering} e R H J a b c :=
     MkRule0
-      [⟬R⟭ H • (x › KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) » J ⊢ c).
+      [⟬R⟭ H • (x › KE_IMPLIES (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_IMPLIES a b) @ e) ⊕ J ⊢ c).
 
   Lemma DERIVED_RULE_right_before_over_implies_hyp_true :
     forall x {eo : EventOrdering} e R H J a b c,
@@ -1104,8 +1104,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_right_before_over_or_hyp x {eo : EventOrdering} e R H J a b c :=
     MkRule0
-      [⟬R⟭ H • (x › KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) » J ⊢ c).
+      [⟬R⟭ H • (x › KE_OR (KE_RIGHT_BEFORE_EQ a) (KE_RIGHT_BEFORE_EQ b) @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE_EQ (KE_OR a b) @ e) ⊕ J ⊢ c).
 
   Lemma DERIVED_RULE_right_before_over_or_hyp_true :
     forall x {eo : EventOrdering} e R H J a b c,
@@ -1634,8 +1634,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_unall_before_correct_trace_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › KE_LOCAL_FORALL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_unall_before_correct_trace_before_eq_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -2281,8 +2281,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_right_before_elim u x {eo : EventOrdering} e e' Q R H J a b :=
     MkRule0
-      [⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › a @ e') » J ⊢ b]
-      (⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › KE_RIGHT_BEFORE a @ e) » J ⊢ b).
+      [⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b]
+      (⟬Q ++ (u ⋈ e' ⋄ e) :: R⟭ H • (x › KE_RIGHT_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_right_before_elim_true :
     forall u x {eo : EventOrdering} e e' Q R H J a b,
@@ -2301,8 +2301,8 @@ Section CalculusSM_derived0.
   (************************************************************************************************)
   Definition DERIVED_RULE_move_to_concl x {eo : EventOrdering} e b c R H J :=
     MkRule0
-      [⟬R⟭ H » J ⊢ KE_IMPLIES b c @ e]
-      (⟬R⟭ H • (x › b @ e) » J ⊢ c @ e).
+      [⟬R⟭ H ⊕ J ⊢ KE_IMPLIES b c @ e]
+      (⟬R⟭ H • (x › b @ e) ⊕ J ⊢ c @ e).
 
   Lemma DERIVED_RULE_move_to_concl_true :
     forall x {eo : EventOrdering} e b c R H J,
@@ -2380,8 +2380,8 @@ Section CalculusSM_derived0.
   (***********************************************************)
   Definition DERIVED_RULE_relocal_before_eq_hyp u x {eo : EventOrdering} e e' R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b]
-      (⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') » J ⊢ b).
+      [⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) ⊕ J ⊢ b]
+      (⟬(u ⋈ e' ■ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_relocal_before_eq_hyp_true :
     forall u x {eo : EventOrdering} e e' R H J a b,

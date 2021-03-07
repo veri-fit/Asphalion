@@ -76,8 +76,8 @@ Ltac eq_states :=
 
 Ltac norm_with_aux x exp rest F h :=
   match exp with
-  | ?H • (x › ?a) => assert (H • (x › a) » rest = F) as h
-  | ?H • (?y › ?a) => norm_with_aux x H (∅ • (y › a) » rest) F h
+  | ?H • (x › ?a) => assert (H • (x › a) ⊕ rest = F) as h
+  | ?H • (?y › ?a) => norm_with_aux x H (∅ • (y › a) ⊕ rest) F h
   end.
 
 (*Ltac norm_with x :=
@@ -91,9 +91,9 @@ Ltac norm_with_aux x exp rest F h :=
 
 Ltac norm_with x :=
   match goal with
-  | [ |- context[⟬ _ ⟭ (?exp » ?rest) ⊢ _ ] ] =>
+  | [ |- context[⟬ _ ⟭ (?exp ⊕ ?rest) ⊢ _ ] ] =>
     let h := fresh "h" in
-    norm_with_aux x exp rest (exp » rest) h;
+    norm_with_aux x exp rest (exp ⊕ rest) h;
     [autorewrite with norm;auto;fail
     |try rewrite <- h; clear h]
   | [ |- context[⟬ _ ⟭ ?exp ⊢ _ ] ] =>
@@ -558,203 +558,203 @@ Tactic Notation "LOCKintros" constr(x1) constr(x2) constr(x3) constr(x4) :=
 Ltac LOCKelim1 v :=
   norm_with v;
   match goal with
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_IMPLIES ?a ?b @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_IMPLIES ?a ?b @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply PRIMITIVE_RULE_implies_elim_true
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_OR ?a ?b @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_OR ?a ?b @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply PRIMITIVE_RULE_or_elim_true
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_NODE ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_node_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TIME ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TIME ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_time_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_VOUCHERS ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_VOUCHERS ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_vouchers_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_ID ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_ID ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_id_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_DATA ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_DATA ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_data_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TRUST ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_EX_TRUST ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_exists_trust_elim_true v)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim1 v
   end.
 
 Ltac LOCKelim2 v w :=
   norm_with v;
   match goal with
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_AND ?a ?b @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_AND ?a ?b @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_and_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_NODE ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_NODE ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_node_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TIME ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TIME ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_time_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_VOUCHERS ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_VOUCHERS ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_vouchers_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_ID ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_ID ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_id_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_DATA ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_DATA ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_data_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TRUST ?f @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › KE_ALL_TRUST ?f @ ?e) ⊕ ?J ⊢ ?c)] =>
     LOCKapply (PRIMITIVE_RULE_all_trust_elim_true v w)
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
 
-  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) » ?J ⊢ ?c)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ (?H • v › ?a _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _  @ ?e) ⊕ ?J ⊢ ?c)] =>
     unfold a; LOCKelim2 v w
   end.
 
@@ -808,7 +808,7 @@ Ltac LOCKclearG :=
 Ltac LOCKclearH_at x :=
   norm_with x;
   match goal with
-  | [ |- sequent_true (⟬ ?R ⟭ ?H • (x › ?a) » ?J ⊢ _)] =>
+  | [ |- sequent_true (⟬ ?R ⟭ ?H • (x › ?a) ⊕ ?J ⊢ _)] =>
     LOCKapply PRIMITIVE_RULE_thin_true
   end.
 

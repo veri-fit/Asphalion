@@ -1015,15 +1015,29 @@ Section KnowledgeCalculus.
   | KT_DATA
   | KT_NODE
   | KT_TIME
-  | KT_VOUCHERS.
+  | KT_VOUCHERS
+  | KT_NODES (n : nat).
+
+  Definition vec_norepeats {k} {T} (v : Vector.t T k) :=
+    forall i j,
+      Vector.nth v i = Vector.nth v j
+      -> i = j.
+
+  Record nodes (n : nat) :=
+    MkNodes
+      {nodes_vec :> Vector.t node_type n;
+       nodes_diff : vec_norepeats nodes_vec}.
+
+  Definition Time := PosDTime.
 
   Inductive KVal : KType -> Type :=
   | KV_ID       (i : kc_id)       : KVal KT_ID
   | KV_TRUST    (t : kc_trust)    : KVal KT_TRUST
   | KV_DATA     (d : kc_data)     : KVal KT_DATA
   | KV_NODE     (n : node_type)   : KVal KT_NODE
-  | KV_TIME     (t : PosDTime)    : KVal KT_TIME
-  | KV_VOUCHERS (k : kc_vouchers) : KVal KT_VOUCHERS.
+  | KV_TIME     (t : Time)        : KVal KT_TIME
+  | KV_VOUCHERS (k : kc_vouchers) : KVal KT_VOUCHERS
+  | KV_NODES    {n} (v : nodes n) : KVal (KT_NODES n).
 
   (* ******************************************************************* *)
 
@@ -1047,8 +1061,13 @@ Section KnowledgeCalculus.
   | KE_HAPPENED_BEFORE (f : KExpression)
   | KE_FORALL_BEFORE   (f : KExpression)
 
-  | KE_HAPPENED_AFTER (f : KExpression) (t : option PosDTime)
+  | KE_HAPPENED_AFTER (f : KExpression) (t : option Time)
   | KE_FORALL_AFTER   (f : KExpression)
+
+  | KE_IS_TIME     (t : Time)
+  | KE_AT_TIME     (t : Time) (f : KExpression)
+  | KE_AFTER_TIME  (t : Time) (f : KExpression)
+  | KE_BEFORE_TIME (t : Time) (f : KExpression)
 
   | KE_CORRECT
   | KE_AT (n : node_type)
@@ -1058,6 +1077,12 @@ Section KnowledgeCalculus.
   | KE_SIMILAR_TRUST (a b : kc_trust)
   | KE_VAL_EQ        {T : KType} (a b : KVal T)
   | KE_ID_LT         (a b : kc_id)
+
+  (* time *)
+  | KE_LE_TIME (a b : Time)
+
+  (* collections *)
+  | KE_NODE_IN (n : node_type) {k} (v : nodes k)
 
   (* non-trusted knowledge *)
   | KE_LEARNS (d : kc_data)
@@ -1102,8 +1127,9 @@ Section KnowledgeCalculus.
     | KT_TRUST    => kc_trust
     | KT_DATA     => kc_data
     | KT_NODE     => node_type
-    | KT_TIME     => PosDTime
+    | KT_TIME     => Time
     | KT_VOUCHERS => kc_vouchers
+    | KT_NODES n  => nodes n
     end.
 
   Definition ktype2type2val {T : KType} (v : ktype2type T) : KVal T.
@@ -1115,6 +1141,7 @@ Section KnowledgeCalculus.
     - exact (KV_NODE v).
     - exact (KV_TIME v).
     - exact (KV_VOUCHERS v).
+    - exact (KV_NODES v).
   Defined.
 
   Definition kval2id (v : KVal KT_ID) : kc_id :=
@@ -1137,7 +1164,7 @@ Section KnowledgeCalculus.
     | KV_NODE n => n
     end.
 
-  Definition kval2time (v : KVal KT_TIME) : PosDTime :=
+  Definition kval2time (v : KVal KT_TIME) : Time :=
     match v with
     | KV_TIME t => t
     end.
@@ -1145,6 +1172,11 @@ Section KnowledgeCalculus.
   Definition kval2vouchers (v : KVal KT_VOUCHERS) : kc_vouchers :=
     match v with
     | KV_VOUCHERS l => l
+    end.
+
+  Definition kval2nodes {k} (v : KVal (KT_NODES k)) : nodes k :=
+    match v with
+    | KV_NODES v => v
     end.
 
   Definition KE_DATA_EQ (a b : kc_data) : KExpression :=
@@ -1159,11 +1191,14 @@ Section KnowledgeCalculus.
   Definition KE_TRUST_EQ (a b : kc_trust) : KExpression :=
     KE_VAL_EQ (KV_TRUST a) (KV_TRUST b).
 
-  Definition KE_TIME_EQ (a b : PosDTime) : KExpression :=
+  Definition KE_TIME_EQ (a b : Time) : KExpression :=
     KE_VAL_EQ (KV_TIME a) (KV_TIME b).
 
   Definition KE_VOUCHERS_EQ (a b : kc_vouchers) : KExpression :=
     KE_VAL_EQ (KV_VOUCHERS a) (KV_VOUCHERS b).
+
+  Definition KE_NODES_EQ {k} (a b : nodes k) : KExpression :=
+    KE_VAL_EQ (KV_NODES a) (KV_NODES b).
 
 
   (* universal quantifiers *)
@@ -1179,11 +1214,14 @@ Section KnowledgeCalculus.
   Definition KE_ALL_NODE (f : node_type -> KExpression) : KExpression :=
     KE_ALL KT_NODE (fun n => f (kval2node n)).
 
-  Definition KE_ALL_TIME (f : PosDTime -> KExpression) : KExpression :=
+  Definition KE_ALL_TIME (f : Time -> KExpression) : KExpression :=
     KE_ALL KT_TIME (fun t => f (kval2time t)).
 
   Definition KE_ALL_VOUCHERS (f : kc_vouchers -> KExpression) : KExpression :=
     KE_ALL KT_VOUCHERS (fun l => f (kval2vouchers l)).
+
+  Definition KE_ALL_NODES {k} (f : nodes k -> KExpression) : KExpression :=
+    KE_ALL (KT_NODES k) (fun v => f (kval2nodes v)).
 
 
   (* existential quantifiers *)
@@ -1199,11 +1237,14 @@ Section KnowledgeCalculus.
   Definition KE_EX_NODE (f : node_type -> KExpression) : KExpression :=
     KE_EX KT_NODE (fun n => f (kval2node n)).
 
-  Definition KE_EX_TIME (f : PosDTime -> KExpression) : KExpression :=
+  Definition KE_EX_TIME (f : Time -> KExpression) : KExpression :=
     KE_EX KT_TIME (fun t => f (kval2time t)).
 
   Definition KE_EX_VOUCHERS (f : kc_vouchers -> KExpression) : KExpression :=
     KE_EX KT_VOUCHERS (fun l => f (kval2vouchers l)).
+
+  Definition KE_EX_NODES {k} (f : nodes k -> KExpression) : KExpression :=
+    KE_EX (KT_NODES k) (fun v => f (kval2nodes v)).
 
 
   (* True/False *)
@@ -1280,9 +1321,9 @@ Section KnowledgeCalculus.
     | S n => fun f => KE_ALL_NODE (fun v => KE_ALL_NODEs (funNS2N f v))
     end.
 
-  (*Definition KE_ALL_TIMEs {n : nat} (f : PosDTime -(n)-> KExpression) : KExpression :=
+  (*Definition KE_ALL_TIMEs {n : nat} (f : Time -(n)-> KExpression) : KExpression :=
     KE_ALLs (funN_map kval2node f).*)
-  Fixpoint KE_ALL_TIMEs {n : nat} : (PosDTime -(n)-> KExpression) -> KExpression :=
+  Fixpoint KE_ALL_TIMEs {n : nat} : (Time -(n)-> KExpression) -> KExpression :=
     match n with
     | 0 => fun f => KE_ALL_TIME f
     | S n => fun f => KE_ALL_TIME (fun v => KE_ALL_TIMEs (funNS2N f v))
@@ -1336,7 +1377,7 @@ Section KnowledgeCalculus.
 
   (*Definition KE_EX_TIMEs {n : nat} (f : node_type -(n)-> KExpression) : KExpression :=
     KE_EXs (funN_map kval2node f).*)
-  Fixpoint KE_EX_TIMEs {n : nat} : (PosDTime -(n)-> KExpression) -> KExpression :=
+  Fixpoint KE_EX_TIMEs {n : nat} : (Time -(n)-> KExpression) -> KExpression :=
     match n with
     | 0 => fun f => KE_EX_TIME f
     | S n => fun f => KE_EX_TIME (fun v => KE_EX_TIMEs (funNS2N f v))
@@ -1364,7 +1405,7 @@ Section KnowledgeCalculus.
   Definition KE_ALL_NODE2 (f : node_type -> node_type -> KExpression) : KExpression :=
     @KE_ALL_NODEs 1 f.
 
-  Definition KE_ALL_TIME2 (f : PosDTime -> PosDTime -> KExpression) : KExpression :=
+  Definition KE_ALL_TIME2 (f : Time -> Time -> KExpression) : KExpression :=
     @KE_ALL_TIMEs 1 f.
 
   Definition KE_ALL_VOUCHERS2 (f : kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
@@ -1383,7 +1424,7 @@ Section KnowledgeCalculus.
   Definition KE_ALL_NODE3 (f : node_type -> node_type -> node_type -> KExpression) : KExpression :=
     @KE_ALL_NODEs 2 f.
 
-  Definition KE_ALL_TIME3 (f : PosDTime -> PosDTime -> PosDTime -> KExpression) : KExpression :=
+  Definition KE_ALL_TIME3 (f : Time -> Time -> Time -> KExpression) : KExpression :=
     @KE_ALL_TIMEs 2 f.
 
   Definition KE_ALL_VOUCHERS3 (f : kc_vouchers -> kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
@@ -1402,7 +1443,7 @@ Section KnowledgeCalculus.
   Definition KE_EX_NODE2 (f : node_type -> node_type -> KExpression) : KExpression :=
     @KE_EX_NODEs 1 f.
 
-  Definition KE_EX_TIME2 (f : PosDTime -> PosDTime -> KExpression) : KExpression :=
+  Definition KE_EX_TIME2 (f : Time -> Time -> KExpression) : KExpression :=
     @KE_EX_TIMEs 1 f.
 
   Definition KE_EX_VOUCHERS2 (f : kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
@@ -1421,7 +1462,7 @@ Section KnowledgeCalculus.
   Definition KE_EX_NODE3 (f : node_type -> node_type -> node_type -> KExpression) : KExpression :=
     @KE_EX_NODEs 2 f.
 
-  Definition KE_EX_TIME3 (f : PosDTime -> PosDTime -> PosDTime -> KExpression) : KExpression :=
+  Definition KE_EX_TIME3 (f : Time -> Time -> Time -> KExpression) : KExpression :=
     @KE_EX_TIMEs 2 f.
 
   Definition KE_EX_VOUCHERS3 (f : kc_vouchers -> kc_vouchers -> kc_vouchers -> KExpression) : KExpression :=
@@ -1738,17 +1779,26 @@ Section KnowledgeCalculus.
     rewrite h1 in *; ginv.
   Qed.
 
-  Definition at_time_op {eo : EventOrdering} (e : Event) (top : option PosDTime) :=
+  Definition at_time_op {eo : EventOrdering} (e : Event) (top : option Time) :=
     match top with
     | Some t => time e = t
     | None => True
     end.
 
-  Definition by_time_op {eo : EventOrdering} (e1 e2 : Event) (top : option PosDTime) :=
+  Definition by_time_op {eo : EventOrdering} (e1 e2 : Event) (top : option Time) :=
     match top with
     | Some t => (time e2 <= time e1 + t)%dtime
     | None => True
     end.
+
+  Definition at_time {eo : EventOrdering} (e : Event) (t : Time) :=
+    (time e = t)%dtime.
+
+  Definition after_time {eo : EventOrdering} (e : Event) (t : Time) :=
+    (time e <= t)%dtime.
+
+  Definition before_time {eo : EventOrdering} (e : Event) (t : Time) :=
+    (time e <= t)%dtime.
 
   (* ******************************************************************* *)
 
@@ -1784,6 +1834,11 @@ Section KnowledgeCalculus.
     | KE_HAPPENED_AFTER f top => exists (e' : EventN), e ≺ e' /\ interpret e' f /\ by_time_op e e' top
     | KE_FORALL_AFTER   f => forall (e' : EventN), e ≺ e' -> interpret e' f
 
+    | KE_IS_TIME     t   => at_time e t
+    | KE_AT_TIME     t f => exists (e' : EventN), interpret e' f /\ at_time e' t
+    | KE_AFTER_TIME  t f => exists (e' : EventN), interpret e' f /\ after_time e' t
+    | KE_BEFORE_TIME t f => exists (e' : EventN), interpret e' f /\ before_time e' t
+
     | KE_CORRECT => isCorrect e
     | KE_AT n => loc e = node2name n
 
@@ -1792,6 +1847,12 @@ Section KnowledgeCalculus.
     | KE_SIMILAR_TRUST a b => a ≈ b
     | KE_VAL_EQ        a b => a = b
     | KE_ID_LT         a b => a ≪ b
+
+    (* time *)
+    | KE_LE_TIME a b => (a <= b)%dtime
+
+    (* collections *)
+    | KE_NODE_IN n v => Vector.In n v
 
     (* non-trusted knowledge *)
     | KE_LEARNS d => learns_data e d
@@ -1865,30 +1926,37 @@ Section KnowledgeCalculus.
   Notation "H • h" := (addHyp H h) (at level 70).
   Definition addHyps {eo : EventOrdering} (H J : hypotheses) : hypotheses :=
     H ++ J.
-  Notation "H » J" := (addHyps H J) (at level 70).
+  Notation "H ⊕ J" := (addHyps H J) (at level 70).
 
-  Definition OpPosDTime := option PosDTime.
+  Definition OpTime := option Time.
 
   Inductive causalRel {eo : EventOrdering} : Type :=
-  | causal_rel_eq                 (e1 e2 : EventN)
-  | causal_rel_right_before       (e1 e2 : EventN) (t : OpPosDTime)
-  | causal_rel_local_before       (e1 e2 : EventN) (t : OpPosDTime)
-  | causal_rel_local_before_eq    (e1 e2 : EventN) (t : OpPosDTime)
-  | causal_rel_happened_before    (e1 e2 : EventN) (t : OpPosDTime)
-  | causal_rel_happened_before_eq (e1 e2 : EventN) (t : OpPosDTime).
+  | causal_rel_eq                   (e1 e2 : EventN)
+  | causal_rel_at_time              (e : EventN) (t : Time)
+  | causal_rel_after_time           (e : EventN) (t : Time)
+  | causal_rel_before_time          (e : EventN) (t : Time)
+  | causal_rel_right_before         (e1 e2 : EventN) (t : OpTime)
+  | causal_rel_local_before         (e1 e2 : EventN) (t : OpTime)
+  | causal_rel_local_before_eq      (e1 e2 : EventN) (t : OpTime)
+  | causal_rel_happened_before      (e1 e2 : EventN) (t : OpTime)
+  | causal_rel_happened_before_eq   (e1 e2 : EventN) (t : OpTime).
   Notation "e1 ≡ e2" := (causal_rel_eq                 e1 e2) (at level 69).
 
-  Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2 None) (at level 69).
-  Notation "e1 □ e2" := (causal_rel_local_before       e1 e2 None) (at level 69).
-  Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2 None) (at level 69).
-  Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2 None) (at level 69).
-  Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2 None) (at level 69).
+  Notation "e ∥ t" := (causal_rel_at_time e t) (at level 69).
+  Notation "e » t" := (causal_rel_after_time e t) (at level 69).
+  Notation "e « t" := (causal_rel_before_time e t) (at level 69).
 
-  Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before       e1 e2 (Some t)) (at level 69).
-  Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before       e1 e2 (Some t)) (at level 69).
-  Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq    e1 e2 (Some t)) (at level 69).
-  Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before    e1 e2 (Some t)) (at level 69).
-  Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq e1 e2 (Some t)) (at level 69).
+  Notation "e1 ⋄ e2" := (causal_rel_right_before         e1 e2 None) (at level 69).
+  Notation "e1 □ e2" := (causal_rel_local_before         e1 e2 None) (at level 69).
+  Notation "e1 ■ e2" := (causal_rel_local_before_eq      e1 e2 None) (at level 69).
+  Notation "e1 ▷ e2" := (causal_rel_happened_before      e1 e2 None) (at level 69).
+  Notation "e1 ▶ e2" := (causal_rel_happened_before_eq   e1 e2 None) (at level 69).
+
+  Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before         e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before         e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq      e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before      e1 e2 (Some t)) (at level 69).
+  Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq   e1 e2 (Some t)) (at level 69).
 
   Record namedCausalRel {eo : EventOrdering} :=
     MkNamedCausalRel
@@ -1934,7 +2002,7 @@ Section KnowledgeCalculus.
                -> Vector.t kc_data rh_d
                -> Vector.t kc_id rh_c
                -> Vector.t node_type rh_n
-               -> Vector.t PosDTime rh_p
+               -> Vector.t Time rh_p
                -> Vector.t kc_vouchers rh_v
                -> list sequent;
       }.
@@ -1978,7 +2046,7 @@ Section KnowledgeCalculus.
   Definition MkRuleHypotheses1n {eo : EventOrdering} (hyps : node_type -> list sequent) : rule_hypotheses :=
     MkRuleHypotheses 0 0 0 0 1 0 0 (fun _ _ _ _ l _ _ => hyps (Vector.hd l)).
 
-  Definition MkRuleHypotheses1p {eo : EventOrdering} (hyps : PosDTime -> list sequent) : rule_hypotheses :=
+  Definition MkRuleHypotheses1p {eo : EventOrdering} (hyps : Time -> list sequent) : rule_hypotheses :=
     MkRuleHypotheses 0 0 0 0 0 1 0 (fun _ _ _ _ _ l _ => hyps (Vector.hd l)).
 
   Definition MkRuleHypotheses1v {eo : EventOrdering} (hyps : kc_vouchers -> list sequent) : rule_hypotheses :=
@@ -2014,7 +2082,7 @@ Section KnowledgeCalculus.
   Definition MkRule1n {eo : EventOrdering} (hyps  : node_type -> list sequent) (concl : sequent) : rule :=
     MkRule (MkRuleHypotheses1n hyps) concl.
 
-  Definition MkRule1p {eo : EventOrdering} (hyps  : PosDTime -> list sequent) (concl : sequent) : rule :=
+  Definition MkRule1p {eo : EventOrdering} (hyps  : Time -> list sequent) (concl : sequent) : rule :=
     MkRule (MkRuleHypotheses1p hyps) concl.
 
   Definition MkRule1v {eo : EventOrdering} (hyps  : kc_vouchers -> list sequent) (concl : sequent) : rule :=
@@ -2031,12 +2099,15 @@ Section KnowledgeCalculus.
 
   Definition causal_rel_true {eo : EventOrdering} (r : causalRel) : Prop :=
     match r with
-    | causal_rel_eq                 e1 e2 => en_event e1 = en_event e2
-    | causal_rel_right_before       e1 e2 t => (en_event e1) ⊂ e2 /\ by_time_op e1 e2 t
-    | causal_rel_local_before       e1 e2 t => e1 ⊏ e2 /\ by_time_op e1 e2 t
-    | causal_rel_local_before_eq    e1 e2 t => e1 ⊑ e2 /\ by_time_op e1 e2 t
-    | causal_rel_happened_before    e1 e2 t => e1 ≺ e2 /\ by_time_op e1 e2 t
-    | causal_rel_happened_before_eq e1 e2 t => e1 ≼ e2 /\ by_time_op e1 e2 t
+    | causal_rel_eq                   e1 e2   => en_event e1 = en_event e2
+    | causal_rel_at_time              e t     => at_time e t
+    | causal_rel_after_time           e t     => after_time e t
+    | causal_rel_before_time          e t     => before_time e t
+    | causal_rel_right_before         e1 e2 t => (en_event e1) ⊂ e2 /\ by_time_op e1 e2 t
+    | causal_rel_local_before         e1 e2 t => e1 ⊏ e2 /\ by_time_op e1 e2 t
+    | causal_rel_local_before_eq      e1 e2 t => e1 ⊑ e2 /\ by_time_op e1 e2 t
+    | causal_rel_happened_before      e1 e2 t => e1 ≺ e2 /\ by_time_op e1 e2 t
+    | causal_rel_happened_before_eq   e1 e2 t => e1 ≼ e2 /\ by_time_op e1 e2 t
     end.
 
   Definition sequent_true {eo : EventOrdering} (s : sequent) :=
@@ -2052,7 +2123,7 @@ Section KnowledgeCalculus.
                   -> Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall es ts ds cs ns ps vs s, In s (f es ts ds cs ns ps vs) -> sequent_true s.
@@ -2063,7 +2134,7 @@ Section KnowledgeCalculus.
                   -> Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall ts ds cs ns ps vs s, In s (f ts ds cs ns ps vs) -> sequent_true s.
@@ -2073,7 +2144,7 @@ Section KnowledgeCalculus.
              (f : Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall ds cs ns ps vs s, In s (f ds cs ns ps vs) -> sequent_true s.
@@ -2082,7 +2153,7 @@ Section KnowledgeCalculus.
              (c n p v : nat)
              (f : Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall cs ns ps vs s, In s (f cs ns ps vs) -> sequent_true s.
@@ -2090,14 +2161,14 @@ Section KnowledgeCalculus.
   Definition rule_n_p_v_hypotheses_true {eo : EventOrdering}
              (n p v : nat)
              (f : Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall ns ps vs s, In s (f ns ps vs) -> sequent_true s.
 
   Definition rule_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
-             (f : Vector.t PosDTime p
+             (f : Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall ps vs s, In s (f ps vs) -> sequent_true s.
@@ -2120,7 +2191,7 @@ Section KnowledgeCalculus.
                   -> Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall e ts ds cs ns ps vs s, In s (f e ts ds cs ns ps vs) -> sequent_true s.
@@ -2131,7 +2202,7 @@ Section KnowledgeCalculus.
                   -> Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall e ds cs ns ps vs s, In s (f e ds cs ns ps vs) -> sequent_true s.
@@ -2141,7 +2212,7 @@ Section KnowledgeCalculus.
              (f : EventN
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall e cs ns ps vs s, In s (f e cs ns ps vs) -> sequent_true s.
@@ -2150,7 +2221,7 @@ Section KnowledgeCalculus.
              (n p v : nat)
              (f : EventN
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall e ns ps vs s, In s (f e ns ps vs) -> sequent_true s.
@@ -2158,7 +2229,7 @@ Section KnowledgeCalculus.
   Definition rule_1e_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
              (f : EventN
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall e ps vs s, In s (f e ps vs) -> sequent_true s.
@@ -2182,7 +2253,7 @@ Section KnowledgeCalculus.
                   -> Vector.t kc_data d
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall t ds cs ns ps vs s, In s (f t ds cs ns ps vs) -> sequent_true s.
@@ -2192,7 +2263,7 @@ Section KnowledgeCalculus.
              (f : kc_trust
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall t cs ns ps vs s, In s (f t cs ns ps vs) -> sequent_true s.
@@ -2201,7 +2272,7 @@ Section KnowledgeCalculus.
              (n p v : nat)
              (f : kc_trust
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall t ns ps vs s, In s (f t ns ps vs) -> sequent_true s.
@@ -2209,7 +2280,7 @@ Section KnowledgeCalculus.
   Definition rule_1t_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
              (f : kc_trust
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall t ps vs s, In s (f t ps vs) -> sequent_true s.
@@ -2231,7 +2302,7 @@ Section KnowledgeCalculus.
              (f : kc_data
                   -> Vector.t kc_id c
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall d cs ns ps vs s, In s (f d cs ns ps vs) -> sequent_true s.
@@ -2240,7 +2311,7 @@ Section KnowledgeCalculus.
              (n p v : nat)
              (f : kc_data
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall d ns ps vs s, In s (f d ns ps vs) -> sequent_true s.
@@ -2248,7 +2319,7 @@ Section KnowledgeCalculus.
   Definition rule_1d_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
              (f : kc_data
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall d ps vs s, In s (f d ps vs) -> sequent_true s.
@@ -2269,7 +2340,7 @@ Section KnowledgeCalculus.
              (n p v : nat)
              (f : kc_id
                   -> Vector.t node_type n
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall c ns ps vs s, In s (f c ns ps vs) -> sequent_true s.
@@ -2277,7 +2348,7 @@ Section KnowledgeCalculus.
   Definition rule_1c_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
              (f : kc_id
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall c ps vs s, In s (f c ps vs) -> sequent_true s.
@@ -2297,7 +2368,7 @@ Section KnowledgeCalculus.
   Definition rule_1n_p_v_hypotheses_true {eo : EventOrdering}
              (p v : nat)
              (f : node_type
-                  -> Vector.t PosDTime p
+                  -> Vector.t Time p
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall n ps vs s, In s (f n ps vs) -> sequent_true s.
@@ -2316,13 +2387,13 @@ Section KnowledgeCalculus.
 
   Definition rule_1p_v_hypotheses_true {eo : EventOrdering}
              (v : nat)
-             (f : PosDTime
+             (f : Time
                   -> Vector.t kc_vouchers v
                   -> list sequent) :=
     forall p vs s, In s (f p vs) -> sequent_true s.
 
   Definition rule_1p_hypotheses_true {eo : EventOrdering}
-             (f : PosDTime -> list sequent) :=
+             (f : Time -> list sequent) :=
     forall p s, In s (f p) -> sequent_true s.
 
 
@@ -2882,14 +2953,14 @@ Section KnowledgeCalculus.
     forall {eo : EventOrdering}, assume_eo eo exp.*)
 
   Lemma cons_as_addHyp :
-    forall {eo : EventOrdering} h H, h :: H = (∅ • h » H).
+    forall {eo : EventOrdering} h H, h :: H = (∅ • h ⊕ H).
   Proof.
     tcsp.
   Qed.
   Hint Rewrite @cons_as_addHyp : norm.
 
   Lemma addHyps_cons_as_addHyp :
-    forall {eo : EventOrdering} H1 h H2, (H1 » h :: H2) = (H1 • h » H2).
+    forall {eo : EventOrdering} H1 h H2, (H1 ⊕ h :: H2) = (H1 • h ⊕ H2).
   Proof.
     introv; unfold addHyp, addHyps; simpl.
     rewrite snoc_as_app.
@@ -2898,7 +2969,7 @@ Section KnowledgeCalculus.
   Hint Rewrite @addHyps_cons_as_addHyp : norm.
 
   Lemma addHyps_addHyp_em_eq1 :
-    forall {eo : EventOrdering} H1 h H2, (H1 » (∅ • h » H2)) = (H1 • h » H2).
+    forall {eo : EventOrdering} H1 h H2, (H1 ⊕ (∅ • h ⊕ H2)) = (H1 • h ⊕ H2).
   Proof.
     introv; simpl.
     apply addHyps_cons_as_addHyp.
@@ -2906,7 +2977,7 @@ Section KnowledgeCalculus.
   Hint Rewrite @addHyps_addHyp_em_eq1 : norm.
 
   Lemma addHyps_addHyp_em_eq2 :
-    forall {eo : EventOrdering} H h, (H » (∅ • h)) = (H • h).
+    forall {eo : EventOrdering} H h, (H ⊕ (∅ • h)) = (H • h).
   Proof.
     introv; simpl.
     unfold addHyps, addHyp, emHyps; simpl.
@@ -2915,7 +2986,7 @@ Section KnowledgeCalculus.
   Hint Rewrite @addHyps_addHyp_em_eq2 : norm.
 
   Lemma addHyps_addHyp_eq3 :
-    forall {eo : EventOrdering} H1 h H2, (H1 » (H2 • h)) = ((H1 » H2) • h).
+    forall {eo : EventOrdering} H1 h H2, (H1 ⊕ (H2 • h)) = ((H1 ⊕ H2) • h).
   Proof.
     introv; simpl; unfold addHyps, addHyp; simpl.
     rewrite app_snoc; auto.
@@ -2929,14 +3000,14 @@ Section KnowledgeCalculus.
   Hint Rewrite @nil_as_emHyps : norm.
 
   Lemma addHyps_em :
-    forall {eo : EventOrdering} H, (H » ∅) = H.
+    forall {eo : EventOrdering} H, (H ⊕ ∅) = H.
   Proof.
     introv; simpl; unfold addHyps, emHyps; autorewrite with list; auto.
   Qed.
   Hint Rewrite @addHyps_em : norm kc.
 
   Lemma addHyp_as_addHyps :
-    forall {eo : EventOrdering} h H, (H • h) = (H » (∅ • h)).
+    forall {eo : EventOrdering} h H, (H • h) = (H ⊕ (∅ • h)).
   Proof.
     introv; simpl.
     autorewrite with norm; auto.
@@ -4131,7 +4202,7 @@ Section KnowledgeCalculus.
 
   Lemma hyp_in_adds :
     forall {eo : EventOrdering} h H J,
-      In h (H » J) <-> In h H \/ In h J.
+      In h (H ⊕ J) <-> In h H \/ In h J.
   Proof.
     introv; split; intro i; unfold addHyps in *; allrw @in_app_iff; tcsp.
   Qed.
@@ -4180,8 +4251,8 @@ Section KnowledgeCalculus.
 
   Ltac norm_with_aux x exp rest F h :=
     match exp with
-    | ?H • (x › ?a) => assert (H • (x › a) » rest = F) as h
-    | ?H • (?y › ?a) => norm_with_aux x H (∅ • (y › a) » rest) F h
+    | ?H • (x › ?a) => assert (H • (x › a) ⊕ rest = F) as h
+    | ?H • (?y › ?a) => norm_with_aux x H (∅ • (y › a) ⊕ rest) F h
     end.
 
   (*Ltac norm_with x :=
@@ -4195,9 +4266,9 @@ Section KnowledgeCalculus.
 
   Ltac norm_with x :=
     match goal with
-    | [ |- context[⟬ _ ⟭ (?exp » ?rest) ⊢ _ ] ] =>
+    | [ |- context[⟬ _ ⟭ (?exp ⊕ ?rest) ⊢ _ ] ] =>
       let h := fresh "h" in
-      norm_with_aux x exp rest (exp » rest) h;
+      norm_with_aux x exp rest (exp ⊕ rest) h;
       [autorewrite with norm;auto;fail
       |try rewrite <- h; clear h]
     | [ |- context[⟬ _ ⟭ ?exp ⊢ _ ] ] =>
@@ -4468,9 +4539,9 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_implies_elim x {eo : EventOrdering} e R H J a b c :=
     MkRule0
-      [⟬R⟭ H » J ⊢ a @ e,
-       ⟬R⟭ H • (x › b @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_IMPLIES a b @ e) » J ⊢ c).
+      [⟬R⟭ H ⊕ J ⊢ a @ e,
+       ⟬R⟭ H • (x › b @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › KE_IMPLIES a b @ e) ⊕ J ⊢ c).
 
   Lemma PRIMITIVE_RULE_implies_elim_true :
     forall x {eo : EventOrdering} e R H J a b c,
@@ -4554,7 +4625,7 @@ Section KnowledgeCalculus.
   Definition PRIMITIVE_RULE_hypothesis {eo : EventOrdering} x R H J a :=
     MkRule0
       []
-      (⟬R⟭ H • (x › a) » J ⊢ a).
+      (⟬R⟭ H • (x › a) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_hypothesis_true :
     forall {eo : EventOrdering} x R H J a,
@@ -4568,8 +4639,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_thin x {eo : EventOrdering} R H a J b :=
     MkRule0
-      [⟬R⟭ H » J ⊢ b]
-      (⟬R⟭ H • (x › a) » J ⊢ b).
+      [⟬R⟭ H ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › a) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_thin_true :
     forall x {eo : EventOrdering} R H a J b,
@@ -4634,9 +4705,9 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_cut_after {eo : EventOrdering} x y a R H b c J :=
     MkRule0
-      [⟬R⟭ H • (y › c) » J ⊢ a,
-       ⟬R⟭ H • (y › c) • (x › a) » J ⊢ b]
-      (⟬R⟭ H • (y › c) » J ⊢ b).
+      [⟬R⟭ H • (y › c) ⊕ J ⊢ a,
+       ⟬R⟭ H • (y › c) • (x › a) ⊕ J ⊢ b]
+      (⟬R⟭ H • (y › c) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_cut_after_true :
     forall {eo : EventOrdering} x y a R H b c J,
@@ -4728,9 +4799,9 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_or_elim x {eo : EventOrdering} e R H J A B c :=
     MkRule0
-      [⟬R⟭ H • (x › A @ e) » J ⊢ c,
-       ⟬R⟭ H • (x › B @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_OR A B @ e) » J ⊢ c).
+      [⟬R⟭ H • (x › A @ e) ⊕ J ⊢ c,
+       ⟬R⟭ H • (x › B @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › KE_OR A B @ e) ⊕ J ⊢ c).
 
   Lemma PRIMITIVE_RULE_or_elim_true :
     forall x {eo : EventOrdering} e R H J A B c,
@@ -4752,8 +4823,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_and_elim x y {eo : EventOrdering} e R H J A B c :=
     MkRule0
-      [⟬R⟭ H • (x › B @ e) • (y › A @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › KE_AND A B @ e) » J ⊢ c).
+      [⟬R⟭ H • (x › B @ e) • (y › A @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › KE_AND A B @ e) ⊕ J ⊢ c).
 
   Lemma PRIMITIVE_RULE_and_elim_true :
     forall x y {eo : EventOrdering} e R H J A B c,
@@ -4771,8 +4842,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_rename_hyp x y {eo : EventOrdering} e R H J A c :=
     MkRule0
-      [⟬R⟭ H • (y › A @ e) » J ⊢ c]
-      (⟬R⟭ H • (x › A @ e) » J ⊢ c).
+      [⟬R⟭ H • (y › A @ e) ⊕ J ⊢ c]
+      (⟬R⟭ H • (x › A @ e) ⊕ J ⊢ c).
 
   Lemma PRIMITIVE_RULE_rename_hyp_true :
     forall x y {eo : EventOrdering} e R H J A c,
@@ -4808,8 +4879,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_unright_before_hyp_if_causal u x {eo : EventOrdering} e R H J a b :=
     MkRule1
-      (fun e' => [⟬(u ⋈ e' ⋄ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE a @ e) » J ⊢ b).
+      (fun e' => [⟬(u ⋈ e' ⋄ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b])
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_unright_before_hyp_if_causal_true :
     forall u x {eo : EventOrdering} e R H J a b,
@@ -4983,8 +5054,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_unright_before_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › a @ local_pred_n e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_RIGHT_BEFORE a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › a @ local_pred_n e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_RIGHT_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_unright_before_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -5007,8 +5078,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_node_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1n
-      (fun n => [⟬R⟭ H • (x › f n @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_NODE f @ e) » J ⊢ a).
+      (fun n => [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_NODE f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_node_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5029,8 +5100,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_time_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1p
-      (fun n => [⟬R⟭ H • (x › f n @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_TIME f @ e) » J ⊢ a).
+      (fun n => [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_TIME f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_time_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5051,8 +5122,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_vouchers_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1v
-      (fun n => [⟬R⟭ H • (x › f n @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_VOUCHERS f @ e) » J ⊢ a).
+      (fun n => [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_VOUCHERS f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_vouchers_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5073,8 +5144,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_trust_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1t
-      (fun t => [⟬R⟭ H • (x › f t @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_TRUST f @ e) » J ⊢ a).
+      (fun t => [⟬R⟭ H • (x › f t @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_TRUST f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_trust_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5110,8 +5181,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_trust_elim x t {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f t @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_TRUST f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f t @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_TRUST f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_trust_elim_true :
     forall x t {eo : EventOrdering} e R H J f a,
@@ -5148,8 +5219,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_data_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1d
-      (fun d => [⟬R⟭ H • (x › f d @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_DATA f @ e) » J ⊢ a).
+      (fun d => [⟬R⟭ H • (x › f d @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_DATA f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_data_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5201,8 +5272,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_data_elim x d {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f d @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_DATA f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f d @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_DATA f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_data_elim_true :
     forall x d {eo : EventOrdering} e R H J f a,
@@ -5223,8 +5294,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_exists_id_elim x {eo : EventOrdering} e R H J f a :=
     MkRule1c
-      (fun c => [⟬R⟭ H • (x › f c @ e) » J ⊢ a])
-      (⟬R⟭ H • (x › KE_EX_ID f @ e) » J ⊢ a).
+      (fun c => [⟬R⟭ H • (x › f c @ e) ⊕ J ⊢ a])
+      (⟬R⟭ H • (x › KE_EX_ID f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_exists_id_elim_true :
     forall x {eo : EventOrdering} e R H J f a,
@@ -5263,8 +5334,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_unhappened_before_hyp u x {eo : EventOrdering} e R H J a b :=
     MkRule1
-      (fun e' => [⟬(u ⋈ e' ▷ e) :: R⟭ H • (x › a @ e') » J ⊢ b])
-      (⟬R⟭ H • (x › KE_HAPPENED_BEFORE a @ e) » J ⊢ b).
+      (fun e' => [⟬(u ⋈ e' ▷ e) :: R⟭ H • (x › a @ e') ⊕ J ⊢ b])
+      (⟬R⟭ H • (x › KE_HAPPENED_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_unhappened_before_hyp_true :
     forall u x {eo : EventOrdering} e R H J a b,
@@ -5640,8 +5711,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_forall_before_elim u x {eo : EventOrdering} e e' R Q H J t a :=
     MkRule0
-      [⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › t @ e') » J ⊢ a]
-      (⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE t @ e) » J ⊢ a).
+      [⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › t @ e') ⊕ J ⊢ a]
+      (⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE t @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_forall_before_elim_true :
     forall u x {eo : EventOrdering} e e' R Q H J t a,
@@ -5663,8 +5734,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_subst_causal_eq_hyp u x {eo : EventOrdering} e1 e2 Q R H J a b :=
     MkRule0
-      [⟬ Q ++ (u ⋈ e1 ≡ e2) :: R ⟭ H • (x › b @ e2) » J ⊢ a]
-      (⟬ Q ++ (u ⋈ e1 ≡ e2) :: R ⟭ H • (x › b @ e1) » J ⊢ a).
+      [⟬ Q ++ (u ⋈ e1 ≡ e2) :: R ⟭ H • (x › b @ e2) ⊕ J ⊢ a]
+      (⟬ Q ++ (u ⋈ e1 ≡ e2) :: R ⟭ H • (x › b @ e1) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_subst_causal_eq_hyp_true :
     forall u x {eo : EventOrdering} e1 e2 Q R H J a b,
@@ -5813,8 +5884,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_unlocal_before_eq_correct_trace_before_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ (KE_CORRECT_TRACE_BEFORE a) @ e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_unlocal_before_eq_correct_trace_before_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -6169,8 +6240,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_id_elim x c {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f c @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_ID f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f c @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_ID f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_id_elim_true :
     forall x c {eo : EventOrdering} e R H J f a,
@@ -6239,8 +6310,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_node_elim x n {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_NODE f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_NODE f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_node_elim_true :
     forall x n {eo : EventOrdering} e R H J f a,
@@ -6261,8 +6332,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_time_elim x n {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_TIME f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_TIME f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_time_elim_true :
     forall x n {eo : EventOrdering} e R H J f a,
@@ -6283,8 +6354,8 @@ Section KnowledgeCalculus.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_all_vouchers_elim x n {eo : EventOrdering} e R H J f a :=
     MkRule0
-      [⟬R⟭ H • (x › f n @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_ALL_VOUCHERS f @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › f n @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_ALL_VOUCHERS f @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_all_vouchers_elim_true :
     forall x n {eo : EventOrdering} e R H J f a,
@@ -6349,7 +6420,7 @@ Section KnowledgeCalculus.
   Definition PRIMITIVE_RULE_id_lt_elim x {eo : EventOrdering} e c R H J a :=
     MkRule0
       []
-      (⟬R⟭ H • (x › KE_ID_LT c c @ e) » J ⊢ a).
+      (⟬R⟭ H • (x › KE_ID_LT c c @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_id_lt_elim_true :
     forall x {eo : EventOrdering} e c R H J a,
@@ -6514,8 +6585,8 @@ Section KnowledgeCalculus.
   (***********************************************************)
   Definition PRIMITIVE_RULE_unall_before_correct_trace_before_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › KE_LOCAL_FORALL_BEFORE (KE_CORRECT_TRACE_BEFORE a) @ e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › KE_LOCAL_FORALL_BEFORE (KE_CORRECT_TRACE_BEFORE a) @ e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_CORRECT_TRACE_BEFORE a @ e) ⊕ J ⊢ b).
 
   Lemma PRIMITIVE_RULE_unall_before_correct_trace_before_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -6741,7 +6812,7 @@ Section KnowledgeCalculus.
   Definition DERIVED_RULE_false_elim x {eo : EventOrdering} e e' R H J a :=
     MkRule0
       []
-      (⟬R⟭ H • (x › KE_FALSE @ e') » J ⊢ a @ e).
+      (⟬R⟭ H • (x › KE_FALSE @ e') ⊕ J ⊢ a @ e).
 
   Lemma DERIVED_RULE_false_elim_true :
     forall x {eo : EventOrdering} e e' R H J a,
@@ -6854,21 +6925,25 @@ Notation "a @ b" := (MkKExpAt a b) (at level 68) : kn.
 Notation "a › b" := (MkHyp a b) (at level 69) : kn.
 Notation "∅" := emHyps : kn.
 Notation "H • h" := (addHyp H h) (at level 70) : kn.
-Notation "H » J" := (addHyps H J) (at level 70) : kn.
+Notation "H ⊕ J" := (addHyps H J) (at level 70) : kn.
 
-Notation "e1 ≡ e2" := (causal_rel_eq                 e1 e2) (at level 69) : kn.
+Notation "e1 ≡ e2" := (causal_rel_eq e1 e2) (at level 69) : kn.
 
-Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2 None) (at level 69).
-Notation "e1 □ e2" := (causal_rel_local_before       e1 e2 None) (at level 69).
-Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2 None) (at level 69).
-Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2 None) (at level 69).
-Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2 None) (at level 69).
+Notation "e ∥ t" := (causal_rel_at_time e t) (at level 69) : kn.
+Notation "e » t" := (causal_rel_after_time e t) (at level 69) : kn.
+Notation "e « t" := (causal_rel_before_time e t) (at level 69) : kn.
 
-Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before       e1 e2 (Some t)) (at level 69).
-Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before       e1 e2 (Some t)) (at level 69).
-Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq    e1 e2 (Some t)) (at level 69).
-Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before    e1 e2 (Some t)) (at level 69).
-Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq e1 e2 (Some t)) (at level 69).
+Notation "e1 ⋄ e2" := (causal_rel_right_before       e1 e2 None) (at level 69) : kn.
+Notation "e1 □ e2" := (causal_rel_local_before       e1 e2 None) (at level 69) : kn.
+Notation "e1 ■ e2" := (causal_rel_local_before_eq    e1 e2 None) (at level 69) : kn.
+Notation "e1 ▷ e2" := (causal_rel_happened_before    e1 e2 None) (at level 69) : kn.
+Notation "e1 ▶ e2" := (causal_rel_happened_before_eq e1 e2 None) (at level 69) : kn.
+
+Notation "e1 ¦⋄ t ¦ e2" := (causal_rel_right_before       e1 e2 (Some t)) (at level 69) : kn.
+Notation "e1 ¦□ t ¦ e2" := (causal_rel_local_before       e1 e2 (Some t)) (at level 69) : kn.
+Notation "e1 ¦■ t ¦ e2" := (causal_rel_local_before_eq    e1 e2 (Some t)) (at level 69) : kn.
+Notation "e1 ¦▷ t ¦ e2" := (causal_rel_happened_before    e1 e2 (Some t)) (at level 69) : kn.
+Notation "e1 ¦▶ t ¦ e2" := (causal_rel_happened_before_eq e1 e2 (Some t)) (at level 69) : kn.
 
 Notation "a ⋈ b" := (MkNamedCausalRel a b) (at level 70) : kn.
 Notation "⟬ R ⟭ H ⊢ C" := (MkSeq R H C) (at level 70) : kn.

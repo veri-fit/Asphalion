@@ -36,7 +36,6 @@ Arguments cast _ _ {Cast} _.
 Notation "' x" := (cast _ _ x) (at level 20).
 Typeclasses Transparent Cast.
 
-
 Section DTime.
 
   Fixpoint ntimes {T} (n : nat) (zero one : T) (add : T -> T -> T) : T :=
@@ -92,6 +91,8 @@ Section DTime.
         dt_nat_nat_inj_le   : forall n m, n <= m -> dt_le (dt_nat_inj n) (dt_nat_inj m);
         dt_nat_nat_inj_lt   : forall n m, n < m -> dt_lt (dt_nat_inj n) (dt_nat_inj m); (* FIX: DO we really need this one? *)
         dt_nat_inj_lt_nat   : forall n m, dt_lt (dt_nat_inj n) (dt_nat_inj m) -> n < m;
+
+        dt_ind              : forall (P : dt_T -> Prop), (forall t, (forall u, dt_lt u t -> P u) -> P t) -> forall t, P t
       }.
 
   Context { dtc : DTimeContext }.

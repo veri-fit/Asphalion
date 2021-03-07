@@ -29,7 +29,7 @@ Class BoundsParams :=
       (* To get finite types we can only reason up to so maximal time *)
       maxTime  : nat;
 
-      (* To get final types again: *)
+      (* To get finite types again: *)
       maxMsgs  : nat;
     }.
 
@@ -241,6 +241,19 @@ Section Status.
   | StCorrect
   | StFaulty.
 
+  Definition leSt (s1 s2 : Status) : bool :=
+    match s1,s2 with
+    | StCorrect,_ => true
+    | StFaulty,StFaulty => true
+    | StFault,StCorrect => false
+    end.
+
+  Definition isCorrectStatus (s : Status) :=
+    match s with
+    | StCorrect => true
+    | StFaulty => false
+    end.
+
   Definition Status_bool (s : Status) :=
     match s with
     | StCorrect => true
@@ -347,7 +360,7 @@ Section Queue.
 
   (* a queue is a list of messages *)
   Definition Queue : finType := [finType of maxMsgs.-finList [finType of DMsg]].
-  (* 1 queue per node *)
+  (* 1 queue per node -- messages are sorted by receiver and are tagged with the time they should be delivered *)
   Definition Queues : finType := [finType of {ffun location -> Queue}].
   (* In Transit messages *)
   Definition InTransit : finType := [finType of {ffun time -> Queues}].
@@ -397,6 +410,7 @@ Section World.
 
         (* messages in transit *)
         world_intransit : InTransit;
+        (* The way we compute those in the [step] function is that those are the delivered messages *)
       }.
 
   (* ********* *)
@@ -434,6 +448,9 @@ Section World.
     | left h => Some ([eta Ordinal (n:=n) (m:=k+i)] (introT ltP h))
     | right h => None
     end.
+
+  Definition toI {i n} (h : i < n) : 'I_n :=
+    [eta Ordinal (n:=n) (m:=i)] h.
 
   Definition increment_time (w : World) : option World :=
     option_map
@@ -524,22 +541,29 @@ Section World.
   Definition flatten_queues (qs : Queues) : seq DMsg :=
     flat_seq_flist (fgraph qs).
 
-  Definition run_global (t : time)
+  Definition run_global
+             (t  : time)
              (ps : Global)
              (qs : Queues)
     : Global ## seq DMsg :=
     let f := zip_global t ps qs in
     let points := finfun (fun i => fst (f i)) in
-    (* Queues of outgoing messages organized by senders *)
+    (* Queues of outgoing messages *)
     let out := flatten_queues (finfun (fun i => snd (f i))) in
     (points,out).
 
   Definition upd_finfun {A B : finType} (f : {ffun A -> B}) (c : A) (u : B -> B) :=
     finfun (fun a => if a == c then u (f a) else f a).
 
+  (* Adds a message to the queues by adding it to the queue for the recipient of the message *)
   Definition add_to_queues (d : DMsg) (qs : Queues) : Queues :=
     upd_finfun qs (dmsg_dst d) (snoc_queue d).
 
+  (* This is used when messages are produced.
+     - Messages can either get lost or be delayed or arrive on time
+     - Messages are stored in the in-transit list under the time they should be delivered
+     - Messages are stored under the location of the recipient
+   *)
   Fixpoint deliver_messages (t : time) (s : seq DMsg) (I : InTransit) : Comp [finType of option InTransit] :=
     match s with
     | [] => Ret (Some I)
@@ -565,11 +589,11 @@ Section World.
     let H := world_history w in
     let I := world_intransit w in
     match H t with
-    | Some ps =>
+    | Some ps => (* [ps] is the world at the current time [t] *)
       (* we compute the messages that need to be computed at time [t] *)
       let qs := I t in
       (* We now apply the points in [ps] to the queues in [qs].
-         We obtain new points and outgoing messages sorted by receivers *)
+         We obtain new points and outgoing messages *)
       let (ps',out) := run_global t ps qs in
       match inc t with
       | Some t' =>
@@ -751,8 +775,8 @@ Section Ex1.
     end.
 
   Lemma ex1 :
-    exists s,
-      forall n,
+    exists (s : nat),
+      forall (n : nat),
         (maxTime > n)%nat ->
         (n > s)%nat ->
         ((\sum_(i in 'I_p_numNodes) (1-LostDist) * (1-LostDist))%R
@@ -770,21 +794,244 @@ Section Ex1.
       rewrite ffunE; simpl.
 
 
-  Qed.
+  Abort.
 
   (* TODO: probability to receive 1 echo by some time *)
   Lemma ex2 :
     forall n,
-      Pr (prb n received_1_echo) (finset.set1 true)
+      Pr (steps2dist'(*?*) n received_1_echo) (finset.set1 true)
       = (\sum_(t in 'I_maxRound.+1) (distRound t) * R1)%R.
   Proof.
-  Qed.
+  Abort.
 
 (*  Lemma ex1 :
     forall n,
       Reals_ext.pos_ff (FDist.f (prb n received_1_echo)) true = R0.*)
 
 End Ex1.
+
+
+Section Ex2.
+
+  (* ------------------------------------- *)
+  (* Let us now prove properties of Pistis *)
+
+  Context { pProba  : ProbaParams  }.
+  Context { pBounds : BoundsParams }.
+  Context { pSM     : SMParams     }.
+  (* Instead of defining a concrete state machine, we assume one,
+     and we will add constraints on its behavior *)
+
+
+  Definition msgObs := message -> bool.
+
+  (* True if a message satisfying [c] is sent at time [t] by node [n] in world [w]
+   *)
+  Definition disseminate (w : World) (n : location) (t : time) (c : msgObs) : Prop :=
+    let H := world_history w in
+    let I := world_intransit w in
+    match H t with
+    | Some ps => (* [ps] is the world at the current time [t] *)
+      (* we compute the messages that need to be computed at time [t] *)
+      let qs := I t in
+      (* We now apply the points in [ps] to the queues in [qs].
+         We obtain new points and outgoing messages *)
+      let (ps',out) := run_global t ps qs in
+      Exists (fun d => dmsg_src d = n /\ c (dmsg_msg d)) out
+    | None => False
+    end.
+
+  Definition startDisseminate (w : World) (n : location) (t : time) (c : msgObs) : Prop :=
+    disseminate w n t c
+    /\ forall (u : time), u < t -> ~disseminate w n u c.
+
+  Definition startDisseminateBetween (w : World) (n : location) (t T : time) (c : msgObs) : Prop :=
+    exists (u : time),
+      t <= u
+      /\ u <= t + T
+      /\ startDisseminate w n u c.
+
+  Lemma startDisseminate_implies_disseminate :
+    forall w n t c,
+      startDisseminate w n t c
+      -> disseminate w n t c.
+  Proof.
+    introv diss; destruct diss; auto.
+  Qed.
+  Hint Resolve startDisseminate_implies_disseminate : pistis.
+
+  (* n disseminates [del] [K] times every [d] starting from [t] *)
+  Fixpoint disseminateFor (w : World) (t : time) (n : location) (K d : nat) (c : msgObs) :=
+    match K with
+    | 0 => disseminate w n t c
+    | S k =>
+      disseminate w n t c
+      /\ match inck t d with
+         | Some u => disseminateFor w u n k d c
+         | None => True (* if we ran out of time, we just assume that the predicate is true afterwards *)
+         end
+    end.
+
+  (* [n] receives [c] as time [t] *)
+  Definition receiveAt (w : World) (n : location) (t : time) (c : msgObs) : Prop :=
+    Exists (fun m => c (dmsg_msg m)) (world_intransit w t n).
+
+  (* [n] receives [c] between [t] and [t+T] *)
+  Definition receiveBetween (w : World) (n : location) (t T : time) (c : msgObs) : Prop :=
+    exists (u : time),
+      t < u
+      /\ u <= t + T
+      /\ receiveAt w n u c.
+
+  Definition isCorrectAt (w : World) (n : location) (t : time) : bool :=
+    let H := world_history w in
+    match H t with
+    | Some G => isCorrectStatus (point_status (G n))
+    (* [G n] is cthe point at space time coordinate [n]/[t] *)
+    | None => true
+    end.
+
+  Definition isCorrect (w : World) (n : location) : Prop :=
+    forall (t : time), isCorrectAt w n t.
+
+  (*Definition isQuorum (l : list location) (Q : nat) :=
+    length l = Q
+    /\ no_repeats l.*)
+
+  Definition Quorum (F : nat) := [finType of ((2*F)+1).-finList [finType of location]].
+
+  (* [Q] is the size of quorums
+     [K] is the number of times nodes disseminate [del] every [d] *)
+  Definition IntersectingQuorum (w : World) (F K d : nat) (del : msgObs) :=
+    forall (t : time) (n : location),
+      isCorrect w n
+      -> startDisseminate w n t del
+      -> exists (Q : Quorum F) (u : time),
+          u <= t + (K * d)
+          /\ forall m,
+            List.In m Q
+            -> isCorrect w m
+            -> disseminateFor w u m K d del.
+
+  (* This is a property of the PISTIS's proof-of-connectivity component, where
+     nodes become passive (considered faulty), when they don't receive answers
+     back from a quorum of nodes, when sending a message.  Therefore, it must
+     be that a Quorum received a message sent by a correct node by the time it
+     was sent [t] plus [T], where [T] is the time bound by which a message is
+     supposed to be received
+   *)
+  Definition proof_of_connectivity_condition (F : nat) (T : time) :=
+    forall (w : World) (n : location) (t : time) (c : msgObs),
+      isCorrect w n
+      -> startDisseminate w n t c
+      -> exists (A : Quorum F),
+          forall (m : location),
+            List.In m A
+            -> receiveBetween w m t T c.
+
+  Definition exStartDisseminateBefore (w : World) (t : time) (c : msgObs) :=
+    exists (n : location) (u : time),
+      (u < t)%coq_nat
+      /\ isCorrect w n
+      /\ startDisseminate w n u c
+      /\ isCorrect w n.
+
+  Lemma ex_node_start_del_dec :
+    forall (w : World) (t : time) (c : msgObs),
+      decidable (exStartDisseminateBefore w t c).
+  Proof.
+  Admitted.
+
+  (* If a correct node receives a deliver it should start delivering
+     if it hasn't started already doing so *)
+  Definition mustStartDelivering (del : msgObs) :=
+    forall (w : World) (n : location) (t : time),
+      isCorrect w n
+      -> receiveAt w n t del
+      -> exists (u : time),
+          u <= t
+          /\ startDisseminate w n u del.
+
+  (* If a node starts disseminating a message [c] at time [t]
+     then it must do so until [t+(K*d)] *)
+  Definition startDisseminateUntil (c : msgObs) (K d : nat) :=
+    forall (w : World) (n : location) (t : time),
+      isCorrect w n
+      -> startDisseminate w n t c
+      -> disseminateFor w t n K d c.
+
+  (* This is one of main properties required to prove timeliness.
+   *)
+  Lemma IntersectingQuorum_true (del : msgObs) :
+    forall (w : World) (F K d : nat) (p : K*d < maxTime.+1),
+      numNodes = (3*F)+1
+      -> proof_of_connectivity_condition F (toI(p))
+      -> mustStartDelivering del
+      (* deliver messages are delivered twice as long as the PoC *)
+      -> startDisseminateUntil del (2*K) d
+      -> IntersectingQuorum w F K d del.
+  Proof.
+    introv nnodes poc startD dissU.
+    introv.
+    destruct t as [t ct].
+    revert dependent n.
+    induction t as [? ind] using comp_ind; introv cor diss.
+    destruct (ex_node_start_del_dec w (toI ct) del) as [z|z].
+
+    { unfold exStartDisseminateBefore in z; exrepnd.
+      pose proof (ind u) as ind; simpl in *.
+      autodimp ind hyp.
+      destruct u as [u cu].
+      pose proof (ind cu n0) as ind.
+      repeat (autodimp ind hyp; auto).
+
+      exrepnd.
+      exists Q u0; dands; auto.
+      eapply leq_trans; eauto.
+      apply leq_add; auto.
+      apply/leP; apply Nat.lt_le_incl; auto. }
+
+    assert (forall (n : location) (u : time),
+               (u < t)%coq_nat -> isCorrect w n -> ~startDisseminate w n u del) as z'.
+    { introv ltu corn dis; destruct z; exists n0 u; auto. }
+    clear z; rename z' into z.
+
+    pose proof (poc w n (toI ct) del) as poc; simpl in *.
+    repeat (autodimp poc hyp); eauto 3 with pistis.
+    exrepnd.
+
+    (* since no correct nodes start disseminating before [t] it must be that
+       all correct nodes in A start disseminating starting from [t]
+     *)
+
+    assert (forall (n : location),
+               isCorrect w n
+               -> List.In n A
+               -> startDisseminateBetween w n (toI ct) (toI p) del) as z'.
+    { introv isc i.
+      pose proof (poc0 _ i) as poc0.
+      unfold receiveBetween in poc0; exrepnd.
+      pose proof (startD w n0 u) as startD.
+      repeat (autodimp startD hyp); exrepnd.
+      destruct (lt_dec u0 t) as [ltu|ltu].
+      { pose proof (z _ _ ltu isc) as z; tcsp. }
+      assert (~(u0 < t)) as ltu' by (intro xx; destruct ltu; apply/ltP; auto).
+      assert (t <= u0) as leu by (rewrite leqNgt; apply/negP; auto).
+      clear ltu ltu'.
+      exists u0.
+      dands; auto.
+      eapply leq_trans; eauto. }
+
+(*
+    exists A (toI ct); dands; simpl; auto; try apply leq_addr.
+    introv i isc.
+
+    pose proof (z' _ isc i) as z'.
+    pose proof (dissU w m) as dissU.
+*)
+  Qed.
+
+End Ex2.
 
 
 (*
