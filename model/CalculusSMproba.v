@@ -848,7 +848,7 @@ Section Ex2.
   Definition startDisseminateBetween (w : World) (n : location) (t T : time) (c : msgObs) : Prop :=
     exists (u : time),
       t <= u
-      /\ u <= t + T
+      /\ u < t + T
       /\ startDisseminate w n u c.
 
   Lemma startDisseminate_implies_disseminate :
@@ -880,7 +880,7 @@ Section Ex2.
   Definition receiveBetween (w : World) (n : location) (t T : time) (c : msgObs) : Prop :=
     exists (u : time),
       t < u
-      /\ u <= t + T
+      /\ u < t + T
       /\ receiveAt w n u c.
 
   Definition isCorrectAt (w : World) (n : location) (t : time) : bool :=
@@ -911,7 +911,10 @@ Section Ex2.
           /\ forall m,
             List.In m Q
             -> isCorrect w m
-            -> disseminateFor w u m K d del.
+            -> exists (v : time),
+                u <= v
+                /\ v < u + d
+                /\ disseminateFor w v m K d del.
 
   (* This is a property of the PISTIS's proof-of-connectivity component, where
      nodes become passive (considered faulty), when they don't receive answers
@@ -920,8 +923,8 @@ Section Ex2.
      was sent [t] plus [T], where [T] is the time bound by which a message is
      supposed to be received
    *)
-  Definition proof_of_connectivity_condition (F : nat) (T : time) :=
-    forall (w : World) (n : location) (t : time) (c : msgObs),
+  Definition proof_of_connectivity_condition (w : World) (F : nat) (T : time) :=
+    forall (n : location) (t : time) (c : msgObs),
       isCorrect w n
       -> startDisseminate w n t c
       -> exists (A : Quorum F),
@@ -944,8 +947,8 @@ Section Ex2.
 
   (* If a correct node receives a deliver it should start delivering
      if it hasn't started already doing so *)
-  Definition mustStartDelivering (del : msgObs) :=
-    forall (w : World) (n : location) (t : time),
+  Definition mustStartDelivering (w : World) (del : msgObs) :=
+    forall (n : location) (t : time),
       isCorrect w n
       -> receiveAt w n t del
       -> exists (u : time),
@@ -954,24 +957,177 @@ Section Ex2.
 
   (* If a node starts disseminating a message [c] at time [t]
      then it must do so until [t+(K*d)] *)
-  Definition startDisseminateUntil (c : msgObs) (K d : nat) :=
-    forall (w : World) (n : location) (t : time),
+  Definition startDisseminateUntil (w : World) (c : msgObs) (K d : nat) :=
+    forall (n : location) (t : time),
       isCorrect w n
       -> startDisseminate w n t c
       -> disseminateFor w t n K d c.
+
+  (* For simplicity, we assume long enough worlds, where there is still some time
+     (namely [T]), after a node starts disseminating
+*)
+  Definition longEnoughWorld (w : World) (c : msgObs) (T : nat) :=
+    forall n t,
+      startDisseminate w n t c
+      -> t + T <= maxTime.
+
+  Lemma existsNextStep :
+    forall (t u : time) (K d : nat),
+      d <> 0
+      -> t <= u
+      -> u < t + (K*d)
+      -> exists (J : nat),
+          t + (J*d) <= u
+          /\ u < t + ((J+1)*d)
+          /\ J + 1 <= K.
+  Proof.
+    introv dd0 h q.
+    destruct t as [t ct].
+    destruct u as [u cu].
+    simpl in *.
+    clear ct cu.
+    assert (K <> 0) as kd0.
+    { destruct K; simpl in *; auto.
+      rewrite <- multE in q; simpl in *.
+      rewrite <- plusE in q; simpl in *.
+      rewrite Nat.add_0_r in q; auto.
+      assert (t < t) as z by (eapply leq_ltn_trans; eauto).
+      rewrite ltnn in z; tcsp. }
+
+    exists ((u - t)/d); dands.
+    { pose proof (Nat.mul_div_le (u - t) d dd0) as p.
+      eapply (@leq_trans (t + (u - t)));[|rewrite subnKC; auto].
+      rewrite leq_add2l.
+      apply/leP; auto.
+      rewrite Nat.mul_comm in p; auto. }
+    { pose proof (Nat.mul_succ_div_gt (u-t) d dd0) as z; simpl in *.
+      eapply (@leq_ltn_trans (t + (u - t)));[rewrite subnKC; auto|].
+      rewrite ltn_add2l.
+      apply/ltP; auto.
+      rewrite Nat.mul_comm in z; auto.
+      rewrite addn1; auto. }
+
+    apply (@ltn_sub2r t) in q; auto.
+
+    { rewrite <- addnBAC in q; auto.
+      assert (t - t = 0) as w by (apply/eqP; rewrite subn_eq0; auto).
+      rewrite w in q; clear w; simpl in q.
+      rewrite <- plusE in q.
+      rewrite Nat.add_0_l in q.
+      rewrite <- multE in q.
+      rewrite Nat.mul_comm in q.
+      assert (u - t < (d * K)%coq_nat)%coq_nat as z by (apply/ltP; auto).
+      apply Nat.div_lt_upper_bound in z; auto; clear q.
+      rewrite addn1; apply/leP; auto. }
+
+    remember (t + K *d); rewrite (plus_n_O t); subst.
+    rewrite ltn_add2l; auto.
+    destruct K, d; auto.
+  Qed.
+
+  Lemma eq_nat_of_ord_implies :
+    forall (u v : time),
+      nat_of_ord u = nat_of_ord v
+      -> u = v.
+  Proof.
+    introv h.
+    destruct u, v; simpl in *; subst; auto.
+    assert (i = i0) by (apply UIP_dec; apply bool_dec); subst; auto.
+  Qed.
+
+  Lemma disseminateForLess :
+    forall (w : World) (n : location) (K J d : nat) (u : time) (c : msgObs),
+      J <= K
+      -> disseminateFor w u n K d c
+      -> disseminateFor w u n J d c.
+  Proof.
+    induction K; introv h diss.
+    { assert (J = 0) as j0.
+      { destruct J; auto.
+        rewrite ltn0 in h; inversion h. }
+      subst; simpl in *; auto. }
+
+    simpl in *; repnd.
+    destruct J; simpl in *; dands; auto.
+    remember (inck u d) as iu; destruct iu; symmetry in Heqiu; auto.
+  Qed.
+
+  Lemma disseminateForCovered :
+    forall (w : World) (n : location) (K : nat) (u v : time) (c : msgObs) (I J d : nat),
+      nat_of_ord v = (nat_of_ord u)+(I*d)
+      -> I + J <= K
+      -> disseminateFor w u n K d c
+      -> disseminateFor w v n J d c.
+  Proof.
+    induction K; introv h q diss.
+    { assert (I = 0) as i0.
+      { destruct I; auto.
+        rewrite <- plusE in q; simpl in q.
+        rewrite ltn0 in q; inversion q. }
+      assert (J = 0) as j0.
+      { destruct J; auto.
+        rewrite <- plusE, Nat.add_comm in q; simpl in q.
+        rewrite ltn0 in q; inversion q. }
+      subst; simpl in *.
+      rewrite <- multE, <- plusE in h; simpl in h.
+      rewrite Nat.add_0_r in h; subst.
+      apply eq_nat_of_ord_implies in h; subst; auto. }
+
+    destruct I.
+
+    { rewrite <- plusE in q; simpl in q.
+      rewrite <- plusE, <- multE in h; simpl in h.
+      rewrite Nat.add_0_r in h; subst.
+      apply eq_nat_of_ord_implies in h; subst; auto.
+      eapply disseminateForLess; eauto. }
+
+    simpl in *; repnd.
+    remember (inck u d) as iu; destruct iu; symmetry in Heqiu.
+
+    { pose proof (IHK o v c I J d) as IHK.
+      repeat (autodimp IHK hyp).
+      rewrite h.
+      unfold inck in Heqiu.
+      destruct (lt_dec (d + u) (maxTime.+1)); ginv; simpl in *.
+      rewrite <- multE, <- plusE; simpl.
+      rewrite <- (plus_comm u d).
+      rewrite plus_assoc; auto. }
+
+    unfold inck in *.
+    destruct (lt_dec (d + u) (maxTime.+1)); ginv; simpl in *.
+    destruct v as [v cv].
+    destruct u as [u cu].
+    simpl in *; subst.
+    destruct n0.
+    rewrite <- multE, <- plusE in cv; simpl in cv.
+    apply/ltP.
+    eapply leq_ltn_trans;[|eauto].
+    rewrite <- plusE.
+    rewrite plus_assoc.
+    rewrite plus_comm.
+    apply leq_addr.
+  Qed.
 
   (* This is one of main properties required to prove timeliness.
    *)
   Lemma IntersectingQuorum_true (del : msgObs) :
     forall (w : World) (F K d : nat) (p : K*d < maxTime.+1),
+      (* assuming that there are 3F+1 nodes *)
       numNodes = (3*F)+1
-      -> proof_of_connectivity_condition F (toI(p))
-      -> mustStartDelivering del
-      (* deliver messages are delivered twice as long as the PoC *)
-      -> startDisseminateUntil del (2*K) d
+      (* the maximum transmission delay [d] is not 0 *)
+      -> d <> 0
+      (* that the world is long enough to allow for deliveries to end *)
+      -> longEnoughWorld w del (2*(K*d))
+      (* that we're running proof of connectivity *)
+      -> proof_of_connectivity_condition w F (toI(p))
+      (* that received nodes are eventually relayed *)
+      -> mustStartDelivering w del
+      (* that deliver messages are delivered twice as long as the PoC, which is used in 'IntersectingQuorum' *)
+      -> startDisseminateUntil w del (2*K) d
+      (* then the 'IntersectingQuorum' property holds *)
       -> IntersectingQuorum w F K d del.
   Proof.
-    introv nnodes poc startD dissU.
+    introv nnodes dd0 lw poc startD dissU.
     introv.
     destruct t as [t ct].
     revert dependent n.
@@ -996,14 +1152,13 @@ Section Ex2.
     { introv ltu corn dis; destruct z; exists n0 u; auto. }
     clear z; rename z' into z.
 
-    pose proof (poc w n (toI ct) del) as poc; simpl in *.
+    pose proof (poc n (toI ct) del) as poc; simpl in *.
     repeat (autodimp poc hyp); eauto 3 with pistis.
     exrepnd.
 
     (* since no correct nodes start disseminating before [t] it must be that
        all correct nodes in A start disseminating starting from [t]
      *)
-
     assert (forall (n : location),
                isCorrect w n
                -> List.In n A
@@ -1011,7 +1166,7 @@ Section Ex2.
     { introv isc i.
       pose proof (poc0 _ i) as poc0.
       unfold receiveBetween in poc0; exrepnd.
-      pose proof (startD w n0 u) as startD.
+      pose proof (startD n0 u) as startD.
       repeat (autodimp startD hyp); exrepnd.
       destruct (lt_dec u0 t) as [ltu|ltu].
       { pose proof (z _ _ ltu isc) as z; tcsp. }
@@ -1020,15 +1175,69 @@ Section Ex2.
       clear ltu ltu'.
       exists u0.
       dands; auto.
-      eapply leq_trans; eauto. }
+      eapply leq_ltn_trans; eauto. }
 
-(*
-    exists A (toI ct); dands; simpl; auto; try apply leq_addr.
+    pose proof (lw n (toI ct) diss) as lw0.
+
+    assert (t + (K*d) < maxTime.+1) as ct'.
+    { assert (t + (K*d) <= maxTime) as ct'; auto.
+      eapply leq_trans;[|eauto]; simpl.
+      rewrite leq_add2l.
+      apply leq_pmull; auto. }
+
+    exists A (toI ct'); dands; simpl; auto; try apply leq_addr.
     introv i isc.
 
     pose proof (z' _ isc i) as z'.
-    pose proof (dissU w m) as dissU.
-*)
+    unfold startDisseminateBetween in z'; exrepnd.
+    pose proof (dissU _ _ isc z'0) as dissU.
+
+    pose proof (existsNextStep (toI ct) u K d) as ens.
+    repeat (autodimp ens hyp); exrepnd.
+
+    pose proof (lw m u z'0) as lw1.
+    rewrite addn1 in ens0; auto.
+
+    assert (u + ((K-J)*d) < maxTime.+1) as cu.
+    { assert (u + ((K-J)*d) <= maxTime) as cu; auto.
+      eapply leq_trans;[|eauto]; simpl.
+      rewrite leq_add2l.
+      rewrite <- (Nat.mul_1_l ((K-J)*d)).
+      apply leq_mul; auto.
+      apply leq_mul; auto.
+      apply leq_subr. }
+
+    exists (toI cu); simpl in *.
+    dands; auto.
+
+    { apply (@leq_add _ ((K-J)*d) _ ((K-J)*d)) in ens1; auto.
+      eapply leq_trans;[|eauto].
+      rewrite <- plus_assoc.
+      rewrite <- multE.
+      rewrite <- Nat.mul_add_distr_r.
+      rewrite <- minusE.
+      rewrite <- le_plus_minus; auto.
+      apply/leP; auto. }
+
+    { rewrite <- (ltn_add2r ((K-J)*d)) in ens2.
+      rewrite <- plus_assoc in ens2.
+      rewrite <- multE, <- plusE, <- minusE in ens2.
+      rewrite <- Nat.mul_add_distr_r in ens2.
+      rewrite (Nat.add_comm J 1) in ens2.
+      rewrite <- plus_assoc in ens2.
+      rewrite <- le_plus_minus in ens2; auto.
+      { rewrite Nat.mul_add_distr_r in ens2; simpl in ens2.
+        rewrite Nat.add_0_r in ens2.
+        rewrite (Nat.add_comm d _) in ens2; auto.
+        rewrite <- multE, <- plusE, <- minusE; auto.
+        rewrite <- plus_assoc; auto. }
+      apply/leP; auto. }
+
+    eapply (disseminateForCovered _ _ _ _ _ _ (K-J)); try exact dissU; simpl; auto.
+    rewrite addnBAC; auto.
+    rewrite <- multE, <- minusE, <- plusE; simpl.
+    rewrite Nat.add_0_r.
+    apply/leP; apply Nat.le_sub_l.
   Qed.
 
 End Ex2.
