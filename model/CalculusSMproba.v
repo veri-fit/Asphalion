@@ -112,31 +112,367 @@ Section finList.
   Canonical finList_countType    := Eval hnf in CountType finList_of finList_countMixin.
   Canonical finList_subCountType := Eval hnf in [subCountType of finList_of].
   Canonical finList_of_countType := Eval hnf in [countType of finList_of].
+End finList.
 
-  Definition enumN (n : nat) : seq finList_of :=
-    let extend e := flatten (codom (fun (x : T) => map (List.cons x) e)) in
-    pmap insub (iter n extend [::[::]]).
+Notation "n .-finList" := (finList_of n)
+  (at level 2, format "n .-finList") : type_scope.
 
-  Fixpoint enumUpToN (n : nat) : seq finList_of :=
+
+Section finList2.
+  Definition extendN {T : finType} (e : seq (seq T)) := flatten (codom (fun (x : T) => map (List.cons x) e)).
+
+  Definition seqN (T : finType) (n : nat) : seq (seq T) :=
+    iter n extendN [::[::]].
+
+  Definition enumN (T : finType) (n : nat) : seq (finList_of n T) :=
+    pmap insub (seqN T n).
+
+  Definition toFL {T n s} (h : length s <= n) : finList_of n T :=
+    FinList _ _ s h.
+
+  Lemma seqN_prop :
+    forall T n s,
+      s \in (seqN T n)
+      -> length s = n.
+  Proof.
+    induction n; introv i; simpl in *.
+
+    { destruct s; simpl in *; auto.
+      unfold in_mem in *; simpl in *; inversion i. }
+
+    unfold extendN, codom in i.
+    move/flatten_imageP in i.
+    destruct i as [t x i j].
+    move/mapP in i.
+    destruct i as [z w i]; subst; simpl in *.
+    f_equal; apply IHn; auto.
+  Qed.
+
+  Lemma enumN_prop :
+    forall T n s,
+      s \in (enumN T n)
+      -> length s = n.
+  Proof.
+    introv i.
+    rewrite mem_pmap_sub in i; simpl in *.
+    apply seqN_prop in i; auto.
+  Qed.
+
+  Definition incFinList {T : finType} {n : nat} (s : finList_of n T) : finList_of (S n) T.
+  Proof.
+    destruct s as [s c].
+    exists s; auto.
+  Defined.
+
+  Definition incFinListSeq {T : finType} {n : nat} (s : seq (finList_of n T)) : seq (finList_of (S n) T).
+  Proof.
+    exact (map incFinList s).
+  Defined.
+
+  Fixpoint enumUpToN (T : finType) (n : nat) : seq (finList_of n T) :=
     match n with
-    | 0 => enumN n
-    | S m => enumN n ++ enumN m
+    | 0 => enumN T 0
+    | S m => enumN T (S m) ++ incFinListSeq (enumUpToN T m)
     end.
 
-  Definition enum : seq finList_of := enumUpToN n.
+  Lemma enumUpToN_prop :
+    forall T n s,
+      s \in (enumUpToN T n)
+      -> length s <= n.
+  Proof.
+    induction n; introv i; simpl in *.
+
+    { apply enumN_prop in i; rewrite i; auto. }
+
+    rewrite mem_cat in i.
+    move/orP in i; destruct i as [i|i].
+    { apply enumN_prop in i; rewrite i; auto. }
+    move/mapP in i.
+    destruct i as [x w i]; subst; simpl in *.
+    apply IHn in w.
+    destruct x as [x c]; simpl in *; auto.
+  Qed.
+
+  Lemma leq_eq_or :
+    forall (a b : nat),
+      a <= b
+      = (a < b) || (a == b).
+  Proof.
+    induction a; introv; simpl;
+      unfold leq in *; simpl; rewrite <- minusE in *; simpl;
+        destruct b; simpl; auto.
+    rewrite IHa; simpl; auto.
+  Qed.
+
+  (* must be proved already *)
+  Lemma implies_notin :
+    forall (T : eqType) (x : T) (l : seq T),
+      ~(x \in l)
+       -> (x \notin l).
+  Proof.
+    introv i; destruct (x \in l); auto.
+  Qed.
+
+  Lemma eqFinList_eq :
+    forall (T : finType) n (s1 s2 : seq T) i1 i2,
+      (FinList n T s1 i1 == FinList n T s2 i2) = (s1 == s2).
+  Proof.
+    introv; remember (s1 == s2) as b; symmetry in Heqb; destruct b.
+    { move/eqP in Heqb; subst; apply/eqP.
+      f_equal.
+      apply UIP_dec; apply bool_dec. }
+
+    { allrw <- not_true_iff_false; intro xx; destruct Heqb.
+      move/eqP in xx; apply/eqP.
+      inversion xx; auto. }
+  Qed.
+
+  Lemma count_incFinListSeq_enumUptoN_eq :
+    forall T n x (c : Datatypes.length x <= n.+1) (d : Datatypes.length x < n.+1),
+      count_mem (FinList n.+1 T x c) (incFinListSeq (enumUpToN T n))
+      = count_mem (FinList n T x d) (enumUpToN T n).
+  Proof.
+    introv.
+    unfold incFinListSeq.
+    rewrite count_map.
+    unfold preim,SimplPred; auto.
+    apply eq_in_count; introv i; simpl.
+    destruct x0 as [s z]; simpl in *.
+    repeat rewrite eqFinList_eq; auto.
+  Qed.
+
+  Lemma count_mem_smaller :
+    forall T n (x : finList_of n.+1 T),
+      length x < n.+1
+      -> count_mem x (enumN T n.+1) = 0.
+  Proof.
+    introv i.
+    apply/count_memPn.
+    apply implies_notin; intro j.
+    apply enumN_prop in j; rewrite j in i.
+    rewrite ltnn in i; inversion i.
+  Qed.
+
+  Lemma count_incFinListSeq_0 :
+    forall T n (x : finList_of n.+1 T) (c : Datatypes.length x == n.+1),
+      count_mem x (incFinListSeq (enumUpToN T n))
+      = 0.
+  Proof.
+    introv c.
+    apply/count_memPn.
+    apply implies_notin; intro j.
+    unfold incFinListSeq in j.
+    move/mapP in j.
+    destruct j as [s w i]; subst.
+    apply enumUpToN_prop in w.
+    unfold incFinList in *; simpl in *.
+    destruct s as [s cs]; simpl in *.
+    move/eqP in c; rewrite c in w.
+    rewrite ltnn in w; inversion w.
+  Qed.
+
+  Lemma pmap_flatten :
+    forall A B (f : A -> option B) (s : seq (seq A)),
+      pmap f (flatten s) = flatten (map (pmap f) s).
+  Proof.
+    induction s; introv; simpl; auto.
+    rewrite pmap_cat; rewrite IHs; auto.
+  Qed.
+
+  Lemma count_enumN_as_count_seqN :
+    forall T n (x : finList_of T n),
+      count_mem x (enumN n T)
+      = count (pred1 (fLval _ _ x)) (seqN n T).
+  Proof.
+    introv.
+    unfold enumN.
+    repeat rewrite <- size_filter.
+    pose proof (seqN_prop n T) as p.
+    remember (seqN n T) as l; clear Heql.
+    induction l; simpl in *; auto.
+    unfold oapp; simpl.
+    pose proof (p a) as q; autodimp q hyp; tcsp; try apply mem_head.
+    autodimp IHl hyp.
+    { introv i; apply p; rewrite in_cons; apply/orP; auto. }
+    unfold insub at 1; destruct idP; tcsp;[|rewrite q in n0; destruct n0; auto];[].
+    simpl.
+    destruct x as [x c]; simpl in *.
+    rewrite eqFinList_eq.
+    destruct (a == x); simpl; auto.
+  Qed.
+
+  Lemma notin_cons :
+    forall (T : eqType) t a (l : seq T),
+      (t \notin a :: l) = ((t != a) && (t \notin l)).
+  Proof.
+    introv.
+    unfold in_mem; simpl.
+    rewrite negb_orb; tcsp.
+  Qed.
+
+  Lemma notin_app :
+    forall (T : eqType) t (l k : seq T),
+      (t \notin l ++ k) = ((t \notin l) && (t \notin k)).
+  Proof.
+    introv.
+    rewrite mem_cat.
+    rewrite negb_orb; tcsp.
+  Qed.
+
+  Lemma in_uniq_decompose :
+    forall (T : eqType) t (l : seq T),
+      (t \in l)
+      -> uniq l
+      -> exists a b, l = a ++ t :: b /\ (t \notin a) /\ (t \notin b).
+  Proof.
+    induction l; introv i u; simpl in *.
+    { inversion i. }
+    rewrite in_cons in i.
+    move/andP in u; repnd.
+    move/orP in i; destruct i as [i|i].
+
+    { move/eqP in i; subst.
+      exists ([] : seq T) l; simpl; dands; auto. }
+
+    repeat (autodimp IHl hyp); exrepnd; subst.
+    exists (a :: a0) b; simpl; dands; auto.
+    rewrite notin_cons.
+    rewrite notin_app in u0.
+    rewrite notin_cons in u0.
+    repeat (move/andP in u0; repnd).
+    apply/andP; dands; auto.
+    apply/eqP; intro xx; subst.
+    move/eqP in u2; tcsp.
+  Qed.
+
+  Lemma count_cons_flatten_codom :
+    forall (T : finType) (t : T) l K,
+      count_mem (t :: l) (flatten (codom (fun z => [seq z :: i | i <- K])))
+      = count_mem l K.
+  Proof.
+    introv.
+    rewrite count_flatten.
+    rewrite codomE; simpl.
+    rewrite <- map_comp.
+    unfold ssrfun.comp; simpl.
+
+    rewrite <- deprecated_filter_index_enum.
+    pose proof (mem_index_enum t) as i.
+    pose proof (index_enum_uniq T) as u.
+    apply in_uniq_decompose in i; auto; exrepnd.
+    rewrite i0.
+    rewrite filter_cat; simpl.
+    rewrite map_cat; simpl.
+    rewrite sumn_cat; simpl.
+
+    assert (sumn [seq count_mem (t :: l) [seq x :: i | i <- K] | x <- a & T x] = 0) as ha.
+    { rewrite map_comp; simpl.
+      rewrite <- count_flatten.
+      apply/count_memPn.
+      apply/negP.
+      introv i.
+      move/flattenP in i.
+      destruct i as [s i z]; simpl in *.
+      move/mapP in i.
+      destruct i as [w i v]; subst.
+      rewrite mem_filter in i; move/andP in i; repnd.
+      move/mapP in z.
+      destruct z as [s j k]; subst; ginv.
+      move/negP in i2; tcsp. }
+
+    assert (sumn [seq count_mem (t :: l) [seq x :: i | i <- K] | x <- b & T x] = 0) as hb.
+    { rewrite map_comp; simpl.
+      rewrite <- count_flatten.
+      apply/count_memPn.
+      apply/negP.
+      introv i.
+      move/flattenP in i.
+      destruct i as [s i z]; simpl in *.
+      move/mapP in i.
+      destruct i as [w i v]; subst.
+      rewrite mem_filter in i; move/andP in i; repnd.
+      move/mapP in z.
+      destruct z as [s j k]; subst; ginv.
+      move/negP in i1; tcsp. }
+
+    rewrite ha hb; clear ha hb; simpl; autorewrite with nat.
+    rewrite <- plusE; rewrite Nat.add_0_l.
+
+    rewrite count_map; simpl.
+    unfold preim; simpl.
+    unfold pred1, SimplPred; simpl.
+    apply eq_in_count; introv i; simpl.
+    rewrite eqseq_cons; simpl.
+    apply/andP.
+    destruct (x == l); auto.
+    intro xx; repnd; inversion xx.
+  Qed.
+
+  Lemma count_enumN_1 :
+    forall T n (x : finList_of n T),
+      length x == n
+      -> count_mem x (enumN T n) = 1.
+  Proof.
+    introv len.
+    rewrite count_enumN_as_count_seqN.
+    destruct x as [x c]; simpl in *; clear c.
+    revert dependent x.
+    induction n; introv len; simpl.
+
+    { destruct x; simpl in *; tcsp; inversion len. }
+
+    unfold extendN; simpl.
+    destruct x as [|t x]; simpl in *.
+    { inversion len. }
+    pose proof (IHn x) as IHn; autodimp IHn hyp.
+    rewrite count_cons_flatten_codom; auto.
+  Qed.
+
+  Lemma enumUpToNFL : forall T n, Finite.axiom (enumUpToN T n).
+  Proof.
+    induction n; repeat introv; simpl in *.
+
+    { unfold enumN; simpl; unfold oapp, insub; simpl.
+      destruct idP; simpl; introv.
+
+      { destruct x as [s c].
+        destruct s; simpl in *; auto.
+        rewrite ltn0 in c; inversion c. }
+
+      destruct n; auto. }
+
+    unfold enum; simpl.
+    rewrite count_cat.
+    assert (length x <= n.+1) as len by (destruct x as [x c]; simpl in *; auto).
+    rewrite leq_eq_or in len.
+    move/orP in len; destruct len as [len|len].
+
+    { rewrite count_mem_smaller; auto.
+      unfold Finite.axiom in IHn.
+      destruct x as [x c]; simpl in *.
+      pose proof (IHn (FinList _ _ x len)) as IHn.
+      unfold enum in IHn.
+      rewrite count_incFinListSeq_enumUptoN_eq; auto. }
+
+    { rewrite count_incFinListSeq_0; auto; simpl.
+      rewrite count_enumN_1; auto. }
+  Qed.
+
+  Variables (T : finType) (n : nat).
+
+  Definition enum : seq (finList_of n T) := enumUpToN T n.
 
   Lemma enumFL : Finite.axiom enum.
   Proof.
-    case=> /= l l_n.
-    (* TODO *)
-  Admitted.
+    apply enumUpToNFL.
+  Qed.
 
   Definition finList_finMixin  := Eval hnf in FinMixin enumFL.
-  Canonical finList_finType    := Eval hnf in FinType finList_of finList_finMixin.
-  Canonical finList_subFinType := Eval hnf in [subFinType of finList_of].
-  Canonical finList_of_finType := Eval hnf in [finType of finList_of].
+  Canonical finList_finType    := Eval hnf in FinType (finList_of n T) finList_finMixin.
+  Canonical finList_subFinType := Eval hnf in [subFinType of finList_of n T].
+  Canonical finList_of_finType := Eval hnf in [finType of finList_of n T].
 
-  Implicit Type l : finList_of.
+  Implicit Type l : finList_of n T.
 
   Definition sizeFL l  := length l.
 
@@ -147,10 +483,10 @@ Section finList.
     auto.
   Qed.
 
-  Definition splitFL l : option T * finList_of :=
+  Definition splitFL l : option T * finList_of n T :=
     match l with
     | FinList [] p => (None, l)
-    | FinList (hd :: tl) p => (Some hd, FinList tl (splitFL_cond hd tl p))
+    | FinList (hd :: tl) p => (Some hd, FinList _ _ tl (splitFL_cond hd tl p))
     end.
 
   Lemma rotateFL_cond :
@@ -160,18 +496,15 @@ Section finList.
     introv h; simpl in *; rewrite length_snoc; auto.
   Qed.
 
-  Definition rotateFL l : finList_of :=
+  Definition rotateFL l : finList_of n T :=
     match l with
     | FinList [] p => l
-    | FinList (hd :: tl) p => FinList (snoc tl hd) (rotateFL_cond hd tl p)
+    | FinList (hd :: tl) p => FinList _ _ (snoc tl hd) (rotateFL_cond hd tl p)
     end.
 
-  Definition emFL : finList_of := FinList [] is_true_true.
+  Definition emFL : finList_of n T := FinList _ _ [] is_true_true.
 
-End finList.
-
-Notation "n .-finList" := (finList_of n)
-  (at level 2, format "n .-finList") : type_scope.
+End finList2.
 
 
 Section Msg.
@@ -827,7 +1160,7 @@ Section Ex2.
 
   (* True if a message satisfying [c] is sent at time [t] by node [n] in world [w]
    *)
-  Definition disseminate (w : World) (n : location) (t : time) (c : msgObs) : Prop :=
+  Definition disseminate (w : World) (n : location) (t : time) (c : msgObs) : bool :=
     let H := world_history w in
     let I := world_intransit w in
     match H t with
@@ -837,13 +1170,41 @@ Section Ex2.
       (* We now apply the points in [ps] to the queues in [qs].
          We obtain new points and outgoing messages *)
       let (ps',out) := run_global t ps qs in
-      Exists (fun d => dmsg_src d = n /\ c (dmsg_msg d)) out
-    | None => False
+      existsb (fun d => (dmsg_src d == n) && c (dmsg_msg d)) out
+    | None => false
     end.
 
   Definition startDisseminate (w : World) (n : location) (t : time) (c : msgObs) : Prop :=
     disseminate w n t c
     /\ forall (u : time), u < t -> ~disseminate w n u c.
+
+  Definition startDisseminateDec (w : World) (n : location) (t : time) (c : msgObs) : bool :=
+    disseminate w n t c
+    && [forall (u : time | u < t), ~~disseminate w n u c].
+
+  Lemma startDisseminateP :
+    forall w n t c,
+      reflect (startDisseminate w n t c) (startDisseminateDec w n t c).
+  Proof.
+    introv.
+    remember (startDisseminateDec w n t c); symmetry in Heqb; destruct b;[left|right].
+
+    { unfold startDisseminateDec, startDisseminate in *.
+      move/andP in Heqb; repnd; dands; auto.
+      move/forallP in Heqb; simpl in *.
+      introv i.
+      pose proof (Heqb u) as Heqb.
+      move/implyP in Heqb.
+      apply Heqb in i.
+      apply/negP; auto. }
+
+    unfold startDisseminateDec, startDisseminate in *.
+    move/negP in Heqb.
+    intro xx; destruct Heqb; apply/andP; repnd; dands;auto.
+    apply/forallP.
+    introv; apply/implyP; introv i; apply xx in i.
+    apply/negP; auto.
+  Qed.
 
   Definition startDisseminateBetween (w : World) (n : location) (t T : time) (c : msgObs) : Prop :=
     exists (u : time),
@@ -866,9 +1227,9 @@ Section Ex2.
     | 0 => disseminate w n t c
     | S k =>
       disseminate w n t c
-      /\ match inck t d with
+      && match inck t d with
          | Some u => disseminateFor w u n k d c
-         | None => True (* if we ran out of time, we just assume that the predicate is true afterwards *)
+         | None => true (* if we ran out of time, we just assume that the predicate is true afterwards *)
          end
     end.
 
@@ -891,8 +1252,8 @@ Section Ex2.
     | None => true
     end.
 
-  Definition isCorrect (w : World) (n : location) : Prop :=
-    forall (t : time), isCorrectAt w n t.
+  Definition isCorrect (w : World) (n : location) : bool :=
+    [forall t, isCorrectAt w n t].
 
   (*Definition isQuorum (l : list location) (Q : nat) :=
     length l = Q
@@ -932,18 +1293,48 @@ Section Ex2.
             List.In m A
             -> receiveBetween w m t T c.
 
-  Definition exStartDisseminateBefore (w : World) (t : time) (c : msgObs) :=
+  Definition exStartDisseminateBefore (w : World) (t : time) (c : msgObs) : Prop :=
     exists (n : location) (u : time),
       (u < t)%coq_nat
       /\ isCorrect w n
-      /\ startDisseminate w n u c
-      /\ isCorrect w n.
+      /\ startDisseminate w n u c.
+
+  Definition exStartDisseminateBeforeDec (w : World) (t : time) (c : msgObs) : bool :=
+    [exists n : location, exists u : time,
+          (u < t)
+          && isCorrect w n
+          && startDisseminateDec w n u c].
 
   Lemma ex_node_start_del_dec :
     forall (w : World) (t : time) (c : msgObs),
       decidable (exStartDisseminateBefore w t c).
   Proof.
-  Admitted.
+    introv.
+    apply (@decP _ (exStartDisseminateBeforeDec w t c)).
+    remember (exStartDisseminateBeforeDec w t c); symmetry in Heqb.
+    destruct b;[left|right].
+
+    { unfold exStartDisseminateBeforeDec, exStartDisseminateBefore in *.
+      move/existsP in Heqb; simpl in *; exrepnd.
+      exists x.
+      move/existsP in Heqb0; simpl in *; exrepnd.
+      exists x0.
+      move/andP in Heqb1; repnd.
+      move/andP in Heqb0; repnd.
+      dands; auto.
+      { apply/ltP; auto. }
+      apply/startDisseminateP; auto. }
+
+    unfold exStartDisseminateBeforeDec, exStartDisseminateBefore in *.
+    move/existsP in Heqb.
+    intro xx; destruct Heqb; simpl in *; exrepnd.
+    exists n.
+    apply/existsP; exists u.
+    apply/andP; dands; auto.
+    { apply/andP; dands; auto.
+      apply/ltP; auto. }
+    apply/startDisseminateP; auto.
+  Qed.
 
   (* If a correct node receives a deliver it should start delivering
      if it hasn't started already doing so *)
@@ -1047,8 +1438,8 @@ Section Ex2.
         rewrite ltn0 in h; inversion h. }
       subst; simpl in *; auto. }
 
-    simpl in *; repnd.
-    destruct J; simpl in *; dands; auto.
+    simpl in *; move/andP in diss; repnd.
+    destruct J; simpl in *; auto; apply/andP; dands; auto.
     remember (inck u d) as iu; destruct iu; symmetry in Heqiu; auto.
   Qed.
 
@@ -1081,7 +1472,7 @@ Section Ex2.
       apply eq_nat_of_ord_implies in h; subst; auto.
       eapply disseminateForLess; eauto. }
 
-    simpl in *; repnd.
+    simpl in *; move/andP in diss; repnd.
     remember (inck u d) as iu; destruct iu; symmetry in Heqiu.
 
     { pose proof (IHK o v c I J d) as IHK.
