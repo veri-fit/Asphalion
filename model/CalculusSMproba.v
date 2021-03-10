@@ -14,7 +14,7 @@ Require Import fdist proba (*pproba*) (*ssrR*) Reals_ext (*logb ssr_ext ssralg_e
 Class ProbaParams :=
   MkProbaParams {
       (* probability that a message gets lots *)
-      LostDist : prob;
+      LostProb : prob;
 
       (* probability distribution that messages are received over a finite event
          set of size R+1 (i.e., R+1 discrete time points *)
@@ -63,7 +63,9 @@ Section Comp.
       by rewrite unlock H.
   Qed.
 
-  Definition pickRound : Comp [finType of 'I_(maxRound.+1)] :=
+  Definition round : finType := [finType of 'I_(maxRound.+1)].
+
+  Definition pickRound : Comp [finType of round] :=
     Pick maxRound.
 
   Fixpoint getSupport {A : finType} (c : Comp A) : list A :=
@@ -82,10 +84,10 @@ Section Comp.
     | Ret _ a => FDist1.d a
     | Bind _ _ c f => FDistBind.d (evalDist c) (fun b => evalDist (f b))
     | Pick n => RcvdDist n
-    | Lost => Binary.d card_bool LostDist true (* i.e., LostDist if true and 1-LostDist if false *)
+    | Lost => Binary.d card_bool LostProb false (* i.e., 1-LostProb if true and LostProb if false *)
     end.
 
-  Definition distRound : fdist [finType of 'I_(maxRound.+1)] := RcvdDist maxRound.
+  Definition distRound : fdist [finType of round] := RcvdDist maxRound.
 
 End Comp.
 
@@ -522,8 +524,8 @@ Section Msg.
   Context { pBounds : BoundsParams }.
   Context { pProc   : ProcParams   }.
 
-  Definition location := 'I_numNodes.
-  Definition time     := 'I_maxTime.+1.
+  Definition location : finType := [finType of 'I_numNodes].
+  Definition time     : finType := [finType of 'I_maxTime.+1].
 
 
   Record DMsg :=
@@ -643,6 +645,9 @@ Section Point.
         point_status : Status;
       }.
 
+  Definition MkCPoint (s : state) := MkPoint s StCorrect.
+  Definition MkFPoint (s : state) := MkPoint s StFaulty.
+
   Definition update_state (p : Point) (s : state) :=
     MkPoint
       s
@@ -706,6 +711,7 @@ Section Queue.
   Definition Queues : finType := [finType of {ffun location -> Queue}].
   (* In Transit messages *)
   Definition InTransit : finType := [finType of {ffun time -> Queues}].
+  Definition OpInTransit : finType := [finType of option InTransit].
 
 
   (* truncates the sequence to maxMsgs *)
@@ -983,7 +989,7 @@ Section World.
      - Messages are stored in the in-transit list under the time they should be delivered
      - Messages are stored under the location of the recipient
    *)
-  Fixpoint deliver_messages (t : time) (s : seq DMsg) (I : InTransit) : Comp [finType of option InTransit] :=
+  Fixpoint deliver_messages (t : time) (s : seq DMsg) (I : InTransit) : Comp [finType of OpInTransit] :=
     match s with
     | [] => Ret (Some I)
     | m :: ms =>
@@ -993,7 +999,7 @@ Section World.
               then deliver_messages t ms I
               else (* message is received by t+maxRound *)
                 Bind pickRound
-                     (fun (r : 'I_(maxRound.+1)) =>
+                     (fun (r : round) =>
                         (* messages is supposed to be delivered by t+r *)
                         match inck t r with
                         | Some t' => deliver_messages t ms (upd_finfun I t' (add_to_queues m))
@@ -1016,10 +1022,10 @@ Section World.
       let (ps',out) := run_global t ps qs in
       match inc t with
       | Some t' =>
-        (* we compute the new history *)
+        (* we compute the new history -- we set up the new states (for the next time) *)
         let H' := upd_finfun H t' (fun _ => Some ps') in
         (* we compute the new messages in transit *)
-        Bind (deliver_messages t out I)
+        Bind (deliver_messages t' out I)
              (fun o => Ret (option_map (fun I' => MkWorld t' H' I') o))
       | None => Ret None
       end
@@ -1061,208 +1067,15 @@ Section World.
   (* [true] when proving lower bounds, to set the probability of halted executions to 1 *)
   Definition steps2dist' (n : nat) (F : World -> bool) : fdist [finType of bool] :=
     evalDist (Bind (steps n initWorld) (liftT F)).
-
 End World.
 
 
-(* A simple example with only one initial message (could be a broadcast)
-   sent by one node, and all the other nodes, simply relay that message. *)
-Section Ex1.
+(* Properties about probabilities, distributions, and worlds *)
+Section Props.
 
-  Context { pProba    : ProbaParams  }.
-  Context { pMaxRound : nat }.
-  Context { pMaxTime  : nat }.
-
-  Definition pMaxMsgs := 2.
-
-  Global Instance BoundsParamsEx1 : BoundsParams :=
-    MkBoundsParams
-      pMaxRound
-      pMaxTime
-      pMaxMsgs.
-
-  Definition p_numNodes : nat := 2.
-
-  Inductive p_message :=
-  | MsgStart
-  | MsgBcast (l : 'I_p_numNodes)
-  | MsgEcho  (l : 'I_p_numNodes).
-
-  Definition p_message_nat (s : p_message) : 'I_3 * 'I_p_numNodes :=
-    match s with
-    | MsgStart => (@Ordinal 3 0 is_true_true, ord0)
-    | MsgBcast l => (@Ordinal 3 1 is_true_true, l)
-    | MsgEcho  l => (@Ordinal 3 2 is_true_true, l)
-    end.
-
-  Definition nat_p_message (n : 'I_3 * 'I_p_numNodes) :=
-    let (i,j) := n in
-    if nat_of_ord i == 0 then MsgStart else
-    if nat_of_ord i == 1 then MsgBcast j
-    else MsgEcho j.
-
-  Lemma p_message_cancel : cancel p_message_nat nat_p_message .
-  Proof.
-      by case.
-  Qed.
-
-  Definition p_message_eqMixin      := CanEqMixin p_message_cancel.
-  Canonical p_message_eqType        := Eval hnf in EqType (p_message) p_message_eqMixin.
-  Canonical p_message_of_eqType     := Eval hnf in [eqType of p_message].
-  Definition p_message_choiceMixin  := CanChoiceMixin p_message_cancel.
-  Canonical p_message_choiceType    := Eval hnf in ChoiceType (p_message) p_message_choiceMixin.
-  Canonical p_message_of_choiceType := Eval hnf in [choiceType of p_message].
-  Definition p_message_countMixin   := CanCountMixin p_message_cancel.
-  Canonical p_message_countType     := Eval hnf in CountType (p_message) p_message_countMixin.
-  Canonical p_message_of_countType  := Eval hnf in [countType of p_message].
-  Definition p_message_finMixin     := CanFinMixin p_message_cancel.
-  Canonical p_message_finType       := Eval hnf in FinType (p_message) p_message_finMixin.
-  Canonical p_message_of_finType    := Eval hnf in [finType of p_message].
-
-  Inductive p_state :=
-  (* records the number of received echos *)
-  | StateEchos (n : 'I_p_numNodes.+1).
-
-  Definition num_echos (s : p_state) : 'I_p_numNodes.+1 :=
-    match s with
-    | StateEchos n => n
-    end.
-
-  Definition inc_state (s : p_state) : p_state :=
-    match inc (num_echos s) with
-    | Some m => StateEchos m
-    | None => s
-    end.
-
-  Definition p_state_nat (s : p_state) : 'I_p_numNodes.+1 := num_echos s.
-
-  Definition nat_p_state (n : 'I_p_numNodes.+1) := StateEchos n.
-
-  Lemma p_state_cancel : cancel p_state_nat nat_p_state .
-  Proof.
-      by case.
-  Qed.
-
-  Definition p_state_eqMixin      := CanEqMixin p_state_cancel.
-  Canonical p_state_eqType        := Eval hnf in EqType (p_state) p_state_eqMixin.
-  Canonical p_state_of_eqType     := Eval hnf in [eqType of p_state].
-  Definition p_state_choiceMixin  := CanChoiceMixin p_state_cancel.
-  Canonical p_state_choiceType    := Eval hnf in ChoiceType (p_state) p_state_choiceMixin.
-  Canonical p_state_of_choiceType := Eval hnf in [choiceType of p_state].
-  Definition p_state_countMixin   := CanCountMixin p_state_cancel.
-  Canonical p_state_countType     := Eval hnf in CountType (p_state) p_state_countMixin.
-  Canonical p_state_of_countType  := Eval hnf in [countType of p_state].
-  Definition p_state_finMixin     := CanFinMixin p_state_cancel.
-  Canonical p_state_finType       := Eval hnf in FinType (p_state) p_state_finMixin.
-  Canonical p_state_of_finType    := Eval hnf in [finType of p_state].
-
-  Global Instance ProcParamsEx1 : ProcParams :=
-    MkProcParams
-      p_numNodes
-      [finType of p_message]
-      [finType of p_state].
-
-
-  (* 0 echos *)
-  Definition e0 := @Ordinal p_numNodes.+1 0 is_true_true.
-  (* 1 echo *)
-  Definition e1 := @Ordinal p_numNodes.+1 1 is_true_true.
-  (* 2 echo *)
-  Definition e2 := @Ordinal p_numNodes.+1 2 is_true_true.
-
-  Definition p_InitStates : StateFun :=
-    fun l => StateEchos e0.
-
-  Definition loc0  : location := @Ordinal p_numNodes 0 is_true_true.
-  Definition loc1  : location := @Ordinal p_numNodes 1 is_true_true.
-
-  Definition time0 : time := ord0.
-
-  Definition start : DMsg := MkDMsg loc0 loc0 time0 MsgStart.
-
-  Definition p_InitMessages : MsgFun :=
-    fun l => seq2queue (if l == loc0 then [start] else []).
-
-  Definition p_Upd : UpdFun :=
-    fun t l m s =>
-      match m with
-      | MsgStart =>
-        (* send a bcast to everyone *)
-        (s, seq2queue (codom [ffun i => MkDMsg l i t (MsgBcast l)]))
-      | MsgBcast i =>
-        (* send an echo to bcast's sender *)
-        (s, seq2queue [MkDMsg l i t (MsgEcho l)])
-      | MsgEcho j =>
-        (* count echos *)
-        (inc_state s, emQueue)
-      end.
-
-  Global Instance SMParamsEx1 : SMParams :=
-    MkSMParams
-      p_InitStates
-      p_InitMessages
-      p_Upd.
-
-  Definition received_2_echo (w : World) : bool :=
-    let t := world_time w in
-    match world_history w t with
-    | Some g =>
-      (* [loc0]'s state (the sender of the broadcast) *)
-      let st := point_state (g loc0) in
-      num_echos st == e2
-    | None => false
-    end.
-
-  Lemma compute_initial_messages :
-    flatten_queues [ffun i => (zip_global ord0 initGlobal (initInTransit ord0) i).2]
-    = codom [ffun i => MkDMsg loc0 i ord0 (MsgBcast loc0)].
-  Proof.
-    unfold flatten_queues.
-    unfold initInTransit.
-    unfold zip_global; simpl.
-    unfold p_InitMessages; simpl.
-    rewrite ffunE; simpl.
-
-    assert ([ffun i => ([ffun i0 =>
-                         let (s, o) :=
-                             run_point
-                               ord0 i0 (point_state (initGlobal i0))
-                               ([ffun l => seq2queue (if l == loc0 then [:: start] else [])] i0) in
-                         (update_state (initGlobal i0) s, seq2queue o)] i).2]
-            = [ffun i => seq2queue (if i == loc0 then codom [ffun x => MkDMsg loc0 x ord0 (MsgBcast loc0)] else [])]) as h.
-    { apply eq_ffun; introv; simpl.
-      repeat (rewrite ffunE; simpl).
-      rewrite (surjective_pairing (run_point ord0 x (p_InitStates x) (seq2queue (if x == loc0 then [:: start] else [])))); simpl.
-      remember (x == loc0) as b; symmetry in Heqb; rewrite Heqb; destruct b;[|apply eq_FinList; auto].
-      move/eqP in Heqb; subst.
-      Opaque firstn.
-      simpl; rewrite firstn_all2; simpl; try rewrite cats0; auto.
-      Transparent firstn.
-      rewrite length_as_size.
-      rewrite size_codom; simpl; auto.
-      rewrite card_ord; auto. }
-
-    rewrite h; clear h; simpl.
-    simpl.
-    repeat rewrite codomE.
-    repeat rewrite <- map_comp.
-    unfold ssrfun.comp; simpl.
-    repeat rewrite codomE.
-    simpl.
-    rewrite flatten_single_queue; auto.
-
-    { apply enum_uniq. }
-
-    { rewrite <- deprecated_filter_index_enum.
-      apply/mapP; simpl.
-      exists loc0; auto.
-      apply mem_index_enum. }
-
-    rewrite length_as_size.
-    rewrite size_map; simpl.
-    rewrite <- cardT; simpl; auto.
-    rewrite card_ord; auto.
-  Qed.
+  Context { pProba  : ProbaParams  }.
+  Context { pBounds : BoundsParams }.
+  Context { pProc   : ProcParams   }.
 
   Lemma eq_fdists :
     forall (A : finType) (a b : fdist A),
@@ -1386,8 +1199,8 @@ Section Ex1.
 
   Lemma FDistBind_bin :
     forall (B : finType) (g : bool -> fdist B) (x : B) (p : prob),
-      FDistBind.d (Binary.d card_bool p true) g x
-      = (((1 - p) * g true x) + (p * g false x))%R.
+      FDistBind.d (Binary.d card_bool p false) g x
+      = ((p * g true x) + ((1-p) * g false x))%R.
   Proof.
     introv.
     rewrite FDistBind.dE; simpl.
@@ -1399,21 +1212,439 @@ Section Ex1.
     rewrite Rplus_0_r; auto.
   Qed.
 
-  Lemma evalDist_deliver_initial_messages :
-    forall (a : option InTransit),
+  Lemma evalDist_match_inck :
+    forall {n} {A : finType} (i : 'I_n) (k : nat) (F : 'I_n -> Comp A) G a,
       evalDist
-        (deliver_messages
-           ord0
-           (codom [ffun i => MkDMsg loc0 i ord0 (MsgBcast loc0)])
-           initInTransit) a
-      = FDist1.d (Some initInTransit) a.
-  (*FDistBind.d
-      (\sum_(i \in 'I_p_numNodes) (1 - LostDist))*)
+        match inck i k with
+        | Some j => F j
+        | None => G
+        end a
+      = match inck i k with
+        | Some j => evalDist (F j) a
+        | None => evalDist G a
+        end.
   Proof.
     introv.
-    assert (codom [ffun i => MkDMsg loc0 i ord0 (MsgBcast loc0)]
-            = [MkDMsg loc0 loc0 ord0 (MsgBcast loc0),
-               MkDMsg loc0 loc1 ord0 (MsgBcast loc0)]) as h.
+    destruct (inck i k); auto.
+  Qed.
+
+  Lemma R_plus_eq_compat :
+    forall r1 r2 r3 r4 : R,
+      r1 = r2 -> r3 = r4 -> (r1 + r3)%R = (r2 + r4)%R.
+  Proof.
+    introv a b; subst; auto.
+  Qed.
+
+  Lemma R_mult_eq_compat :
+    forall r1 r2 r3 r4 : R,
+      r1 = r2 -> r3 = r4 -> (r1 * r3)%R = (r2 * r4)%R.
+  Proof.
+    introv a b; subst; auto.
+  Qed.
+
+  Lemma eq_match_inck :
+    forall {n} {A} (i : 'I_n) (k : nat) (F G : 'I_n -> A) H K,
+      (forall j, F j = G j)
+      -> H = K
+      -> match inck i k with
+         | Some j => F j
+         | None => H
+         end
+         = match inck i k with
+           | Some j => G j
+           | None => K
+           end.
+  Proof.
+    introv h q; subst.
+    destruct (inck i k); auto.
+  Qed.
+
+  Lemma Rle_trans_eq_r :
+    forall (r r1 r2 : R),
+      (r1 = r2)%R
+      -> (r <= r2)%R
+      -> (r <= r1)%R.
+  Proof.
+    introv h q; subst; auto.
+  Qed.
+
+  Lemma Rlt_trans_eq_r :
+    forall (r r1 r2 : R),
+      (r1 = r2)%R
+      -> (r < r2)%R
+      -> (r < r1)%R.
+  Proof.
+    introv h q; subst; auto.
+  Qed.
+
+  Lemma one1_m_prob_pos :
+    forall (p : prob), (0%R <= 1 - p)%R.
+  Proof.
+    introv.
+    apply ssrR.subR_ge0; auto.
+    apply prob_le1.
+  Qed.
+  Hint Resolve one1_m_prob_pos : prob.
+
+  Lemma ex_inck_is_some :
+    forall (t : time) (i : round),
+      (t + maxRound.+1) < maxTime.+1
+      -> {j : time & inck t i = Some j}.
+  Proof.
+    introv ltm.
+    unfold inck.
+    remember (lt_dec (i + t) maxTime.+1) as b; symmetry in Heqb; destruct b; simpl in *.
+    { eexists; eauto. }
+    destruct n.
+    eapply lt_trans;[|apply/ltP;eauto].
+    rewrite <- plusE.
+    rewrite Nat.add_comm.
+    apply plus_lt_compat_l; auto.
+    destruct i; simpl in *.
+    apply/ltP; auto.
+  Defined.
+
+  Lemma inck_is_some :
+    forall {t : time} {i : round} (p : t + maxRound.+1 < maxTime.+1),
+      inck t i = Some (projT1 (ex_inck_is_some t i p)).
+  Proof.
+    introv.
+    remember (ex_inck_is_some t i p) as b; symmetry in Heqb; exrepnd; simpl in *; auto.
+  Qed.
+
+  Lemma sum_distrr I (a : R) (a0 : (0 <= a)%R) r (P : pred I) F :
+    ((a * \sum_(i <- r | P i) F i)%R = \sum_(i <- r | P i) (a * F i)%R)%R.
+  Proof.
+    elim: r => [| h t IH].
+      by rewrite 2!big_nil ssrR.mulR0.
+      rewrite 2!big_cons.
+      case: ifP => Qh //.
+        by rewrite -IH Rmult_plus_distr_l.
+  Qed.
+
+  Lemma Rmult_INR_subst :
+    forall {A : eqType} (a b : A) (F : A -> R),
+      (INR (a == b) * F a)%R = (INR (a == b) * F b)%R.
+  Proof.
+    introv.
+    remember (a == b) as w; symmetry in Heqw; destruct w; simpl.
+    { move/eqP in Heqw; subst; auto. }
+    repeat rewrite Rmult_0_l; auto.
+  Qed.
+
+  Lemma swap_sums :
+    forall {A B : finType} (F : A -> B -> R),
+      (\sum_(a in A) \sum_(b in B) F a b
+       = \sum_(b in B) \sum_(a in A) F a b)%R.
+  Proof.
+    introv.
+    rewrite BigOp.bigopE; simpl.
+    unfold reducebig, ssrfun.comp, applybig; simpl.
+    remember (index_enum B) as lb.
+    remember (index_enum A) as la.
+    clear Heqla Heqlb.
+    revert lb.
+    induction la; introv; simpl.
+
+    { induction lb; simpl; auto.
+      rewrite <- IHlb; simpl; auto.
+      rewrite Rplus_0_r; auto. }
+
+    induction lb; simpl.
+
+    { rewrite Rplus_0_l; auto.
+      clear IHla.
+      induction la; simpl; auto.
+      rewrite IHla; simpl; auto.
+      rewrite Rplus_0_r; auto. }
+
+    repeat rewrite Rplus_assoc.
+    apply Rplus_eq_compat_l.
+    rewrite <- IHlb; clear IHlb.
+    rewrite <- Rplus_assoc.
+    rewrite (Rplus_comm (foldr (fun x : A => [eta Rplus (F x a0)]) R0 la)).
+    rewrite Rplus_assoc.
+    apply Rplus_eq_compat_l.
+    pose proof (IHla (a0 :: lb)) as IHla'; simpl in *.
+    rewrite IHla'.
+    apply Rplus_eq_compat_l; auto.
+  Qed.
+
+  Lemma foldr_of_sum_not_in_0 :
+    forall {A : finType} (a : A) F l,
+      (a \notin l)
+      -> (foldr (fun x => [eta Rplus (INR (x == a) * F x)]) R0 l)%R = 0%R.
+  Proof.
+    induction l; introv i; simpl in *; auto.
+    rewrite notin_cons in i.
+    move/andP in i; repnd.
+    rewrite IHl; auto.
+    remember (a0 == a) as b; symmetry in Heqb; destruct b; simpl; auto.
+    { move/eqP in Heqb; subst; move/negP in i0; destruct i0; auto. }
+    rewrite Rmult_0_l.
+    rewrite Rplus_0_l; auto.
+  Qed.
+
+  Lemma sum_Rmult_INR_subst :
+    forall {A : finType} (b : A) (F : A -> R),
+      (\sum_(a in A) INR (a == b) * F a)%R = F b.
+  Proof.
+    introv.
+    rewrite BigOp.bigopE; simpl.
+    unfold reducebig, ssrfun.comp, applybig; simpl.
+    pose proof (index_enum_uniq A) as u.
+    pose proof (mem_index_enum b) as i.
+    remember (index_enum A) as l; clear Heql.
+
+    induction l; simpl in *.
+    { inversion i. }
+
+    move/andP in u; repnd.
+    rewrite in_cons in i; move/orP in i; repndors.
+
+    { move/eqP in i; subst.
+      rewrite foldr_of_sum_not_in_0; auto.
+      rewrite Rplus_0_r; auto.
+      remember (a == a) as b; symmetry in Heqb; destruct b; simpl; auto.
+      { rewrite Rmult_1_l; auto. }
+      move/eqP in Heqb; tcsp. }
+
+    remember (a == b) as x; symmetry in Heqx; destruct x; simpl; auto.
+    { move/eqP in Heqx; subst.
+      move/negP in u0; tcsp. }
+    rewrite Rmult_0_l; auto.
+    rewrite IHl; auto.
+    rewrite Rplus_0_l; auto.
+  Qed.
+
+End Props.
+
+
+Hint Resolve one1_m_prob_pos : prob.
+Hint Resolve FDist.ge0 : prob.
+
+
+(* A simple example with only one initial message (could be a broadcast)
+   sent by one node, and all the other nodes, simply relay that message. *)
+Section Ex1.
+
+  Context { pProba    : ProbaParams  }.
+  Context { pMaxRound : nat }.
+  Context { pMaxTime  : nat }.
+
+  Definition pMaxMsgs := 2.
+
+  Global Instance BoundsParamsEx1 : BoundsParams :=
+    MkBoundsParams
+      pMaxRound
+      pMaxTime
+      pMaxMsgs.
+
+  Definition p_numNodes : nat := 2.
+
+  Inductive p_message :=
+  | MsgStart
+  | MsgBcast (l : 'I_p_numNodes)
+  | MsgEcho  (l : 'I_p_numNodes).
+
+  Definition p_message_nat (s : p_message) : 'I_3 * 'I_p_numNodes :=
+    match s with
+    | MsgStart => (@Ordinal 3 0 is_true_true, ord0)
+    | MsgBcast l => (@Ordinal 3 1 is_true_true, l)
+    | MsgEcho  l => (@Ordinal 3 2 is_true_true, l)
+    end.
+
+  Definition nat_p_message (n : 'I_3 * 'I_p_numNodes) :=
+    let (i,j) := n in
+    if nat_of_ord i == 0 then MsgStart else
+    if nat_of_ord i == 1 then MsgBcast j
+    else MsgEcho j.
+
+  Lemma p_message_cancel : cancel p_message_nat nat_p_message .
+  Proof.
+      by case.
+  Qed.
+
+  Definition p_message_eqMixin      := CanEqMixin p_message_cancel.
+  Canonical p_message_eqType        := Eval hnf in EqType (p_message) p_message_eqMixin.
+  Canonical p_message_of_eqType     := Eval hnf in [eqType of p_message].
+  Definition p_message_choiceMixin  := CanChoiceMixin p_message_cancel.
+  Canonical p_message_choiceType    := Eval hnf in ChoiceType (p_message) p_message_choiceMixin.
+  Canonical p_message_of_choiceType := Eval hnf in [choiceType of p_message].
+  Definition p_message_countMixin   := CanCountMixin p_message_cancel.
+  Canonical p_message_countType     := Eval hnf in CountType (p_message) p_message_countMixin.
+  Canonical p_message_of_countType  := Eval hnf in [countType of p_message].
+  Definition p_message_finMixin     := CanFinMixin p_message_cancel.
+  Canonical p_message_finType       := Eval hnf in FinType (p_message) p_message_finMixin.
+  Canonical p_message_of_finType    := Eval hnf in [finType of p_message].
+
+  Inductive p_state :=
+  (* records the number of received echos *)
+  | StateEchos (n : 'I_p_numNodes.+1).
+
+  Definition num_echos (s : p_state) : 'I_p_numNodes.+1 :=
+    match s with
+    | StateEchos n => n
+    end.
+
+  Definition inc_state (s : p_state) : p_state :=
+    match inc (num_echos s) with
+    | Some m => StateEchos m
+    | None => s
+    end.
+
+  Definition p_state_nat (s : p_state) : 'I_p_numNodes.+1 := num_echos s.
+
+  Definition nat_p_state (n : 'I_p_numNodes.+1) := StateEchos n.
+
+  Lemma p_state_cancel : cancel p_state_nat nat_p_state .
+  Proof.
+      by case.
+  Qed.
+
+  Definition p_state_eqMixin      := CanEqMixin p_state_cancel.
+  Canonical p_state_eqType        := Eval hnf in EqType (p_state) p_state_eqMixin.
+  Canonical p_state_of_eqType     := Eval hnf in [eqType of p_state].
+  Definition p_state_choiceMixin  := CanChoiceMixin p_state_cancel.
+  Canonical p_state_choiceType    := Eval hnf in ChoiceType (p_state) p_state_choiceMixin.
+  Canonical p_state_of_choiceType := Eval hnf in [choiceType of p_state].
+  Definition p_state_countMixin   := CanCountMixin p_state_cancel.
+  Canonical p_state_countType     := Eval hnf in CountType (p_state) p_state_countMixin.
+  Canonical p_state_of_countType  := Eval hnf in [countType of p_state].
+  Definition p_state_finMixin     := CanFinMixin p_state_cancel.
+  Canonical p_state_finType       := Eval hnf in FinType (p_state) p_state_finMixin.
+  Canonical p_state_of_finType    := Eval hnf in [finType of p_state].
+
+  Global Instance ProcParamsEx1 : ProcParams :=
+    MkProcParams
+      p_numNodes
+      [finType of p_message]
+      [finType of p_state].
+
+
+  (* 0 echos *)
+  Definition e0 := @Ordinal p_numNodes.+1 0 is_true_true.
+  (* 1 echo *)
+  Definition e1 := @Ordinal p_numNodes.+1 1 is_true_true.
+  (* 2 echo *)
+  Definition e2 := @Ordinal p_numNodes.+1 2 is_true_true.
+
+  Definition p_InitStates : StateFun :=
+    fun l => StateEchos e0.
+
+  Definition loc0  : location := @Ordinal p_numNodes 0 is_true_true.
+  Definition loc1  : location := @Ordinal p_numNodes 1 is_true_true.
+
+  Definition time0  : time := ord0.
+  Definition round0 : round := ord0.
+
+  Definition timen {n} (p : (n < maxTime.+1)%coq_nat) : time := Ordinal (n:=maxTime.+1) (m:=n) (introT ltP p).
+
+  Definition start : DMsg := MkDMsg loc0 loc0 time0 MsgStart.
+
+  Definition p_InitMessages : MsgFun :=
+    fun l => seq2queue (if l == loc0 then [start] else []).
+
+  Definition p_Upd : UpdFun :=
+    fun t l m s =>
+      match m with
+      | MsgStart =>
+        (* send a bcast to everyone *)
+        (s, seq2queue (codom [ffun i => MkDMsg l i t (MsgBcast l)]))
+      | MsgBcast i =>
+        (* send an echo to bcast's sender *)
+        (s, seq2queue [MkDMsg l i t (MsgEcho l)])
+      | MsgEcho j =>
+        (* count echos *)
+        (inc_state s, emQueue)
+      end.
+
+  Global Instance SMParamsEx1 : SMParams :=
+    MkSMParams
+      p_InitStates
+      p_InitMessages
+      p_Upd.
+
+  Definition received_2_echo (w : World) : bool :=
+    let t := world_time w in
+    match world_history w t with
+    | Some g =>
+      (* [loc0]'s state (the sender of the broadcast) *)
+      let st := point_state (g loc0) in
+      num_echos st == e2
+    | None => false
+    end.
+
+  Lemma compute_initial_messages :
+    flatten_queues [ffun i => (zip_global ord0 initGlobal (initInTransit ord0) i).2]
+    = codom [ffun i => MkDMsg loc0 i ord0 (MsgBcast loc0)].
+  Proof.
+    unfold flatten_queues.
+    unfold initInTransit.
+    unfold zip_global; simpl.
+    unfold p_InitMessages; simpl.
+    rewrite ffunE; simpl.
+
+    assert ([ffun i => ([ffun i0 =>
+                         let (s, o) :=
+                             run_point
+                               ord0 i0 (point_state (initGlobal i0))
+                               ([ffun l => seq2queue (if l == loc0 then [:: start] else [])] i0) in
+                         (update_state (initGlobal i0) s, seq2queue o)] i).2]
+            = [ffun i => seq2queue (if i == loc0 then codom [ffun x => MkDMsg loc0 x ord0 (MsgBcast loc0)] else [])]) as h.
+    { apply eq_ffun; introv; simpl.
+      repeat (rewrite ffunE; simpl).
+      rewrite (surjective_pairing (run_point ord0 x (p_InitStates x) (seq2queue (if x == loc0 then [:: start] else [])))); simpl.
+      remember (x == loc0) as b; symmetry in Heqb; destruct b;[|apply eq_FinList; auto].
+      move/eqP in Heqb; subst.
+      Opaque firstn.
+      simpl; rewrite firstn_all2; simpl; try rewrite cats0; auto.
+      Transparent firstn.
+      rewrite length_as_size.
+      rewrite size_codom; simpl; auto.
+      rewrite card_ord; auto. }
+
+    rewrite h; clear h; simpl.
+    simpl.
+    repeat rewrite codomE.
+    repeat rewrite <- map_comp.
+    unfold ssrfun.comp; simpl.
+    repeat rewrite codomE.
+    simpl.
+    rewrite flatten_single_queue; auto.
+
+    { apply enum_uniq. }
+
+    { apply/mapP; simpl.
+      exists loc0; auto.
+      apply mem_index_enum. }
+
+    rewrite length_as_size.
+    rewrite size_map; simpl.
+    rewrite size_enum_ord; auto.
+  Qed.
+
+  (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
+  Lemma evalDist_deliver_initial_messages :
+    forall (t : time)
+           (ct : t + maxRound.+1 < maxTime.+1)
+           (F : location -> DMsg) (I : InTransit) (a : OpInTransit),
+      (((1-LostProb)^2 *
+        \sum_(i in round)
+         \sum_(j in round)
+         RcvdDist maxRound i *
+        RcvdDist maxRound j *
+        INR
+          (a ==
+           Some
+             (upd_finfun
+                (upd_finfun I (projT1 (ex_inck_is_some t i ct)) (add_to_queues (F loc0)))
+                (projT1 (ex_inck_is_some t j ct))
+                (add_to_queues (F loc1)))))%R
+       <= evalDist (deliver_messages t (codom [ffun i => F i]) I) a)%R.
+  Proof.
+    introv.
+    assert (codom [ffun i => F i] = [F loc0, F loc1]) as h.
     { unfold codom; simpl; auto.
       unfold image_mem; simpl.
       rewrite ssr_ext.enum_inord; simpl.
@@ -1427,17 +1658,77 @@ Section Ex1.
     simpl.
     repeat (rewrite FDistBind_bin; simpl).
     repeat (rewrite FDist1.dE; simpl).
-    rewrite FDistBind.dE; simpl.
-Print Binary.d.
+    repeat (rewrite FDistBind.dE; simpl).
 
-(* TODO:
-   - 1-LostDist is actually for lost and LostDist for not lost
+    eapply Rle_trans_eq_r.
+    { apply R_plus_eq_compat.
+      { apply R_mult_eq_compat;[reflexivity|].
+        apply R_plus_eq_compat;[reflexivity|].
+        apply R_mult_eq_compat;[reflexivity|].
+        apply eq_bigr; introv j.
+        rewrite (inck_is_some ct); simpl.
+        apply R_mult_eq_compat;[reflexivity|].
+        rewrite FDist1.dE; simpl; reflexivity. }
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      apply R_mult_eq_compat;[reflexivity|].
+      rewrite (inck_is_some ct); simpl.
+      rewrite FDistBind_bin; simpl.
+      rewrite FDist1.dE; simpl.
+      apply R_plus_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      rewrite FDistBind.dE; simpl.
+      apply eq_bigr; introv k.
+      apply R_mult_eq_compat;[reflexivity|].
+      rewrite (inck_is_some ct); simpl.
+      rewrite FDist1.dE; simpl; reflexivity. }
 
- *)
+    simpl.
+    rewrite Rmult_1_r.
+
+    match goal with
+    | [ |- (?x <= _)%R] => rewrite <- (Rplus_0_l x)
+    end.
+    apply Rplus_le_compat.
+
+    { repeat (first [apply ssrR.mulR_ge0; auto
+                    |apply one1_m_prob_pos; auto
+                    |apply ssrR.addR_ge0; auto
+                    |apply ssrR.leR0n]).
+      apply rsumr_ge0; introv j.
+      apply ssrR.mulR_ge0; auto.
+      { apply FDist.ge0. }
+      apply ssrR.leR0n. }
+
+    rewrite Rmult_assoc.
+    apply Rmult_le_compat_l;[apply one1_m_prob_pos; auto|].
+    rewrite sum_distrr; eauto 3 with prob.
+
+    apply ler_rsum; introv j.
+    rewrite Rmult_plus_distr_l.
+
+    match goal with
+    | [ |- (?x <= _)%R] => rewrite <- (Rplus_0_l x)
+    end.
+    apply Rplus_le_compat.
+
+    { repeat (first [apply ssrR.mulR_ge0; auto
+                    |apply one1_m_prob_pos; auto
+                    |apply ssrR.addR_ge0; auto
+                    |apply ssrR.leR0n]).
+      apply FDist.ge0. }
+
+    repeat (rewrite sum_distrr; eauto 3 with prob; try apply FDist.ge0).
+    apply ler_rsum; introv k.
+    rewrite <- Rmult_assoc.
+    rewrite <- Rmult_assoc.
+    rewrite (Rmult_comm (1-LostProb)).
+    repeat (rewrite Rmult_assoc).
+    apply Rle_refl.
   Qed.
 
-
   (* TODO: We shouldn't need the bounds [lbound] and [n] since [steps2dist'] returns true when time runs out*)
+  (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
   Lemma ex1 :
     (* [lbound] is the number of steps that we allow ourselves *)
     exists (lbound : nat),
@@ -1445,7 +1736,7 @@ Print Binary.d.
       forall (n : nat),
         (maxTime > n)%nat ->
         (n > lbound)%nat ->
-        ((\sum_(i in 'I_p_numNodes) (1-LostDist)^2)%R
+        ((\sum_(i in 'I_p_numNodes) (1-LostProb)^2)%R (* TODO: update, it will be slightly more complicated than this to take delays into consideration *)
                          < Pr (steps2dist n received_2_echo) (finset.set1 true))%R.
   Proof.
     exists (2 * (maxRound + 1))%nat; introv gtn ltn.
@@ -1462,7 +1753,7 @@ Print Binary.d.
     rewrite ffunE; simpl.
 
     unfold inc; simpl.
-    assert (0 < pMaxTime) as mg0 by (eapply ltn_trans;[|eauto]; auto).
+    assert (0 < maxTime) as mg0 by (eapply ltn_trans;[|eauto]; auto).
     destruct (lt_dec 1 (pMaxTime.+1)); simpl;[|destruct n0; auto;apply/ltP; auto];[].
 
     rewrite compute_initial_messages.
@@ -1472,10 +1763,10 @@ Print Binary.d.
     | [ |- (_ < ?z)%R] =>
       assert (z = FDistBind.d
      (evalDist
-        (deliver_messages ord0
+        (deliver_messages (timen l)
            (codom [ffun i => MkDMsg loc0 i ord0 (MsgBcast loc0)])
            initInTransit))
-     (fun x : option InTransit =>
+     (fun x : OpInTransit =>
         let x0 := option_map
                     [eta MkWorld (Ordinal (n:=pMaxTime.+1) (m:=1) (introT ltP l))
                          (upd_finfun [ffun t => if t == ord0 then Some initGlobal else None]
@@ -1488,15 +1779,141 @@ Print Binary.d.
       rewrite FDistBind1f; auto. }
     simpl.
 
-(*
-    rewrite FDistBind.dE; simpl.
+    assert (timen l + pMaxRound.+1 < pMaxTime.+1) as ct.
+    { apply/ltP; apply lt_n_S.
+      eapply lt_trans; apply/ltP;[|exact gtn].
+      apply/ltP; eapply le_lt_trans;[|apply/ltP;exact ltn].
+      rewrite addn1; apply le_n_2n. }
 
-    (* XXXXXXXXXXXXXXX *)
-    unfold zip_global at 1; simpl.
-    unfold flatten_queues at 1; simpl.
-    unfold codom; simpl.
-    unfold initInTransit; simpl.
-*)
+    rewrite FDistBind.dE; simpl.
+    eapply Rlt_le_trans.
+    2:{ pose proof (@ler_rsum OpInTransit) as w; apply w; clear w; introv j.
+        apply Rmult_le_compat_r; eauto 3 with prob.
+        apply (evalDist_deliver_initial_messages _ ct). }
+    simpl.
+    repeat rewrite Rmult_1_r.
+
+    eapply Rlt_trans_eq_r.
+    { apply eq_bigr; introv k.
+      repeat (rewrite Rmult_assoc); reflexivity. }
+    repeat (rewrite <- sum_distrr; eauto 2 with prob;[]).
+
+    eapply Rlt_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv k.
+      rewrite Rmult_comm.
+      eapply transitivity;[apply sum_distrr|]; eauto 2 with prob; simpl;[].
+      apply eq_bigr; introv j.
+      eapply transitivity;[apply sum_distrr|]; eauto 2 with prob; simpl;[].
+      apply eq_bigr; introv u.
+      rewrite Rmult_comm.
+      rewrite Rmult_assoc.
+      reflexivity. }
+    simpl.
+
+    eapply Rlt_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      rewrite swap_sums.
+      apply eq_bigr; introv j.
+      rewrite swap_sums.
+      apply eq_bigr; introv k.
+      rewrite <- sum_distrr;[|apply ssrR.mulR_ge0;apply FDist.ge0].
+      reflexivity. }
+    simpl.
+
+    eapply Rlt_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      apply eq_bigr; introv k.
+      apply R_mult_eq_compat;[reflexivity|].
+      apply sum_Rmult_INR_subst. }
+    simpl.
+
+    assert ([ffun i1 => (zip_global ord0 initGlobal (initInTransit ord0) i1).1] = initGlobal) as eqs.
+    { apply eq_ffun; introv; simpl.
+      unfold zip_global; simpl.
+      unfold initInTransit; simpl.
+      repeat (rewrite ffunE; simpl).
+      remember (x == loc0) as b; symmetry in Heqb; destruct b; simpl in *; auto. }
+    rewrite eqs; clear eqs.
+
+    assert (upd_finfun [ffun t => if t == ord0 then Some initGlobal else None]
+                       (Ordinal (n:=pMaxTime.+1) (m:=1) (introT ltP l))
+                       (fun=> Some initGlobal)
+            = [ffun t => if nat_of_ord t <= 1 then Some initGlobal else None]) as eqs.
+    { apply eq_ffun; introv; simpl.
+      remember (x == timen l) as b; symmetry in Heqb; rewrite Heqb.
+      destruct b; simpl in *; move/eqP in Heqb; subst; simpl in *; auto;[].
+      repeat (rewrite ffunE; simpl).
+      remember (x == ord0) as c; symmetry in Heqc; try rewrite Heqc.
+      destruct c; simpl in *; move/eqP in Heqc; subst; simpl in *; auto;[].
+      remember (x <= 1) as d; symmetry in Heqd; try rewrite Heqd.
+      destruct d; simpl in *; auto.
+      move/leP in Heqd; auto.
+      destruct x as [x xc]; simpl in *.
+      destruct x; simpl in *.
+      { destruct Heqc.
+        unfold ord0.
+        assert (xc = ltn0Sn pMaxTime) as xx by (apply UIP_dec; apply bool_dec); subst; auto. }
+      destruct x; simpl in *;[|move/leP in Heqd; inversion Heqd].
+      destruct Heqb.
+      unfold timen.
+      assert (xc = introT ltP l) as xx by (apply UIP_dec; apply bool_dec); subst; auto. }
+    rewrite eqs; clear eqs.
+
+Set Nested Proofs Allowed.
+
+Lemma advance_state1 :
+  forall (n : nat)
+         (ia ib : round)
+         (p1 : (1 < maxTime.+1)%coq_nat)
+         (ct : time0 + pMaxRound.+1 < pMaxTime.+1)
+         (li : ia <= ib)
+         (r  : nat)
+         (cr : 1 <= r <= ia)
+         (pr : (r < maxTime.+1)%coq_nat),
+    (FDistBind.d
+       (evalDist
+          (steps n
+                 (MkWorld
+                    (timen p1)
+                    [ffun t => if (nat_of_ord t <= 1)%nat then Some initGlobal else None]
+                    (upd_finfun
+                       (upd_finfun initInTransit (projT1 (ex_inck_is_some time0 ia ct))
+                                   (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                       (projT1 (ex_inck_is_some time0 ib ct))
+                       (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+       (fun b : option World => evalDist (liftF received_2_echo b))
+       true
+     = FDistBind.d
+         (evalDist
+            (steps (n-r)
+                   (MkWorld
+                      (timen pr)
+                      (upd_finfun [ffun t => if (nat_of_ord t <= r)%nat then Some initGlobal else None]
+                                  (timen p1)
+                                  (fun=> Some [ffun=> MkCPoint (StateEchos e0)]))
+                      (upd_finfun
+                         (upd_finfun initInTransit (projT1 (ex_inck_is_some time0 ia ct))
+                                     (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                         (projT1 (ex_inck_is_some time0 ib ct))
+                         (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+         (fun b : option World => evalDist (liftF received_2_echo b))
+         true)%R.
+Proof.
+  induction r; introv cr; introv; simpl in *.
+
+  { rewrite <- minusE.
+    rewrite minus0.
+    auto.
+SearchAbout (_ - 0)%coq_nat.
+Qed.
+
+
+XXXXXXXXXXXX
 
   Abort.
 
