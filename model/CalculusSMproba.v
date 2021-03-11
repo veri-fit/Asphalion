@@ -962,7 +962,6 @@ Section World.
   (* the function [f] is organized by senders, while we want it organized by receivers *)
   Definition senders2receivers (f : Queues) : Queues :=
     [ffun i => get_msgs_to i (codom f)].
-
   Definition flatten_queues (qs : Queues) : seq DMsg :=
     flatten (map (fLval _ _) (codom qs)).
 
@@ -1727,6 +1726,247 @@ Section Ex1.
     apply Rle_refl.
   Qed.
 
+  (* TODO: we could easily generalize this to multiple updates for later rounds *)
+  Lemma empty_queue_in_two_upd :
+    forall (ia ib : round)
+           (p1 : (1 < maxTime.+1)%coq_nat)
+           (ct : 1 + pMaxRound.+1 < pMaxTime.+1)
+           (r  : nat)
+           (c0 : 0 < r)
+           (cr : r <= ia <= ib \/ r <= ib <= ia)
+           (pr1 : (r < maxTime.+1)%coq_nat),
+      upd_finfun
+        (upd_finfun initInTransit (projT1 (ex_inck_is_some (timen p1) ia ct))
+                    (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+        (projT1 (ex_inck_is_some (timen p1) ib ct))
+        (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))
+        (timen pr1)
+      = emQueues.
+  Proof.
+    introv lr0 lr; introv.
+    unfold upd_finfun.
+    repeat (rewrite ffunE; simpl).
+
+    remember (ex_inck_is_some (timen p1) ia ct) as k; exrepnd; simpl in *; clear Heqk.
+    unfold inck in *; simpl in *.
+    remember (lt_dec (ia + 1) pMaxTime.+1) as z; destruct z; simpl in *; clear Heqz; ginv; simpl in *.
+    remember (timen pr1 == Ordinal (n:=pMaxTime.+1) (m:=ia + 1) (introT ltP l)) as k; symmetry in Heqk.
+    destruct k; simpl in *.
+
+    { move/eqP in Heqk.
+      inversion Heqk; subst; tcsp.
+      rewrite addn1 in lr.
+      repndors; move/andP in lr; repnd.
+      { move/ltP in lr1; apply Nat.lt_irrefl in lr1; tcsp. }
+      assert (ia < ia) as xx by (move/ltP in lr1; move/leP in lr; apply/ltP; eapply lt_le_trans; eauto).
+      move/ltP in xx; apply Nat.lt_irrefl in xx; tcsp. }
+    clear Heqk.
+
+    remember (ex_inck_is_some (timen p1) ib ct) as k; exrepnd; simpl in *; clear Heqk.
+    unfold inck in *; simpl in *.
+    remember (lt_dec (ib + 1) pMaxTime.+1) as z; destruct z; simpl in *; clear Heqz; ginv; simpl in *.
+    remember (timen pr1 == Ordinal (n:=pMaxTime.+1) (m:=ib + 1) (introT ltP l0)) as k; symmetry in Heqk.
+    destruct k; simpl in *.
+
+    { move/eqP in Heqk.
+      inversion Heqk; subst; tcsp.
+      assert (ib + 1 <= ib) as xx.
+      { repndors;move/andP in lr; repnd; auto.
+        eapply leq_trans; eauto. }
+      rewrite addn1 in xx.
+      move/ltP in xx; apply Nat.lt_irrefl in xx; tcsp. }
+    clear Heqk.
+
+    remember (timen pr1 == ord0) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto.
+    move/eqP in Heqb; simpl in *.
+    inversion Heqb; subst.
+    inversion lr0.
+  Qed.
+
+  Lemma flatten_queues_zip_global_emqQueues :
+    forall (t : time),
+      flatten_queues [ffun i => (zip_global t initGlobal emQueues i).2] = [].
+  Proof.
+    introv; unfold flatten_queues; simpl.
+    unfold zip_global, emQueues; simpl.
+    eapply transitivity.
+    { apply eq_flattens.
+      apply eq_maps;[|introv i; reflexivity].
+      apply eq_codom; introv.
+      repeat (rewrite ffunE; simpl); reflexivity. }
+
+    unfold codom; simpl.
+    unfold image_mem; simpl.
+    rewrite <- map_comp.
+    unfold ssrfun.comp; simpl.
+
+    remember (fintype.enum 'I_p_numNodes) as l; symmetry in Heql; rewrite Heql; clear Heql.
+    induction l; simpl; auto.
+  Qed.
+
+  (* As they are no messages in transit between [1] and [ia], we can advance there.
+   We just have to fill in the states.
+   *)
+  Lemma advance_state1 :
+    forall (n : nat)
+           (ia ib : round)
+           (p1 : (1 < maxTime.+1)%coq_nat)
+           (ct : 1 + pMaxRound.+1 < pMaxTime.+1)
+           (r  : nat)
+           (cr : r <= ia <= ib \/ r <= ib <= ia)
+           (cn : r <= n)
+           (pr : (r.+1 < maxTime.+1)%coq_nat),
+      (FDistBind.d
+         (evalDist
+            (steps n
+                   (MkWorld
+                      (timen p1)
+                      [ffun t => if (nat_of_ord t <= 1)%nat then Some initGlobal else None]
+                      (upd_finfun
+                         (upd_finfun initInTransit (projT1 (ex_inck_is_some (timen p1) ia ct))
+                                     (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                         (projT1 (ex_inck_is_some (timen p1) ib ct))
+                         (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+         (fun b : option World => evalDist (liftF received_2_echo b))
+         true
+       = FDistBind.d
+           (evalDist
+              (steps (n-r)
+                     (MkWorld
+                        (timen pr)
+                        [ffun t => if (nat_of_ord t <= r.+1)%nat then Some initGlobal else None]
+                        (upd_finfun
+                           (upd_finfun initInTransit (projT1 (ex_inck_is_some (timen p1) ia ct))
+                                       (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                           (projT1 (ex_inck_is_some (timen p1) ib ct))
+                           (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+           (fun b : option World => evalDist (liftF received_2_echo b))
+           true)%R.
+  Proof.
+    induction r; introv cr cn; introv; simpl in *.
+
+    { rewrite <- minusE.
+      rewrite minus0.
+      assert (p1 = pr) as xx by apply lt_irrelevance; subst; auto. }
+
+    repeat (autodimp IHr hyp).
+
+    { repndors; [left|right]; move/andP in cr; apply/andP; repnd; dands; auto. }
+
+    assert (r.+1 < pMaxTime.+1)%coq_nat as pr1.
+    { eapply lt_trans;[|eauto].
+      apply Nat.lt_succ_diag_r. }
+    pose proof (IHr pr1) as IHr.
+    rewrite IHr; clear IHr.
+
+    assert (n - r = (n - r.+1).+1) as xx.
+    { rewrite subnS.
+      rewrite Nat.succ_pred_pos; auto.
+      apply lt_minus_O_lt; apply/ltP; auto. }
+    rewrite xx; clear xx.
+    simpl.
+    rewrite FDistBindA; simpl.
+
+    unfold step at 1; simpl; unfold initHistory; simpl.
+    rewrite ffunE; simpl.
+
+    remember (r < r.+1) as b; symmetry in Heqb; destruct b;
+      [|move/negP in Heqb; destruct Heqb; auto];[].
+
+    unfold inc; simpl.
+    destruct (lt_dec r.+2 (pMaxTime.+1)); simpl;[|destruct n0; auto;apply/ltP; auto];[].
+    rewrite empty_queue_in_two_upd; auto;[].
+    rewrite flatten_queues_zip_global_emqQueues; simpl.
+    rewrite FDistBind1f; simpl.
+    rewrite FDistBind1f; simpl.
+
+    assert (pr = l) as xx by apply lt_irrelevance; subst; auto.
+
+    assert (upd_finfun [ffun t => if nat_of_ord t <= r.+1 then Some initGlobal else None]
+                       (Ordinal (n:=pMaxTime.+1) (m:=r.+2) (introT ltP l))
+                       (fun=> Some [ffun i => (zip_global (timen pr1) initGlobal emQueues i).1])
+            = [ffun t => if nat_of_ord t <= r.+2 then Some initGlobal else None]) as xx;[|rewrite xx;auto];[].
+    unfold upd_finfun.
+    apply eq_ffun; introv; simpl in *.
+    repeat (rewrite ffunE; simpl).
+
+    remember (x == Ordinal (n:=pMaxTime.+1) (m:=r.+2) (introT ltP l)) as k; symmetry in Heqk; rewrite Heqk.
+    destruct k; auto.
+
+    { move/eqP in Heqk; subst; simpl in *.
+      remember (r.+1 < r.+2) as k; symmetry in Heqk; destruct k.
+
+      { f_equal.
+        unfold initGlobal.
+        apply eq_ffun; introv; simpl in *.
+        unfold zip_global, emQueues; simpl.
+        repeat (rewrite ffunE; simpl); auto. }
+
+      move/ltP in Heqk; destruct Heqk.
+      apply Nat.lt_succ_diag_r. }
+
+    move/eqP in Heqk.
+    destruct x as [x cx]; simpl in *.
+
+    remember (x <= r.+1) as z; symmetry in Heqz; destruct z.
+
+    { move/leP in Heqz.
+      remember (x <= r.+2) as w; symmetry in Heqw; destruct w; auto.
+      move/leP in Heqw; destruct Heqw; auto. }
+
+    move/leP in Heqz.
+    remember (x <= r.+2) as w; symmetry in Heqw; destruct w; auto.
+    move/leP in Heqw.
+    apply Nat.le_succ_r in Heqw; destruct Heqw; tcsp; subst.
+    destruct Heqk; f_equal; apply UIP_dec; apply bool_dec.
+  Qed.
+
+  Lemma advance_state2 :
+    forall (n : nat)
+           (ia ib : round)
+           (p1 : (1 < maxTime.+1)%coq_nat)
+           (ct : 1 + pMaxRound.+1 < pMaxTime.+1)
+           (la : ia <= n)
+           (pr : ((min ia ib).+1 < maxTime.+1)%coq_nat),
+      (FDistBind.d
+         (evalDist
+            (steps n
+                   (MkWorld
+                      (timen p1)
+                      [ffun t => if (nat_of_ord t <= 1)%nat then Some initGlobal else None]
+                      (upd_finfun
+                         (upd_finfun initInTransit (projT1 (ex_inck_is_some (timen p1) ia ct))
+                                     (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                         (projT1 (ex_inck_is_some (timen p1) ib ct))
+                         (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+         (fun b : option World => evalDist (liftF received_2_echo b))
+         true
+       = FDistBind.d
+           (evalDist
+              (steps (n-(min ia ib))
+                     (MkWorld
+                        (timen pr)
+                        [ffun t => if (nat_of_ord t <= (min ia ib).+1)%nat then Some initGlobal else None]
+                        (upd_finfun
+                           (upd_finfun initInTransit (projT1 (ex_inck_is_some (timen p1) ia ct))
+                                       (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
+                           (projT1 (ex_inck_is_some (timen p1) ib ct))
+                           (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
+           (fun b : option World => evalDist (liftF received_2_echo b))
+           true)%R.
+  Proof.
+    introv la; introv; simpl in *.
+    apply advance_state1.
+    { destruct (le_dec ia ib) as [u|u].
+      { left; apply/andP; dands; auto;[|apply/leP;auto].
+        apply/leP; apply Min.le_min_l. }
+      apply Nat.nle_gt in u; move/ltP in u.
+      right; apply/andP; dands; auto;[].
+      apply/leP; apply Min.le_min_r. }
+    apply/leP; apply Nat.min_le_iff; left.
+    apply/leP; auto.
+  Qed.
+
   (* TODO: We shouldn't need the bounds [lbound] and [n] since [steps2dist'] returns true when time runs out*)
   (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
   Lemma ex1 :
@@ -1864,53 +2104,28 @@ Section Ex1.
       assert (xc = introT ltP l) as xx by (apply UIP_dec; apply bool_dec); subst; auto. }
     rewrite eqs; clear eqs.
 
-Set Nested Proofs Allowed.
+    eapply Rlt_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      apply eq_bigr; introv k.
+      apply R_mult_eq_compat;[reflexivity|].
+      assert (i < n) as u.
+      { destruct i; simpl in *; clear j.
+        move/ltP in ltn; apply lt_n_Sm_le in ltn.
+        apply/ltP; eapply lt_le_trans;[|eauto].
+        eapply lt_le_trans;[|apply le_n_2n].
+        rewrite addn1; apply/ltP; auto. }
+      assert (i <= n) as v by (apply ltnW; auto).
+      assert (((Init.Nat.min i i0).+1 < maxTime.+1)%coq_nat) as z.
+      { apply lt_n_S.
+        eapply le_lt_trans;[apply Nat.le_min_l|].
+        move/ltP in u; eapply lt_trans;[exact u|].
+        move/ltP in gtn; eapply lt_trans;[|exact gtn]; auto. }
+      pose proof (advance_state2 n i i0 l ct v z) as w.
+      rewrite w; clear w.
 
-Lemma advance_state1 :
-  forall (n : nat)
-         (ia ib : round)
-         (p1 : (1 < maxTime.+1)%coq_nat)
-         (ct : time0 + pMaxRound.+1 < pMaxTime.+1)
-         (li : ia <= ib)
-         (r  : nat)
-         (cr : 1 <= r <= ia)
-         (pr : (r < maxTime.+1)%coq_nat),
-    (FDistBind.d
-       (evalDist
-          (steps n
-                 (MkWorld
-                    (timen p1)
-                    [ffun t => if (nat_of_ord t <= 1)%nat then Some initGlobal else None]
-                    (upd_finfun
-                       (upd_finfun initInTransit (projT1 (ex_inck_is_some time0 ia ct))
-                                   (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
-                       (projT1 (ex_inck_is_some time0 ib ct))
-                       (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-       (fun b : option World => evalDist (liftF received_2_echo b))
-       true
-     = FDistBind.d
-         (evalDist
-            (steps (n-r)
-                   (MkWorld
-                      (timen pr)
-                      (upd_finfun [ffun t => if (nat_of_ord t <= r)%nat then Some initGlobal else None]
-                                  (timen p1)
-                                  (fun=> Some [ffun=> MkCPoint (StateEchos e0)]))
-                      (upd_finfun
-                         (upd_finfun initInTransit (projT1 (ex_inck_is_some time0 ia ct))
-                                     (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
-                         (projT1 (ex_inck_is_some time0 ib ct))
-                         (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-         (fun b : option World => evalDist (liftF received_2_echo b))
-         true)%R.
-Proof.
-  induction r; introv cr; introv; simpl in *.
-
-  { rewrite <- minusE.
-    rewrite minus0.
-    auto.
-SearchAbout (_ - 0)%coq_nat.
-Qed.
+(* We're now ready to handle one of the messages in-transit or both (if they're delivered at the same time) *)
 
 
 XXXXXXXXXXXX
