@@ -527,6 +527,7 @@ Section Msg.
   Definition location : finType := [finType of 'I_numNodes].
   Definition time     : finType := [finType of 'I_maxTime.+1].
 
+  Definition msgObs := message -> bool.
 
   Record DMsg :=
     MkDMsg
@@ -1045,7 +1046,8 @@ Section World.
     | S m => Bind (f a) (liftN (iterate m f))
     end.
 
-  Definition steps (n : nat) (w : World) : Comp [finType of option World] := iterate n step w.
+  Definition steps (n : nat) (w : World) : Comp [finType of option World] :=
+    iterate n step w.
 
   Definition liftF {A : finType} (f : A -> bool) (o : option A) : Comp [finType of bool] :=
     match o with
@@ -1066,6 +1068,60 @@ Section World.
   (* [true] when proving lower bounds, to set the probability of halted executions to 1 *)
   Definition steps2dist' (n : nat) (F : World -> bool) : fdist [finType of bool] :=
     evalDist (Bind (steps n initWorld) (liftT F)).
+
+
+  (* Here is variant of [steps2dist] where instead of requiring exactly [n] steps, we require at most [n] steps *)
+  Definition liftNUpTo {A : finType} (f : A -> Comp [finType of bool]) (g : A -> bool) (o : option A) : Comp [finType of bool] :=
+    match o with
+    | Some a => if g a then Ret true else f a
+    | None => Ret false
+    end.
+
+  Fixpoint iterateUpTo {A : finType} (n : nat) (f : A -> Comp [finType of option A]) (g : A -> bool) (a : A) : Comp [finType of bool] :=
+    match n with
+    | 0 => Ret (g a)
+    | S m => Bind (f a) (liftNUpTo (iterateUpTo m f g) g)
+    end.
+
+  Definition stepsUpTo (n : nat) (w : World) (F : World -> bool) : Comp [finType of bool] :=
+    iterateUpTo n step F w.
+
+  Definition stepsUpTo2dist (n : nat) (F : World -> bool) : fdist [finType of bool] :=
+    evalDist (stepsUpTo n initWorld F).
+
+
+  (* Counting messages in a world *)
+  Fixpoint num_msgs_in_queue (o : msgObs) (ms : seq DMsg) : nat :=
+    match ms with
+    | [] => 0
+    | m :: ms =>
+      if o (dmsg_msg m) then S (num_msgs_in_queue o ms)
+      else num_msgs_in_queue o ms
+    end.
+
+  Fixpoint num_msgs_in_queues (o : msgObs) (qs : seq Queue) : nat :=
+    match qs with
+    | [] => 0
+    | q :: qs => num_msgs_in_queue o q + num_msgs_in_queues o qs
+    end.
+
+  Fixpoint num_msgs_intransit (o : msgObs) (i : seq Queues) : nat :=
+    match i with
+    | [] => 0
+    | qs :: i => num_msgs_in_queues o (fgraph qs) + num_msgs_intransit o i
+    end.
+
+  Definition obs_intransit (n : nat) (o : msgObs) (w : World) : bool :=
+    num_msgs_intransit o (fgraph (world_intransit w)) == n.
+
+  Definition num_intransit_at (o : msgObs) (w : World) (t : time) : nat :=
+    num_msgs_in_queues o (fgraph (world_intransit w t)).
+
+
+  (* Non-halted worlds are worlds that are set to [Some] up to the current time *)
+  Definition non_halted_world (w : World) :=
+    forall t' : time, t' <= world_time w -> isSome (world_history w t').
+
 End World.
 
 
@@ -1075,6 +1131,7 @@ Section Props.
   Context { pProba  : ProbaParams  }.
   Context { pBounds : BoundsParams }.
   Context { pProc   : ProcParams   }.
+  Context { pSM     : SMParams     }.
 
   Lemma eq_fdists :
     forall (A : finType) (a b : fdist A),
@@ -1416,6 +1473,167 @@ Section Props.
     rewrite Rplus_0_l; auto.
   Qed.
 
+  Lemma sum_option :
+    forall (T : finType) (F : option T -> R),
+      ((\sum_(a in [finType of option T]) (F a))
+       = F None + (\sum_(a in T) (F (Some a))))%R.
+  Proof.
+    introv.
+    rewrite BigOp.bigopE; simpl.
+    unfold reducebig, ssrfun.comp, applybig; simpl.
+    unfold index_enum; simpl.
+    repeat (rewrite Finite.EnumDef.enumDef; simpl).
+    rewrite foldr_map; auto.
+  Qed.
+
+  (* An alternative definition of [deliver_messages] and [step]
+     that threads the computation in [deliver_messages] instead
+     of calling [Bind] *)
+  Fixpoint deliver_messages'
+           (t : time)
+           {T : finType}
+           (F : option InTransit -> Comp T)
+           (s : seq DMsg)
+           (I : InTransit) : Comp T :=
+    match s with
+    | [] => F (Some I)
+    | m :: ms =>
+      Bind Lost
+           (fun b =>
+              if b (* lost *)
+              then deliver_messages' t F ms I
+              else (* message is received by t+maxRound *)
+                Bind pickRound
+                     (fun (r : round) =>
+                        (* messages is supposed to be delivered by t+r *)
+                        match inck t r with
+                        | Some t' => deliver_messages' t F ms (upd_finfun I t' (add_to_queues m))
+                        (* we stop when the time bound is not large enough to deliver a message *)
+                        | None => F None
+                        end))
+    end.
+
+  Definition step' (w : World) : Comp [finType of option World] :=
+    (* current time *)
+    let t := world_time w in
+    let H := world_history w in
+    let I := world_intransit w in
+    match H t with
+    | Some ps => (* [ps] is the world at the current time [t] *)
+      (* we compute the messages that need to be computed at time [t] *)
+      let qs := I t in
+      (* We now apply the points in [ps] to the queues in [qs].
+         We obtain new points and outgoing messages *)
+      let (ps',out) := run_global t ps qs in
+      match inc t with
+      | Some t' =>
+        (* we compute the new history -- we set up the new states (for the next time) *)
+        let H' := upd_finfun H t' (fun _ => Some ps') in
+        (* we compute the new messages in transit *)
+        deliver_messages' t' (fun o => Ret (option_map (fun i => MkWorld t' H' i) o)) out I
+      | None => Ret None
+      end
+
+    (* No world recorded at time [t] *)
+    | None => Ret (increment_time w)
+    end.
+
+  Lemma step_as_step' :
+    forall w,
+      evalDist (step w)
+      = evalDist (step' w).
+  Proof.
+    introv.
+    apply eq_fdists; introv.
+    unfold step, step'.
+    destruct w as [t H I]; simpl.
+    remember (H t) as h; symmetry in Heqh; rewrite Heqh; simpl in *.
+    destruct h; simpl; auto;[].
+    remember (inc t) as i; symmetry in Heqi; destruct i; simpl in *; auto.
+    remember (flatten_queues [ffun i => (zip_global t f (I t) i).2]) as l; symmetry in Heql.
+    rewrite Heql; clear Heql.
+
+    match goal with
+    | [ |- context[upd_finfun ?a ?b ?c] ] => remember c as k; clear Heqk
+    end.
+    revert x I.
+    induction l; introv; simpl; auto.
+
+    { rewrite FDistBind1f; auto. }
+
+    rewrite FDistBindA.
+    apply FDistBind_d_equal2; auto;[].
+    introv.
+    destruct x0; simpl in *; auto.
+
+    { apply eq_fdists; introv; auto. }
+
+    rewrite FDistBindA; simpl.
+    apply FDistBind_d_equal; auto;[].
+    introv.
+    destruct (inck o x0); simpl in *; auto;[|rewrite FDistBind1f; auto].
+    apply eq_fdists; introv; auto.
+  Qed.
+
+  Lemma bind_eval_dist_deliver_messages'_eq :
+    forall (t : time)
+           {T : finType}
+           (F : InTransit -> T)
+           (s : seq DMsg)
+           (I : InTransit)
+           {U : finType}
+           (G : option T -> Comp [finType of option U]),
+      FDistBind.d
+        (evalDist (deliver_messages' t (fun o => Ret (option_map F o)) s I))
+        (fun o => evalDist (G o))
+      = evalDist (deliver_messages' t (fun o => G (option_map F o)) s I).
+  Proof.
+    introv.
+    apply eq_fdists; introv.
+    revert x I.
+    induction s; introv; simpl; auto.
+    { rewrite FDistBind1f; auto. }
+    rewrite FDistBindA.
+    apply FDistBind_d_equal2; auto;[].
+    introv.
+    destruct x0; simpl; auto.
+    { apply eq_fdists; introv; auto. }
+    rewrite FDistBindA; auto.
+    apply FDistBind_d_equal; auto;[].
+    introv; simpl in *.
+    destruct (inck t x0); simpl in *; auto;[|rewrite FDistBind1f; auto];[].
+    apply eq_fdists; introv; auto.
+  Qed.
+
+  Lemma bind_eval_dist_deliver_messages'_eq2 :
+    forall (t : time)
+           {T : finType}
+           (F : option InTransit -> Comp T)
+           (s : seq DMsg)
+           (I : InTransit)
+           {U : finType}
+           (G : T -> Comp U),
+      FDistBind.d
+        (evalDist (deliver_messages' t F s I))
+        (fun o => evalDist (G o))
+      = evalDist (deliver_messages' t (fun i => Bind (F i) G) s I).
+  Proof.
+    introv.
+    apply eq_fdists; introv.
+    revert x I.
+    induction s; introv; simpl; auto;[].
+    rewrite FDistBindA.
+    apply FDistBind_d_equal2; auto;[].
+    introv.
+    destruct x0; simpl; auto.
+    { apply eq_fdists; introv; auto. }
+    rewrite FDistBindA; auto.
+    apply FDistBind_d_equal; auto;[].
+    introv; simpl in *.
+    destruct (inck t x0); simpl in *; auto.
+    apply eq_fdists; introv; auto.
+  Qed.
+
 End Props.
 
 
@@ -1521,6 +1739,28 @@ Section Ex1.
       [finType of p_state].
 
 
+  Definition isStart : msgObs :=
+    fun m : message =>
+      match m with
+      | MsgStart => true
+      | _ => false
+      end.
+
+  Definition isBcast : msgObs :=
+    fun m : message =>
+      match m with
+      | MsgBcast _ => true
+      | _ => false
+      end.
+
+  Definition isEcho : msgObs :=
+    fun m : message =>
+      match m with
+      | MsgEcho _ => true
+      | _ => false
+      end.
+
+
   (* 0 echos *)
   Definition e0 := @Ordinal p_numNodes.+1 0 is_true_true.
   (* 1 echo *)
@@ -1563,16 +1803,6 @@ Section Ex1.
       p_InitStates
       p_InitMessages
       p_Upd.
-
-  Definition received_2_echo (w : World) : bool :=
-    let t := world_time w in
-    match world_history w t with
-    | Some g =>
-      (* [loc0]'s state (the sender of the broadcast) *)
-      let st := point_state (g loc0) in
-      num_echos st == e2
-    | None => false
-    end.
 
   Lemma compute_initial_messages :
     flatten_queues [ffun i => (zip_global ord0 initGlobal (initInTransit ord0) i).2]
@@ -1805,10 +2035,11 @@ Section Ex1.
   Qed.
 
   (* As they are no messages in transit between [1] and [ia], we can advance there.
-   We just have to fill in the states.
+     We just have to fill in the states.
    *)
   Lemma advance_state1 :
-    forall (n : nat)
+    forall (F : option World -> fdist [finType of bool])
+           (n : nat)
            (ia ib : round)
            (p1 : (1 < maxTime.+1)%coq_nat)
            (ct : 1 + pMaxRound.+1 < pMaxTime.+1)
@@ -1827,7 +2058,7 @@ Section Ex1.
                                      (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
                          (projT1 (ex_inck_is_some (timen p1) ib ct))
                          (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-         (fun b : option World => evalDist (liftF received_2_echo b))
+         F
          true
        = FDistBind.d
            (evalDist
@@ -1840,7 +2071,7 @@ Section Ex1.
                                        (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
                            (projT1 (ex_inck_is_some (timen p1) ib ct))
                            (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-           (fun b : option World => evalDist (liftF received_2_echo b))
+           F
            true)%R.
   Proof.
     induction r; introv cr cn; introv; simpl in *.
@@ -1922,7 +2153,8 @@ Section Ex1.
   Qed.
 
   Lemma advance_state2 :
-    forall (n : nat)
+    forall (F : option World -> fdist [finType of bool])
+           (n : nat)
            (ia ib : round)
            (p1 : (1 < maxTime.+1)%coq_nat)
            (ct : 1 + pMaxRound.+1 < pMaxTime.+1)
@@ -1939,7 +2171,7 @@ Section Ex1.
                                      (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
                          (projT1 (ex_inck_is_some (timen p1) ib ct))
                          (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-         (fun b : option World => evalDist (liftF received_2_echo b))
+         F
          true
        = FDistBind.d
            (evalDist
@@ -1952,7 +2184,7 @@ Section Ex1.
                                        (add_to_queues (MkDMsg loc0 loc0 ord0 (MsgBcast loc0))))
                            (projT1 (ex_inck_is_some (timen p1) ib ct))
                            (add_to_queues (MkDMsg loc0 loc1 ord0 (MsgBcast loc0)))))))
-           (fun b : option World => evalDist (liftF received_2_echo b))
+           F
            true)%R.
   Proof.
     introv la; introv; simpl in *.
@@ -1967,6 +2199,193 @@ Section Ex1.
     apply/leP; auto.
   Qed.
 
+  Lemma bound_lt_cond1 :
+    forall (i : 'I_pMaxRound.+1) {n},
+      2 * (pMaxRound + 1) < n.+1
+      -> i < n.
+  Proof.
+    introv ltn.
+    destruct i; simpl in *.
+    move/ltP in ltn; apply lt_n_Sm_le in ltn.
+    apply/ltP; eapply lt_le_trans;[|eauto].
+    eapply lt_le_trans;[|apply le_n_2n].
+    rewrite addn1; apply/ltP; auto.
+  Qed.
+
+  Lemma bound_lt_cond2 :
+    forall (i : 'I_pMaxRound.+1) {n},
+      2 * (pMaxRound + 1) < n.+1
+      -> i <= n.
+  Proof.
+    introv ltn.
+    apply ltnW; auto.
+    apply bound_lt_cond1; auto.
+  Qed.
+
+  Lemma bound_lt_cond3 :
+    forall (i : 'I_pMaxRound.+1) i0 {n},
+      2 * (pMaxRound + 1) < n.+1
+      -> n.+1 < pMaxTime
+      -> ((Init.Nat.min i i0).+1 < maxTime.+1)%coq_nat.
+  Proof.
+    introv ltn gtn.
+    apply lt_n_S.
+    eapply le_lt_trans;[apply Nat.le_min_l|].
+    pose proof (bound_lt_cond1 i ltn) as u.
+    move/ltP in u; eapply lt_trans;[exact u|].
+    move/ltP in gtn; eapply lt_trans;[|exact gtn]; auto.
+  Qed.
+
+
+  Definition two_bcasts_intransit (w : World) : bool :=
+    obs_intransit 2 isBcast w.
+
+  Lemma in_firstn_implies :
+    forall n {A : eqType} a (l : seq A),
+      (a \in firstn n l)
+      -> (a \in l).
+  Proof.
+    induction n; introv i; simpl in *.
+    { inversion i. }
+    destruct l; simpl in *.
+    { inversion i. }
+    rewrite in_cons;apply/orP.
+    rewrite in_cons in i;move/orP in i; repndors; tcsp.
+  Qed.
+
+  Lemma time2fin (t : 'I_pMaxTime.+1) : Finite.sort time.
+  Proof.
+    exact t.
+  Defined.
+
+  Lemma loc2fin (i : 'I_numNodes) : Finite.sort location.
+  Proof.
+    exact i.
+  Defined.
+
+  Lemma advance_state3 :
+    forall (n  : nat)
+           (w  : World)
+           (cn : (world_time w)+n < maxTime),
+      (* All worlds are set to [Some] up to the current time *)
+      non_halted_world w
+      (* no [Start] message scheduled in the future *)
+      -> (forall t' : time, world_time w <= t' -> obs_intransit 0 isStart w)
+      (* if some [Bcast] messages are scheduled then they should before [n-maxRound] so that there is time to [Echo] *)
+      -> (forall t' : time, 0 < num_intransit_at isBcast w t' -> t' < n-maxRound)
+      (* if some [Echo] messages are scheduled then they should before [n] so that there is time to process them *)
+      -> (forall t' : time, 0 < num_intransit_at isBcast w t' -> t' < n)
+      (* two [BCast] messages scheduled in total *)
+      -> obs_intransit 2 isBcast w
+      -> (FDistBind.d
+            (evalDist (steps n w))
+            (fun b => evalDist (liftF (obs_intransit 2 isBcast) b))
+            true
+          = R1)%R.
+  Proof.
+    induction n; introv cn condH condS condB condE condO; simpl.
+
+    { rewrite FDistBind1f; simpl.
+      rewrite FDist1.dE; simpl.
+      rewrite condO; auto. }
+
+    rewrite step_as_step'.
+    unfold step' at 1; simpl.
+    destruct w as [t H I]; simpl.
+
+    remember (H t) as h; symmetry in Heqh; rewrite Heqh; simpl in *.
+    pose proof (condH t) as condx; simpl in *.
+    autodimp condx hyp.
+    rewrite Heqh in condx; simpl in *.
+    destruct h; simpl in *; tcsp;[|inversion condx];[]; clear condx.
+
+    unfold inc at 1; simpl in *.
+    destruct (lt_dec t.+1 pMaxTime.+1) as [d|d];
+      [|destruct d; rewrite <- addSnnS in cn; move/ltP in cn;
+        eapply le_lt_trans;[apply/leP;apply (leq_addr n)|];
+        eapply lt_trans;[eauto|]; apply Nat.lt_succ_diag_r];[].
+    simpl.
+
+    rewrite bind_eval_dist_deliver_messages'_eq; simpl.
+    rewrite bind_eval_dist_deliver_messages'_eq2; simpl.
+
+    remember (flatten_queues [ffun i => (zip_global (time2fin t) f (I t) i).2]) as L.
+    symmetry in HeqL; unfold time2fin in *; simpl in *.
+    rewrite HeqL.
+    assert (forall m, (m \in L) -> isBcast (dmsg_msg m) \/ isEcho (dmsg_msg m)) as condM.
+    { introv i; subst.
+      move/flatten_mapP in i.
+      destruct i as [l i j]; simpl in *.
+      move/codomP in i; exrepnd; subst; simpl in *.
+      rewrite ffunE in j; simpl in *.
+      unfold zip_global in j; simpl in j.
+      rewrite ffunE in j; simpl in *.
+      remember (I t x) as k; clear Heqk; simpl in *.
+
+      rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) (point_state (f x)) k)) in j.
+      Opaque firstn.
+      simpl in j; unfold time2fin, loc2fin in j; simpl in *.
+      destruct k as [k kc]; simpl in *; clear kc.
+      apply in_firstn_implies in j.
+      remember (point_state (f x)) as s; clear Heqs; revert dependent s.
+
+      induction k; introv j; simpl in *;[inversion j|].
+      unfold p_Upd in j; destruct a as [a b u z]; simpl in *.
+      destruct z; simpl in *.
+
+      { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) s k)) in j.
+        simpl in j; rewrite mem_cat in j;move/orP in j; repndors.
+        { apply in_firstn_implies in j.
+          move/codomP in j; exrepnd; subst; simpl in *.
+          rewrite ffunE; simpl;tcsp. }
+        unfold time2fin, loc2fin in *; simpl in *; eapply IHk; eauto. }
+
+      { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) s k)) in j.
+        simpl in j; rewrite mem_cat in j;move/orP in j; repndors.
+        { apply in_firstn_implies in j.
+          rewrite in_cons in j; move/orP in j; repndors;[|inversion j].
+          move/eqP in j; subst; simpl in *; tcsp. }
+        unfold time2fin, loc2fin in *; simpl in *; eapply IHk; eauto. }
+
+      { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) (inc_state s) k)) in j.
+        simpl in j; eapply IHk; eauto. } }
+    clear HeqL.
+
+    induction L; simpl in *.
+
+    { apply IHn; simpl; auto.
+      admit.
+      admit.
+      admit.
+      admit.
+      admit. }
+
+    rewrite FDistBind_bin.
+    SearchAbout FDistBind.d Binary.d.
+
+    XXXXXXXXXX
+
+      rewrite FDistBind.dE; simpl.
+    rewrite sum_option; simpl.
+    repeat (rewrite FDistBind1f; simpl).
+    rewrite FDist1.dE; simpl.
+    rewrite Rmult_0_r; rewrite Rplus_0_l.
+
+    eapply transitivity.
+    { apply eq_bigr; introv u.
+      apply R_mult_eq_compat;[reflexivity|].
+      rewrite FDistBind1f; simpl.
+      reflexivity. }
+    simpl.
+
+
+
+  (* Write another version of [step], where the computation on in-transit messages
+   is done within deliver messages *)
+
+
+  Qed.
+
   (* TODO: We shouldn't need the bounds [lbound] and [n] since [steps2dist'] returns true when time runs out*)
   (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
   Lemma ex1 :
@@ -1977,7 +2396,7 @@ Section Ex1.
         (maxTime > n)%nat ->
         (n > lbound)%nat ->
         ((\sum_(i in 'I_p_numNodes) (1-LostProb)^2)%R (* TODO: update, it will be slightly more complicated than this to take delays into consideration *)
-                         < Pr (steps2dist n received_2_echo) (finset.set1 true))%R.
+                         < Pr (steps2dist n two_bcasts_intransit) (finset.set1 true))%R.
   Proof.
     exists (2 * (maxRound + 1))%nat; introv gtn ltn.
     unfold Pr.
@@ -2013,7 +2432,7 @@ Section Ex1.
                                      (Ordinal (n:=pMaxTime.+1) (m:=1) (introT ltP l))
                                      (fun=> Some [ffun i => (zip_global ord0 initGlobal (initInTransit ord0) i).1]))] x
         in FDistBind.d (evalDist (liftN (steps n) x0))
-                       (fun b : option World => evalDist (liftF received_2_echo b))) true) as w
+                       (fun b : option World => evalDist (liftF two_bcasts_intransit b))) true) as w
     end;[|rewrite w; clear w].
     { apply FDistBind_d_equal2; auto; introv; simpl.
       rewrite FDistBind1f; auto. }
@@ -2110,20 +2529,13 @@ Section Ex1.
       apply eq_bigr; introv j.
       apply eq_bigr; introv k.
       apply R_mult_eq_compat;[reflexivity|].
-      assert (i < n) as u.
-      { destruct i; simpl in *; clear j.
-        move/ltP in ltn; apply lt_n_Sm_le in ltn.
-        apply/ltP; eapply lt_le_trans;[|eauto].
-        eapply lt_le_trans;[|apply le_n_2n].
-        rewrite addn1; apply/ltP; auto. }
-      assert (i <= n) as v by (apply ltnW; auto).
-      assert (((Init.Nat.min i i0).+1 < maxTime.+1)%coq_nat) as z.
-      { apply lt_n_S.
-        eapply le_lt_trans;[apply Nat.le_min_l|].
-        move/ltP in u; eapply lt_trans;[exact u|].
-        move/ltP in gtn; eapply lt_trans;[|exact gtn]; auto. }
-      pose proof (advance_state2 n i i0 l ct v z) as w.
+      pose proof (advance_state2 (fun b => evalDist (liftF two_bcasts_intransit b)) n i i0 l ct (bound_lt_cond2 i ltn) (bound_lt_cond3 i i0 ltn gtn)) as w.
       rewrite w; clear w.
+      reflexivity. }
+    simpl.
+
+
+
 
 (* We're now ready to handle one of the messages in-transit or both (if they're delivered at the same time) *)
 
@@ -2132,10 +2544,35 @@ XXXXXXXXXXXX
 
   Abort.
 
-  (* TODO: probability to receive 1 echo by some time *)
+
+  Definition received_2_echos (w : World) : bool :=
+    let t := world_time w in
+    match world_history w t with
+    | Some g =>
+      (* [loc0]'s state (the sender of the broadcast) *)
+      let st := point_state (g loc0) in
+      num_echos st == e2
+    | None => false
+    end.
+
+  (* makes use of [ex1] *)
   Lemma ex2 :
+    (* [lbound] is the number of steps that we allow ourselves *)
+    exists (lbound : nat),
+      (* The property below holds for all all bounds between [lbound] and [maxTime] *)
+      forall (n : nat),
+        (maxTime > n)%nat ->
+        (n > lbound)%nat ->
+        ((\sum_(i in 'I_p_numNodes) (1-LostProb)^2)%R (* TODO: update, it will be slightly more complicated than this to take delays into consideration *)
+                         < Pr (steps2dist n received_2_echos) (finset.set1 true))%R.
+  Proof.
+  Abort.
+
+
+  (* TODO: probability to receive 1 echo by some time *)
+  Lemma ex3 :
     forall n,
-      Pr (steps2dist'(*?*) n received_2_echo) (finset.set1 true)
+      Pr (steps2dist'(*?*) n received_2_echos) (finset.set1 true)
       = (\sum_(t in 'I_maxRound.+1) (distRound t) * R1)%R.
   Proof.
   Abort.
@@ -2158,8 +2595,6 @@ Section Ex2.
   (* Instead of defining a concrete state machine, we assume one,
      and we will add constraints on its behavior *)
 
-
-  Definition msgObs := message -> bool.
 
   (* True if a message satisfying [c] is sent at time [t] by node [n] in world [w]
    *)
