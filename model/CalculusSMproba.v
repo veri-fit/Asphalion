@@ -894,7 +894,7 @@ Section World.
            (world_intransit w))
       (inc (world_time w)).
 
-(*  Definition upd_intransit (w : World) (l : maxPoints.-finList [finType of DMsg]) :=
+  (*  Definition upd_intransit (w : World) (l : maxPoints.-finList [finType of DMsg]) :=
     MkWorld
       (world_global  w)
       (world_history w)
@@ -937,9 +937,9 @@ Section World.
     match q with
     | [] => (s, [])
     | msg :: msgs =>
-    let (s1,q1) := Upd t l (dmsg_msg msg) s in
-    let (s2,q2) := run_point t l s1 msgs in
-    (s2, q1 ++ q2)
+      let (s1,q1) := Upd t l (dmsg_msg msg) s in
+      let (s2,q2) := run_point t l s1 msgs in
+      (s2, q1 ++ q2)
     end.
 
   Definition zip_global
@@ -1634,6 +1634,343 @@ Section Props.
     apply eq_fdists; introv; auto.
   Qed.
 
+  Lemma num_msgs_in_queues_0_iff :
+    forall (L : seq Queue) (o : msgObs),
+      num_msgs_in_queues o L == 0
+      <-> (forall q, (q \in L) -> num_msgs_in_queue o q == 0).
+  Proof.
+    induction L; introv; simpl in *; split; introv i; try introv j;
+      auto; try (complete (inversion j)).
+    { rewrite addn_eq0 in i; move/andP in i; repnd.
+      rewrite in_cons in j;move/orP in j; repndors; auto.
+      { move/eqP in j; subst; auto. }
+      eapply IHL in i; eauto. }
+    rewrite addn_eq0;apply/andP; dands.
+    { apply i; rewrite in_cons; apply/orP; auto. }
+    apply IHL; introv j; apply i.
+    rewrite in_cons; apply/orP; auto.
+  Qed.
+
+  Lemma num_msgs_intransit_0_iff :
+    forall (L : seq Queues) (o : msgObs),
+      num_msgs_intransit o L == 0
+      <-> (forall q, (q \in L) -> num_msgs_in_queues o (codom q) == 0).
+  Proof.
+    induction L; introv; simpl in *; split; introv i; try introv j;
+      auto; try (complete (inversion j)).
+    { rewrite addn_eq0 in i; move/andP in i; repnd.
+      rewrite in_cons in j;move/orP in j; repndors; auto.
+      { move/eqP in j; subst; auto. }
+      eapply IHL in i; eauto. }
+    rewrite addn_eq0;apply/andP; dands.
+    { apply i; rewrite in_cons; apply/orP; auto. }
+    apply IHL; introv j; apply i.
+    rewrite in_cons; apply/orP; auto.
+  Qed.
+
+  Lemma num_msgs_in_queues_0_implies :
+    forall (L : seq Queue) (o : msgObs),
+      num_msgs_in_queues o L == 0
+      -> forall q, (q \in L) -> num_msgs_in_queue o q == 0.
+  Proof.
+    introv i j.
+    eapply num_msgs_in_queues_0_iff; eauto.
+  Qed.
+
+  Lemma num_msgs_in_queue_gt0_implies :
+    forall (q : Queue) (L : seq Queue) (o : msgObs),
+      (q \in L)
+      -> 0 < num_msgs_in_queue o q
+      -> 0 < (num_msgs_in_queues o L).
+  Proof.
+    induction L; introv j i; simpl in *;[inversion j|].
+    rewrite addn_gt0; apply/orP.
+    rewrite in_cons in j;move/orP in j; repndors; auto;[].
+    move/eqP in j; subst; auto.
+  Qed.
+
+  Lemma num_msgs_in_queues_gt0_implies :
+    forall (L : seq Queue) (o : msgObs),
+      0 < (num_msgs_in_queues o L)
+      -> exists q, (q \in L) /\ 0 < num_msgs_in_queue o q.
+  Proof.
+    induction L; introv i; simpl in *;[inversion i|].
+    rewrite addn_gt0 in i; move/orP in i; repndors; tcsp.
+    { exists a; dands; auto; rewrite in_cons;apply/orP; tcsp. }
+    apply IHL in i; exrepnd; exists q; dands; auto.
+    rewrite in_cons;apply/orP; tcsp.
+  Qed.
+
+  Lemma implies_num_msgs_in_queue_firstn :
+    forall (o : msgObs) l n,
+      num_msgs_in_queue o l == 0
+      -> num_msgs_in_queue o (firstn n l) == 0.
+  Proof.
+    induction l; introv i; simpl in *.
+    { rewrite firstn_nil; simpl; auto. }
+    destruct n; simpl; auto.
+    destruct (o (dmsg_msg a)); auto.
+  Qed.
+
+  Lemma implies_num_msgs_in_queue_snoc_eq_0 :
+    forall (o : msgObs) (d : DMsg) (q : Queue),
+      ~(o (dmsg_msg d))
+      -> num_msgs_in_queue o q == 0
+      -> num_msgs_in_queue o (snoc_queue d q) == 0.
+  Proof.
+    introv i j.
+    unfold snoc_queue; simpl.
+    destruct q as [l qc]; simpl in *; clear qc.
+    apply implies_num_msgs_in_queue_firstn.
+    induction l; simpl in *.
+    { destruct (o (dmsg_msg d)); auto. }
+    destruct (o (dmsg_msg a)); auto.
+  Qed.
+
+  Lemma eq_num_msgs_in_queues_codom :
+    forall o (q1 q2 : Queues),
+      (forall (i : location), num_msgs_in_queue o (q1 i) == num_msgs_in_queue o (q2 i))
+      -> num_msgs_in_queues o (codom q1) == num_msgs_in_queues o (codom q2).
+  Proof.
+    introv h.
+
+    unfold codom; simpl.
+    unfold image_mem; simpl.
+
+    remember (fintype.enum 'I_numNodes) as l; symmetry in Heql; rewrite Heql.
+    simpl in *; clear Heql.
+    induction l; simpl; auto.
+    apply/eqP; f_equal; apply/eqP; auto.
+  Qed.
+
+  Lemma eq_num_msgs_intransit_codom :
+    forall o (I1 I2 : InTransit),
+      (forall (t : time), num_msgs_in_queues o (codom (I1 t)) == num_msgs_in_queues o (codom (I2 t)))
+      -> num_msgs_intransit o (codom I1) == num_msgs_intransit o (codom I2).
+  Proof.
+    introv h.
+
+    unfold codom; simpl.
+    unfold image_mem; simpl.
+
+    remember (fintype.enum 'I_maxTime.+1) as l; symmetry in Heql; rewrite Heql.
+    simpl in *; clear Heql.
+    induction l; simpl; auto.
+    apply/eqP; f_equal; apply/eqP; auto.
+  Qed.
+
+  Lemma num_msgs_in_queues_codom_upd_finfun_non_obs :
+    forall (o : msgObs) (I : InTransit) t d t',
+      ~(o (dmsg_msg d))
+      -> num_msgs_in_queues o (codom (upd_finfun I t (add_to_queues d) t'))
+         = num_msgs_in_queues o (codom (I t')).
+  Proof.
+    introv i.
+    unfold upd_finfun; rewrite ffunE.
+    remember (t' == t) as b; symmetry in Heqb; destruct b; auto.
+    move/eqP in Heqb; subst.
+    apply/eqP; apply eq_num_msgs_in_queues_codom; introv.
+    unfold add_to_queues, upd_finfun; simpl; rewrite ffunE.
+    remember (i0 == dmsg_dst d) as b; symmetry in Heqb; destruct b; simpl; auto.
+    move/eqP in Heqb; subst; simpl.
+    remember (I t (dmsg_dst d)) as q; simpl in *; symmetry in Heqq; rewrite Heqq; clear Heqq.
+    destruct q as [q qc]; simpl in *.
+
+    remember maxMsgs as n; clear Heqn I t.
+    revert dependent n.
+    induction q; introv ltn; simpl in *.
+    { destruct n; simpl in *; auto.
+      destruct (o (dmsg_msg d)); tcsp.
+      rewrite firstn_nil; simpl; auto. }
+
+    destruct n; simpl in *.
+    { rewrite ltn0 in ltn; tcsp. }
+    destruct (o (dmsg_msg a)); simpl; auto.
+    { apply/eqP; f_equal; apply/eqP; auto. }
+  Qed.
+
+  Lemma num_msgs_intransit_codom_upd_finfun_non_obs :
+    forall (o : msgObs) (I : InTransit) t d,
+      ~(o (dmsg_msg d))
+      -> num_msgs_intransit o (codom (upd_finfun I t (add_to_queues d)))
+         = num_msgs_intransit o (codom I).
+  Proof.
+    introv i.
+    apply/eqP; apply eq_num_msgs_intransit_codom; introv.
+    apply/eqP; apply num_msgs_in_queues_codom_upd_finfun_non_obs; auto.
+  Qed.
+
+  Lemma in_firstn_implies :
+    forall n {A : eqType} a (l : seq A),
+      (a \in firstn n l)
+      -> (a \in l).
+  Proof.
+    induction n; introv i; simpl in *.
+    { inversion i. }
+    destruct l; simpl in *.
+    { inversion i. }
+    rewrite in_cons;apply/orP.
+    rewrite in_cons in i;move/orP in i; repndors; tcsp.
+  Qed.
+
+  Lemma num_msgs_in_queues_init_0 :
+    forall o (t : time),
+      0 < t
+      -> num_msgs_in_queues o (codom (initInTransit t)) == 0.
+  Proof.
+    introv ltt.
+    unfold initInTransit; simpl.
+    rewrite ffunE.
+    remember (t == ord0) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto.
+    { move/eqP in Heqb; subst; simpl in *; inversion ltt. }
+    apply num_msgs_in_queues_0_iff; introv i.
+    move/codomP in i; exrepnd; subst; simpl in *.
+    unfold emQueues; simpl; rewrite ffunE; auto.
+  Qed.
+
+  Lemma num_msgs_intransit_upd_add_to_queues_notin :
+    forall o a d l (I : InTransit),
+      (a \notin l)
+      -> num_msgs_intransit o [seq upd_finfun I a (add_to_queues d) i | i <- l]
+         = num_msgs_intransit o [seq I i | i <- l].
+  Proof.
+    induction l; introv i; simpl in *; auto.
+    rewrite in_cons in i.
+    rewrite negb_or in i.
+    move/andP in i; repnd.
+    rewrite IHl; auto; f_equal.
+    unfold upd_finfun; rewrite ffunE.
+    remember (a0 == a) as b; symmetry in Heqb; rewrite Heqb; destruct b; auto.
+    move/eqP in Heqb; subst; move/eqP in i0; tcsp.
+  Qed.
+
+  Lemma num_msgs_in_queues_upd_add_to_queues_notin :
+    forall o a d l (q : Queues),
+      (a \notin l)
+      -> num_msgs_in_queues o [seq upd_finfun q a (snoc_queue d) i | i <- l]
+         = num_msgs_in_queues o [seq q i | i <- l].
+  Proof.
+    induction l; introv i; simpl in *; auto.
+    rewrite in_cons in i.
+    rewrite negb_or in i.
+    move/andP in i; repnd.
+    rewrite IHl; auto; f_equal.
+    unfold upd_finfun; rewrite ffunE.
+    remember (a0 == a) as b; symmetry in Heqb; rewrite Heqb; destruct b; auto.
+    move/eqP in Heqb; subst; move/eqP in i0; tcsp.
+  Qed.
+
+  Lemma num_msgs_in_queue_snoc_queue_eq_p1 :
+    forall (o : msgObs) d (q : Queue),
+      o (dmsg_msg d)
+      -> (length q < maxMsgs)
+      -> num_msgs_in_queue o (snoc_queue d q)
+         = (num_msgs_in_queue o q).+1.
+  Proof.
+    introv h w.
+    destruct q as [q qc]; simpl in *; clear qc.
+    remember maxMsgs as n; clear Heqn; revert dependent n.
+    induction q; introv w; simpl in *.
+    { destruct n; simpl; tcsp.
+      { inversion w. }
+      rewrite h; simpl.
+      rewrite firstn_nil; simpl; auto. }
+    destruct n; simpl in *.
+    { inversion w. }
+    destruct (o (dmsg_msg a)); simpl; auto.
+  Qed.
+
+  Lemma num_msgs_in_queues_add_to_queues_eq_p1 :
+    forall (o : msgObs) d (q : Queues),
+      o (dmsg_msg d)
+      -> (forall i, length (q i) < maxMsgs)
+      -> num_msgs_in_queues o (codom (add_to_queues d q))
+         = (num_msgs_in_queues o (codom q)).+1.
+  Proof.
+    introv h w.
+    unfold codom; simpl.
+    unfold image_mem in *; simpl.
+    remember (fintype.enum 'I_numNodes) as l; symmetry in Heql; rewrite Heql.
+
+    unfold add_to_queues; simpl.
+    remember (dmsg_dst d) as j; clear Heqj.
+
+    assert (j \in l) as i.
+    { subst; auto; simpl.
+      pose proof (mem_index_enum j) as z.
+      unfold index_enum in z; simpl in *; auto.
+      rewrite <- enumT in z; simpl in *; auto. }
+
+    pose proof (index_enum_uniq [finType of 'I_numNodes]) as u.
+    unfold index_enum in u; simpl in u.
+    rewrite <- enumT in u; simpl in *.
+    rewrite Heql in u.
+
+    clear Heql.
+    induction l; simpl in *.
+    { inversion i. }
+
+    move/andP in u; repnd.
+    rewrite in_cons in i;move/orP in i; repndors.
+    { move/eqP in i; subst.
+      rewrite <- addSn.
+      rewrite num_msgs_in_queues_upd_add_to_queues_notin; auto; f_equal.
+      unfold upd_finfun; rewrite ffunE.
+      remember (a == a) as b; symmetry in Heqb; rewrite Heqb;
+        destruct b; auto;[|move/eqP in Heqb; tcsp];[].
+      apply num_msgs_in_queue_snoc_queue_eq_p1; auto. }
+
+    rewrite IHl; auto.
+    rewrite <- addnS; f_equal.
+    unfold upd_finfun; simpl; rewrite ffunE.
+    remember (a == j) as b; symmetry in Heqb; rewrite Heqb; destruct b; auto.
+    move/eqP in Heqb; subst; rewrite i in u0; inversion u0.
+  Qed.
+
+  Lemma num_msgs_intransit_add_to_queues_eq_p1 :
+    forall (o : msgObs) (I : InTransit) t d,
+      o (dmsg_msg d)
+      -> (forall t i, length (I t i) < maxMsgs)
+      -> num_msgs_intransit o (codom (upd_finfun I t (add_to_queues d)))
+         = (num_msgs_intransit o (codom I)).+1.
+  Proof.
+    introv h q.
+    unfold codom, time in *; simpl in *.
+    unfold image_mem in *; simpl.
+    remember (fintype.enum 'I_maxTime.+1) as l; symmetry in Heql; rewrite Heql.
+
+    pose proof (index_enum_uniq [finType of 'I_maxTime.+1]) as u.
+    unfold index_enum in u; simpl in u.
+    rewrite <- enumT in u; simpl in *.
+    rewrite Heql in u.
+
+    assert (t \in l) as i.
+    { subst; auto; simpl.
+      pose proof (mem_index_enum t) as z.
+      unfold index_enum in z; simpl in *; auto.
+      rewrite <- enumT in z; simpl in *; auto. }
+
+    clear Heql.
+    induction l; simpl in *.
+    { inversion i. }
+
+    move/andP in u; repnd.
+    rewrite in_cons in i;move/orP in i; repndors.
+    { move/eqP in i; subst.
+      rewrite <- addSn.
+      rewrite num_msgs_intransit_upd_add_to_queues_notin; auto; f_equal.
+      unfold upd_finfun; rewrite ffunE; simpl.
+      remember (a == a) as b; symmetry in Heqb; rewrite Heqb;
+        destruct b; auto;[|move/eqP in Heqb; tcsp];[].
+      apply num_msgs_in_queues_add_to_queues_eq_p1; auto. }
+
+    rewrite IHl; auto.
+    rewrite <- addnS; f_equal.
+    unfold upd_finfun; simpl; rewrite ffunE.
+    remember (a == t) as b; symmetry in Heqb; rewrite Heqb; destruct b; auto.
+    move/eqP in Heqb; subst; rewrite i in u0; inversion u0.
+  Qed.
+
 End Props.
 
 
@@ -1649,7 +1986,7 @@ Section Ex1.
   Context { pMaxRound : nat }.
   Context { pMaxTime  : nat }.
 
-  Definition pMaxMsgs := 2.
+  Definition pMaxMsgs := 3.
 
   Global Instance BoundsParamsEx1 : BoundsParams :=
     MkBoundsParams
@@ -1831,7 +2168,8 @@ Section Ex1.
       Transparent firstn.
       rewrite length_as_size.
       rewrite size_codom; simpl; auto.
-      rewrite card_ord; auto. }
+      rewrite card_ord; auto.
+      unfold numNodes,  p_numNodes, pMaxMsgs; simpl; auto. }
 
     rewrite h; clear h; simpl.
     simpl.
@@ -1852,6 +2190,8 @@ Section Ex1.
     rewrite size_map; simpl.
     rewrite size_enum_ord; auto.
   Qed.
+
+  Opaque firstn.
 
   (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
   Lemma evalDist_deliver_initial_messages :
@@ -2236,22 +2576,8 @@ Section Ex1.
     move/ltP in gtn; eapply lt_trans;[|exact gtn]; auto.
   Qed.
 
-
   Definition two_bcasts_intransit (w : World) : bool :=
     obs_intransit 2 isBcast w.
-
-  Lemma in_firstn_implies :
-    forall n {A : eqType} a (l : seq A),
-      (a \in firstn n l)
-      -> (a \in l).
-  Proof.
-    induction n; introv i; simpl in *.
-    { inversion i. }
-    destruct l; simpl in *.
-    { inversion i. }
-    rewrite in_cons;apply/orP.
-    rewrite in_cons in i;move/orP in i; repndors; tcsp.
-  Qed.
 
   Lemma time2fin (t : 'I_pMaxTime.+1) : Finite.sort time.
   Proof.
@@ -2267,14 +2593,13 @@ Section Ex1.
     forall (n  : nat)
            (w  : World)
            (cn : (world_time w)+n < maxTime),
+      (2*pMaxRound).+1 < pMaxTime
       (* All worlds are set to [Some] up to the current time *)
-      non_halted_world w
+      -> non_halted_world w
       (* no [Start] message scheduled in the future *)
-      -> (forall t' : time, world_time w <= t' -> obs_intransit 0 isStart w)
-      (* if some [Bcast] messages are scheduled then they should before [n-maxRound] so that there is time to [Echo] *)
-      -> (forall t' : time, 0 < num_intransit_at isBcast w t' -> t' < n-maxRound)
-      (* if some [Echo] messages are scheduled then they should before [n] so that there is time to process them *)
-      -> (forall t' : time, 0 < num_intransit_at isBcast w t' -> t' < n)
+      -> (forall t' : time, world_time w <= t' -> num_intransit_at isStart w t' == 0)
+      (* if some [Bcast] messages are scheduled then they should be before [maxRound.+1] *)
+      -> (forall t' : time, 0 < num_intransit_at isBcast w t' -> t' < maxRound.+2)
       (* two [BCast] messages scheduled in total *)
       -> obs_intransit 2 isBcast w
       -> (FDistBind.d
@@ -2283,7 +2608,7 @@ Section Ex1.
             true
           = R1)%R.
   Proof.
-    induction n; introv cn condH condS condB condE condO; simpl.
+    induction n; introv cn crt condH condS condB (*condE*) condO; simpl.
 
     { rewrite FDistBind1f; simpl.
       rewrite FDist1.dE; simpl.
@@ -2303,7 +2628,7 @@ Section Ex1.
     destruct (lt_dec t.+1 pMaxTime.+1) as [d|d];
       [|destruct d; rewrite <- addSnnS in cn; move/ltP in cn;
         eapply le_lt_trans;[apply/leP;apply (leq_addr n)|];
-        eapply lt_trans;[eauto|]; apply Nat.lt_succ_diag_r];[].
+        eapply lt_trans;[eauto|]; apply Nat.lt_succ_diag_r].
     simpl.
 
     rewrite bind_eval_dist_deliver_messages'_eq; simpl.
@@ -2312,7 +2637,13 @@ Section Ex1.
     remember (flatten_queues [ffun i => (zip_global (time2fin t) f (I t) i).2]) as L.
     symmetry in HeqL; unfold time2fin in *; simpl in *.
     rewrite HeqL.
-    assert (forall m, (m \in L) -> isBcast (dmsg_msg m) \/ isEcho (dmsg_msg m)) as condM.
+
+    unfold non_halted_world in condH; simpl in *.
+    unfold obs_intransit in condO; simpl in *.
+    unfold num_intransit_at in condS; simpl in *.
+    unfold num_intransit_at in condB; simpl in *.
+
+    assert (forall m, (m \in L) -> isEcho (dmsg_msg m) /\ t < pMaxRound.+2) as condM.
     { introv i; subst.
       move/flatten_mapP in i.
       destruct i as [l i j]; simpl in *.
@@ -2320,10 +2651,22 @@ Section Ex1.
       rewrite ffunE in j; simpl in *.
       unfold zip_global in j; simpl in j.
       rewrite ffunE in j; simpl in *.
+
+      pose proof (condS t) as condSt; autodimp condSt hyp.
+      pose proof (num_msgs_in_queues_0_implies _ _ condSt (I t x)) as condSt'.
+      autodimp condSt' hyp;[apply codom_f|].
+      clear condSt.
+
+      pose proof (condB t) as condBt.
+      assert (0 < num_msgs_in_queue isBcast (I t x) -> t < pMaxRound.+2) as condBt'.
+      { introv i.
+        pose proof (num_msgs_in_queue_gt0_implies (I t x) (codom (I t)) isBcast) as z.
+        apply z in i; simpl in *; auto; apply codom_f. }
+      clear condBt.
+
       remember (I t x) as k; clear Heqk; simpl in *.
 
       rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) (point_state (f x)) k)) in j.
-      Opaque firstn.
       simpl in j; unfold time2fin, loc2fin in j; simpl in *.
       destruct k as [k kc]; simpl in *; clear kc.
       apply in_firstn_implies in j.
@@ -2333,57 +2676,132 @@ Section Ex1.
       unfold p_Upd in j; destruct a as [a b u z]; simpl in *.
       destruct z; simpl in *.
 
-      { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) s k)) in j.
-        simpl in j; rewrite mem_cat in j;move/orP in j; repndors.
-        { apply in_firstn_implies in j.
-          move/codomP in j; exrepnd; subst; simpl in *.
-          rewrite ffunE; simpl;tcsp. }
-        unfold time2fin, loc2fin in *; simpl in *; eapply IHk; eauto. }
+      { inversion condSt'. }
 
       { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) s k)) in j.
         simpl in j; rewrite mem_cat in j;move/orP in j; repndors.
         { apply in_firstn_implies in j.
           rewrite in_cons in j; move/orP in j; repndors;[|inversion j].
-          move/eqP in j; subst; simpl in *; tcsp. }
+          move/eqP in j; subst; simpl in *; dands; auto. }
         unfold time2fin, loc2fin in *; simpl in *; eapply IHk; eauto. }
 
       { rewrite (@surjective_pairing state (seq DMsg) (run_point (time2fin t) (loc2fin x) (inc_state s) k)) in j.
         simpl in j; eapply IHk; eauto. } }
     clear HeqL.
 
-    induction L; simpl in *.
+    revert dependent I.
+    induction L; introv condS condB condO; introv; simpl in *.
 
     { apply IHn; simpl; auto.
-      admit.
-      admit.
-      admit.
-      admit.
-      admit. }
+      { rewrite addSnnS; auto. }
+      { unfold non_halted_world; simpl.
+        introv i.
+        unfold upd_finfun; simpl; rewrite ffunE; simpl.
+        remember (t' == Ordinal (n:=pMaxTime.+1) (m:=t.+1) (introT ltP d)) as b; symmetry in Heqb; rewrite Heqb.
+        move/eqP in Heqb; destruct b; subst; auto.
+        move/leP in i; apply Nat.le_succ_r in i; repndors; subst; auto.
+        { move/leP in i; auto. }
+        destruct Heqb.
+        destruct t'; simpl in *; subst.
+        f_equal; apply UIP_dec; apply bool_dec. }
+      { introv i.
+        unfold num_intransit_at; simpl; eapply condS.
+        apply ltnW; eauto. } }
 
-    rewrite FDistBind_bin.
-    SearchAbout FDistBind.d Binary.d.
+    rewrite FDistBind_bin; simpl.
+    rewrite IHL; auto;[|introv i; apply condM; rewrite in_cons; apply/orP; auto];[].
+    rewrite Rmult_1_r.
 
-    XXXXXXXXXX
-
-      rewrite FDistBind.dE; simpl.
-    rewrite sum_option; simpl.
-    repeat (rewrite FDistBind1f; simpl).
-    rewrite FDist1.dE; simpl.
-    rewrite Rmult_0_r; rewrite Rplus_0_l.
+    pose proof (condM a) as condMa; autodimp condMa hyp;[rewrite in_cons;apply/orP; auto|]; repnd.
+    (* Echo message *)
 
     eapply transitivity.
-    { apply eq_bigr; introv u.
-      apply R_mult_eq_compat;[reflexivity|].
-      rewrite FDistBind1f; simpl.
-      reflexivity. }
+    { apply Rplus_eq_compat_l.
+      apply Rmult_eq_compat_l.
+      rewrite FDistBind.dE.
+      apply eq_bigr; introv k; simpl in *.
+      apply Rmult_eq_compat_l.
+      unfold inck; simpl.
+      destruct (lt_dec (i + t.+1) pMaxTime.+1) as [dt|dt]; simpl.
+      { repeat (autodimp IHL hyp).
+        { introv j; apply condM; rewrite in_cons;apply/orP; auto. }
+        pose proof (IHL (upd_finfun I (Ordinal (n:=pMaxTime.+1) (m:=i + t.+1) (introT ltP dt)) (add_to_queues a))) as IHL.
+        simpl in *.
+        repeat (autodimp IHL hyp); auto.
+        { introv j.
+          rewrite num_msgs_in_queues_codom_upd_finfun_non_obs; auto.
+          destruct a as [src dst u a], a; simpl in *; tcsp. }
+        { introv j; apply condB.
+          rewrite num_msgs_in_queues_codom_upd_finfun_non_obs in j; auto.
+          destruct a as [src dst u a], a; simpl in *; tcsp. }
+        { rewrite num_msgs_intransit_codom_upd_finfun_non_obs; auto.
+          destruct a as [src dst u a], a; simpl in *; tcsp. }
+        unfold upd_finfun at 2 in IHL; simpl in *.
+        rewrite ffunE in IHL.
+        remember (t == Ordinal (n:=pMaxTime.+1) (m:= i + t.+1) (introT ltP dt)) as b; symmetry in Heqb.
+        rewrite Heqb in IHL; destruct b; simpl in *.
+        { move/eqP in Heqb.
+          destruct t; simpl in *.
+          inversion Heqb as [xx].
+          assert (m < i + m.+1) as zz;[|rewrite <- xx in zz; rewrite ltnn in zz; inversion zz].
+          apply ltn_addl; apply ltnSn. }
+        apply IHL. }
+      destruct dt.
+      destruct i as [i ic]; simpl in *; clear k.
+      rewrite addnS; apply lt_n_S.
+      eapply le_lt_trans;[|apply/ltP;exact crt].
+      apply ltnSE in condMa; apply ltnSE in ic.
+      eapply le_trans;[apply/leP;apply leq_add;eauto|]; auto.
+      rewrite addnS; apply Peano.le_n_S.
+      rewrite addnn; rewrite mul2n; auto. }
     simpl.
 
+    eapply transitivity.
+    { apply Rplus_eq_compat_l.
+      apply Rmult_eq_compat_l.
+      apply eq_bigr; introv k; simpl in *.
+      rewrite Rmult_1_r; reflexivity. }
+    simpl.
+    rewrite FDist.f1.
+    rewrite Rmult_1_r.
+    apply Rplus_minus.
+  Qed.
 
 
-  (* Write another version of [step], where the computation on in-transit messages
-   is done within deliver messages *)
+  Lemma inck_some_implies :
+    forall {n} (i : 'I_n) (k : nat) j,
+      inck i k = Some j
+      -> k + i < n /\ nat_of_ord j = k + i.
+  Proof.
+    introv w.
+    unfold inck in w.
+    destruct (lt_dec (k + i) n); ginv; simpl; dands; auto.
+    apply/ltP; auto.
+  Qed.
 
+  Lemma num_msgs_in_queues_em :
+    forall o x,
+      num_msgs_in_queue o (emQueues x) = 0.
+  Proof.
+    introv.
+    unfold emQueues; rewrite ffunE; auto.
+  Qed.
 
+  Lemma num_msgs_intransit_init_0 :
+    num_msgs_intransit isBcast (codom initInTransit) = 0.
+  Proof.
+    introv; apply/eqP.
+    apply num_msgs_intransit_0_iff; introv i.
+    move/codomP in i; exrepnd; subst.
+    apply num_msgs_in_queues_0_iff; introv j.
+    move/codomP in j; exrepnd; subst.
+    unfold initInTransit; simpl.
+    rewrite ffunE.
+    remember (x == ord0) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto.
+    { move/eqP in Heqb; subst; simpl in *.
+      rewrite ffunE; simpl.
+      remember (x0 == loc0) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto. }
+    rewrite num_msgs_in_queues_em; auto.
   Qed.
 
   (* TODO: We shouldn't need the bounds [lbound] and [n] since [steps2dist'] returns true when time runs out*)
@@ -2395,8 +2813,8 @@ Section Ex1.
       forall (n : nat),
         (maxTime > n)%nat ->
         (n > lbound)%nat ->
-        ((\sum_(i in 'I_p_numNodes) (1-LostProb)^2)%R (* TODO: update, it will be slightly more complicated than this to take delays into consideration *)
-                         < Pr (steps2dist n two_bcasts_intransit) (finset.set1 true))%R.
+        ((1 - LostProb) * ((1 - LostProb) * (\sum_(i in 'I_pMaxRound.+1) \sum_(i0 in 'I_pMaxRound.+1) RcvdDist pMaxRound i * RcvdDist pMaxRound i0))
+         <= Pr (steps2dist n two_bcasts_intransit) (finset.set1 true))%R.
   Proof.
     exists (2 * (maxRound + 1))%nat; introv gtn ltn.
     unfold Pr.
@@ -2419,7 +2837,7 @@ Section Ex1.
     rewrite FDistBindA; simpl.
 
     match goal with
-    | [ |- (_ < ?z)%R] =>
+    | [ |- (_ <= ?z)%R] =>
       assert (z = FDistBind.d
      (evalDist
         (deliver_messages (timen l)
@@ -2445,19 +2863,20 @@ Section Ex1.
       rewrite addn1; apply le_n_2n. }
 
     rewrite FDistBind.dE; simpl.
-    eapply Rlt_le_trans.
+    eapply Rle_trans.
     2:{ pose proof (@ler_rsum OpInTransit) as w; apply w; clear w; introv j.
         apply Rmult_le_compat_r; eauto 3 with prob.
         apply (evalDist_deliver_initial_messages _ ct). }
     simpl.
     repeat rewrite Rmult_1_r.
 
-    eapply Rlt_trans_eq_r.
+    eapply Rle_trans_eq_r.
     { apply eq_bigr; introv k.
       repeat (rewrite Rmult_assoc); reflexivity. }
+    simpl.
     repeat (rewrite <- sum_distrr; eauto 2 with prob;[]).
 
-    eapply Rlt_trans_eq_r.
+    eapply Rle_trans_eq_r.
     { apply R_mult_eq_compat;[reflexivity|].
       apply R_mult_eq_compat;[reflexivity|].
       apply eq_bigr; introv k.
@@ -2471,7 +2890,7 @@ Section Ex1.
       reflexivity. }
     simpl.
 
-    eapply Rlt_trans_eq_r.
+    eapply Rle_trans_eq_r.
     { apply R_mult_eq_compat;[reflexivity|].
       apply R_mult_eq_compat;[reflexivity|].
       rewrite swap_sums.
@@ -2482,7 +2901,7 @@ Section Ex1.
       reflexivity. }
     simpl.
 
-    eapply Rlt_trans_eq_r.
+    eapply Rle_trans_eq_r.
     { apply R_mult_eq_compat;[reflexivity|].
       apply R_mult_eq_compat;[reflexivity|].
       apply eq_bigr; introv j.
@@ -2523,7 +2942,7 @@ Section Ex1.
       assert (xc = introT ltP l) as xx by (apply UIP_dec; apply bool_dec); subst; auto. }
     rewrite eqs; clear eqs.
 
-    eapply Rlt_trans_eq_r.
+    eapply Rle_trans_eq_r.
     { apply R_mult_eq_compat;[reflexivity|].
       apply R_mult_eq_compat;[reflexivity|].
       apply eq_bigr; introv j.
@@ -2534,16 +2953,77 @@ Section Ex1.
       reflexivity. }
     simpl.
 
+    eapply Rle_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      apply eq_bigr; introv k.
+      apply R_mult_eq_compat;[reflexivity|].
+      apply advance_state3; simpl; auto.
+      rewrite addSn.
+      { rewrite subnKC; auto.
+        apply/leP; apply Nat.min_le_iff; left.
+        apply/leP; apply bound_lt_cond2; auto. }
+      { apply/ltP; eapply lt_trans;[|apply/ltP;exact gtn].
+        eapply le_lt_trans;[|apply/ltP;exact ltn].
+        apply/ltP; rewrite ltn_pmul2l; auto; rewrite addn1; apply ltnSn. }
+      { unfold non_halted_world; simpl; introv z; rewrite ffunE; rewrite z; auto. }
+      { unfold num_intransit_at; simpl; introv z.
+        repeat (rewrite num_msgs_in_queues_codom_upd_finfun_non_obs;simpl; auto).
+        rewrite num_msgs_in_queues_init_0; auto.
+        apply/ltP; eapply le_lt_trans;[|apply/ltP;eauto];apply Nat.le_0_l. }
+      { unfold num_intransit_at; simpl in *; introv z.
+        apply num_msgs_in_queues_gt0_implies in z; simpl in *; exrepnd.
+        move/codomP in z1; exrepnd; subst; simpl in *.
+        unfold upd_finfun in z0; simpl in *.
+        repeat (rewrite ffunE in z0; simpl in z0).
+        remember (t' == ord0) as b; symmetry in Heqb; rewrite Heqb in z0; destruct b.
+        { move/eqP in Heqb; subst; auto. }
+        remember (ex_inck_is_some (timen l) i ct) as w; clear Heqw; exrepnd; simpl in *.
+        apply inck_some_implies in w0; repnd; simpl in *.
+        remember (t' == j0) as z; symmetry in Heqz; rewrite Heqz in z0; destruct z.
+        { move/eqP in Heqz; subst; rewrite w0.
+          rewrite addn1; apply/ltP; apply lt_n_S.
+          apply/ltP; destruct i as [i ic]; simpl in *; auto. }
+        remember (ex_inck_is_some (timen l) i0 ct) as u; clear Hequ; exrepnd; simpl in *.
+        apply inck_some_implies in u0; repnd; simpl in *.
+        remember (t' == j1) as v; symmetry in Heqv; rewrite Heqv in z0; destruct v.
+        { move/eqP in Heqv; subst; rewrite u0.
+          rewrite addn1; apply/ltP; apply lt_n_S.
+          apply/ltP; destruct i as [i ic]; simpl in *; auto. }
+        rewrite num_msgs_in_queues_em in z0; inversion z0. }
+      unfold obs_intransit; simpl.
 
+      repeat (rewrite num_msgs_intransit_add_to_queues_eq_p1; simpl; auto).
+      { rewrite num_msgs_intransit_init_0; auto. }
+      { introv.
+        unfold initInTransit; rewrite ffunE; simpl.
+        remember (t == ord0) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto.
+        { rewrite ffunE; simpl.
+          remember (i1 == loc0) as z; symmetry in Heqz; rewrite Heqz; destruct z; simpl; auto. }
+        unfold emQueues; rewrite ffunE; simpl; auto. }
+      { introv.
+        unfold upd_finfun; simpl; rewrite ffunE; simpl.
+        remember (t == projT1 (ex_inck_is_some (timen l) i ct)) as b; symmetry in Heqb; rewrite Heqb; destruct b; simpl; auto.
+        { unfold add_to_queues, upd_finfun; simpl; rewrite ffunE.
+          remember (i1 == loc0) as z; symmetry in Heqz; rewrite Heqz; destruct z; simpl; auto;
+            unfold initInTransit; simpl; rewrite ffunE;
+              remember (t == ord0) as u; symmetry in Hequ; rewrite Hequ; destruct u; simpl; auto;
+                unfold initInTransit; simpl; rewrite ffunE; simpl; auto; rewrite Heqz; simpl; auto. }
+        unfold initInTransit; rewrite ffunE; simpl.
+        remember (t == ord0) as u; symmetry in Hequ; rewrite Hequ; destruct u; simpl; auto;
+          unfold emQueues; rewrite ffunE; simpl; auto.
+        remember (i1 == loc0) as z; symmetry in Heqz; rewrite Heqz; destruct z; simpl; auto. } }
 
-
-(* We're now ready to handle one of the messages in-transit or both (if they're delivered at the same time) *)
-
-
-XXXXXXXXXXXX
-
-  Abort.
-
+    eapply Rle_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      apply eq_bigr; introv k.
+      rewrite Rmult_1_r; reflexivity. }
+    simpl; auto.
+    apply Rle_refl.
+  Qed.
 
   Definition received_2_echos (w : World) : bool :=
     let t := world_time w in
@@ -2566,6 +3046,7 @@ XXXXXXXXXXXX
         ((\sum_(i in 'I_p_numNodes) (1-LostProb)^2)%R (* TODO: update, it will be slightly more complicated than this to take delays into consideration *)
                          < Pr (steps2dist n received_2_echos) (finset.set1 true))%R.
   Proof.
+    (* use [ex1] *)
   Abort.
 
 
