@@ -2806,14 +2806,18 @@ Section Ex1.
 
   (* TODO: We shouldn't need the bounds [lbound] and [n] since [steps2dist'] returns true when time runs out*)
   (* We provide a lower bound so that we can manually discard probabilities that we know will end up begin 0 *)
-  Lemma ex1 :
-    (* [lbound] is the number of steps that we allow ourselves *)
+  Lemma ex_2bcats :
+    (* [lbound] is the maximum number of steps that we allow ourselves *)
     exists (lbound : nat),
-      (* The property below holds for all all bounds between [lbound] and [maxTime] *)
+      (* The property below holds for all all bounds between [lbound] and [maxTime],
+         where [maxTime] is the parameter that bounds the maximum number of steps
+         allowed, necessary for finite probabilities *)
       forall (n : nat),
         (maxTime > n)%nat ->
         (n > lbound)%nat ->
-        ((1 - LostProb) * ((1 - LostProb) * (\sum_(i in 'I_pMaxRound.+1) \sum_(i0 in 'I_pMaxRound.+1) RcvdDist pMaxRound i * RcvdDist pMaxRound i0))
+        (* The probability of 2 broadcasts being delivered after [n] steps of computation
+           is greater than the probability of those message not getting lost *)
+        ((1 - LostProb)^2
          <= Pr (steps2dist n two_bcasts_intransit) (finset.set1 true))%R.
   Proof.
     exists (2 * (maxRound + 1))%nat; introv gtn ltn.
@@ -3022,6 +3026,31 @@ Section Ex1.
       apply eq_bigr; introv k.
       rewrite Rmult_1_r; reflexivity. }
     simpl; auto.
+
+    eapply Rle_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      rewrite <- sum_distrr.
+      apply R_mult_eq_compat;[reflexivity|].
+      apply FDist.f1.
+      apply FDist.ge0. }
+    simpl.
+
+    eapply Rle_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply eq_bigr; introv j.
+      rewrite Rmult_1_r; reflexivity. }
+    simpl.
+
+    eapply Rle_trans_eq_r.
+    { apply R_mult_eq_compat;[reflexivity|].
+      apply R_mult_eq_compat;[reflexivity|].
+      apply FDist.f1. }
+    simpl.
+    rewrite Rmult_1_r.
+
     apply Rle_refl.
   Qed.
 
@@ -3551,6 +3580,12 @@ Section Ex2.
   Qed.
 
 End Ex2.
+
+
+(* Can we prove that if a protocol satisfies a property in an asynchronous environment,
+   it does so in a probabilistically synchronous one too? *)
+
+
 
 
 (*
