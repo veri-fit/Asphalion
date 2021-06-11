@@ -1,6 +1,6 @@
 Require Export Quorum.
 Require Export Process.
-Require Export DTimeQ.
+Require Export DTimeN.
 Require Export ComponentSM.
 Require Export ComponentSM2.
 Require Export CalculusSM_derived6.

@@ -77,9 +77,9 @@ Section MinBFTagreement.
       Opaque ASSUMPTION_monotonicity.
       Opaque ASSUMPTION_generates_new.
       Opaque ASSUMPTION_disseminate_unique.
-      introv vt vd vc vn xx yy zz.
+      introv vt vd vc vn vz vv xx yy zz.
       induction es using Vector.caseS'; simpl in *.
-      clear vt vd vc vn es.
+      clear vt vd vc vn vz vv es.
       repndors; subst; unfold seq_concl, seq_event in *;
         simpl in *; introv; simpl in *; tcsp;
           try (complete (unfold data_is_owned_by; minbft_simp; allrw; auto));

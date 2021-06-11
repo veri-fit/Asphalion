@@ -207,7 +207,7 @@ Section Disseminate.
     forall t, (t + dt_nat_inj 0 == t)%dtime.
   Proof.
     introv; simpl.
-    rewrite (Radd_comm dt_ring).
+    rewrite (SRadd_comm dt_semi_ring).
     apply dt_add_0_l.
   Qed.
 
@@ -224,9 +224,6 @@ Section Disseminate.
 
     { eapply dt_le_trans;[|eauto].
       unfold min_received.
-      repeat rewrite (Rsub_def dt_ring).
-      apply dt_add_le_compat; try reflexivity.
-      apply dt_add_le_compat; try reflexivity.
       simpl.
       rewrite dt_add_0_r; try reflexivity. }
 

@@ -27,7 +27,7 @@
 
 
 (* We use here rational numbers as time values *)
-Require Export DTimeQ.
+Require Export DTimeN.
 Require Export PBFTheader.
 Require Export String.
 Require Export Peano.

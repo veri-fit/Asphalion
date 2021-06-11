@@ -63,8 +63,8 @@ Section CalculusSM2.
   (************************************************************************************************)
   Definition PRIMITIVE_RULE_forall_before_elim_trans u x {eo : EventOrdering} e e' R Q H J t a :=
     MkRule0
-      [⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e') » J ⊢ a]
-      (⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE t @ e) » J ⊢ a).
+      [⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e') ⊕ J ⊢ a]
+      (⟬R ++ (u ⋈ e' ▷ e) :: Q⟭ H • (x › KE_FORALL_BEFORE t @ e) ⊕ J ⊢ a).
 
   Lemma PRIMITIVE_RULE_forall_before_elim_trans_true :
     forall u x {eo : EventOrdering} e e' R Q H J t a,
@@ -74,7 +74,7 @@ Section CalculusSM2.
     pose proof (ht (x › KE_FORALL_BEFORE t @ e)) as h; simpl in *.
     allrw hyp_in_adds; allrw hyp_in_add; repeat (autodimp h hyp).
     unfold hyp_event, seq_event in *; simpl in *.
-    pose proof (ct (u ⋈ e' ▷ e)) as w; simpl in w; autodimp w hyp.
+    pose proof (ct (u ⋈ e' ▷ e)) as w; simpl in w; autodimp w hyp; repnd.
     { apply in_app_iff; simpl; tcsp. }
     apply st0; simpl in *; tcsp.
     introv i;allrw hyp_in_adds; allrw hyp_in_add; repndors; subst; tcsp;
@@ -142,8 +142,8 @@ Section CalculusSM2.
   (************************************************************************************************)
   Definition DERIVED_RULE_forall_before_eq_elim_local_eq u x {eo : EventOrdering} e e' R Q H J t a :=
     MkRule0
-      [⟬R ++ (u ⋈ e' ■ e) :: Q⟭ H • (x › t @ e') » J ⊢ a]
-      (⟬R ++ (u ⋈ e' ■ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e) » J ⊢ a).
+      [⟬R ++ (u ⋈ e' ■ e) :: Q⟭ H • (x › t @ e') ⊕ J ⊢ a]
+      (⟬R ++ (u ⋈ e' ■ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e) ⊕ J ⊢ a).
 
   Lemma DERIVED_RULE_forall_before_eq_elim_local_eq_true :
     forall u x {eo : EventOrdering} e e' R Q H J t a,

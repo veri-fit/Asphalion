@@ -1,4 +1,5 @@
 Require Export CalculusSM_tacs.
+Require Export CalculusSM_derived1.
 
 
 Section CalculusSM_derived.
@@ -183,7 +184,7 @@ Section CalculusSM_derived.
     LOCKintro 0.
 
     LOCKapply (PRIMITIVE_RULE_cut_true "lrn" (KE_TLEARNED t @ e)).
-    { LOCKapply DERIVED_RULE_knows_and_not_owns_implies_learns_true; try LOCKauto.
+    { LOCKapply DERIVED_RULE_knows_and_not_owns_implies_learns_true; try (unfold KE_TKNOWS, KE_TOWNS in *; LOCKauto).
       LOCKapply DERIVED_RULE_KLD_implies_or_owns_true.
       inst_hyp e0 z.
       repeat LOCKclear.
@@ -195,7 +196,7 @@ Section CalculusSM_derived.
       LOCKapply DERIVED_RULE_implies_learned_if_gen_true.
       inst_hyp e0 z.
       LOCKapply (PRIMITIVE_RULE_cut_true "x" (KE_ALL_TRUST ASSUMPTION_trusted_learns_if_gen @ e0)).
-      LOCKapply@ "x" (PRIMITIVE_RULE_all_trust_elim_true "x" t); LOCKauto. }
+      LOCKapply@ "x" (PRIMITIVE_RULE_all_trust_elim_true "x" t); try unfold ASSUMPTION_trusted_learns_if_gen in *; try LOCKauto. }
 
     LOCKelim "lid"; try LOCKauto.
   Qed.

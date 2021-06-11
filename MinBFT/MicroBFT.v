@@ -1,4 +1,4 @@
-Require Export DTimeQ.
+Require Export DTimeN.
 Require Export MicroBFTheader.
 Require Export ComponentSM.
 Require Export ComponentSM2.

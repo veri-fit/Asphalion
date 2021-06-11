@@ -6,6 +6,7 @@ Require Export TrIncass_uniq.
 Require Export TrIncass_new.
 Require Export TrIncass_tknew.
 Require Export ComponentAxiom.
+Require Export CalculusSM_derived1.
 (*Require Export MinBFTass_learn.
 Require Export MinBFTass_tknows.*)
 
@@ -95,9 +96,9 @@ Section TrIncprops3.
       Opaque ASSUMPTION_monotonicity.
       Opaque ASSUMPTION_generates_new.
       Opaque ASSUMPTION_disseminate_unique.
-      introv vt vd vc vn xx yy zz.
+      introv vt vd vc vn vz vv xx yy zz.
       induction es using Vector.caseS'; simpl in *.
-      clear vt vd vc vn es.
+      clear vt vd vc vn vz vv es.
       repndors; subst; unfold seq_concl, seq_event in *;
         simpl in *; introv; simpl in *; tcsp;
           try (complete (apply ASSUMPTION_trusted_learns_if_gen_true; auto; destruct h0; auto));

@@ -1,6 +1,6 @@
 Require Export ComponentSM2.
 Require Export ComponentSM4.
-Require Export DTimeQ.
+Require Export DTimeN.
 Require Export Ref.
 
 

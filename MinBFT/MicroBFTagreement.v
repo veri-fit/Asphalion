@@ -77,7 +77,7 @@ Section MicroBFTagreement.
       Opaque ASSUMPTION_monotonicity.
       Opaque ASSUMPTION_generates_new_ex.
       Opaque ASSUMPTION_disseminate_unique.
-      introv vt vd vc vn xx yy zz.
+      introv vt vd vc vn vz vv xx yy zz.
       induction es using Vector.caseS'; simpl in *.
       clear vt vd vc vn es.
       repndors; subst; unfold seq_concl, seq_event in *;

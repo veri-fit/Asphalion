@@ -344,6 +344,20 @@ Section MicroBFTkn.
   Definition ext_prim_interp : forall (eo : EventOrdering) (e : Event), ext_prim -> Prop :=
     fun eo e p => True.
 
+  Definition microbft_vouchers : Type := unit.
+  Definition microbft_num_vouchers : microbft_vouchers -> nat := fun v => 1.
+  Definition microbft_add_vouchers : microbft_vouchers -> microbft_vouchers -> microbft_vouchers := fun a b => tt.
+  Definition microbft_mk_vouchers : node_type -> microbft_vouchers := fun n => tt.
+  Definition microbft_data2category : MicroBFT_data -> string := fun d => "".
+  Definition microbft_data2vouchers : MicroBFT_data -> microbft_vouchers := fun d => tt.
+  Definition microbft_data2payload  : MicroBFT_data -> MicroBFT_data := fun d => d.
+  Lemma microbft_app_vouchers_inc1 : forall (v1 v2 : microbft_vouchers), microbft_num_vouchers v1 <= microbft_num_vouchers (microbft_add_vouchers v1 v2).
+  Proof. auto. Qed.
+  Lemma microbft_app_vouchers_inc2 : forall (v1 v2 : microbft_vouchers), microbft_num_vouchers v2 <= microbft_num_vouchers (microbft_add_vouchers v1 v2).
+  Proof. auto. Qed.
+  Lemma microbft_num_node2vouchers : forall (n : node_type), microbft_num_vouchers (microbft_mk_vouchers n) = 1.
+  Proof. auto. Qed.
+
   Global Instance MicroBFT_I_KnowledgeComponents : KnowledgeComponents :=
     MkKnowledgeComponents
       MicroBFT_data
@@ -353,6 +367,18 @@ Section MicroBFTkn.
       similar_data
       similar_data_sym
       collision_resistant
+      (**)
+      microbft_vouchers
+      microbft_num_vouchers
+      microbft_add_vouchers
+      microbft_mk_vouchers
+      microbft_data2category
+      microbft_data2vouchers
+      microbft_data2payload
+      microbft_app_vouchers_inc1
+      microbft_app_vouchers_inc2
+      microbft_num_node2vouchers
+      (**)
       MicroBFT_data2owner
       same_ui2owner
       MicroBFT_auth2data

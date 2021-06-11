@@ -327,9 +327,9 @@ Section CalculusSM_derived1.
   (************************************************************************************************)
   Definition DERIVED_RULE_split_local_before_eq_hyp x {eo : EventOrdering} e R H J a b :=
     MkRule0
-      [⟬R⟭ H • (x › a @ e) » J ⊢ b,
-       ⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ local_pred_n e) » J ⊢ b]
-      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) » J ⊢ b).
+      [⟬R⟭ H • (x › a @ e) ⊕ J ⊢ b,
+       ⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ local_pred_n e) ⊕ J ⊢ b]
+      (⟬R⟭ H • (x › KE_LOCAL_BEFORE_EQ a @ e) ⊕ J ⊢ b).
 
   Lemma DERIVED_RULE_split_local_before_hyp_true :
     forall x {eo : EventOrdering} e R H J a b,
@@ -1054,7 +1054,8 @@ Section CalculusSM_derived1.
       LOCKapply@ "w" DERIVED_RULE_right_before_over_or_hyp_true.
       LOCKelim "w".
       { LOCKintro 0.
-        LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
+        LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto.
+        fold (KE_LEARNED d); try LOCKauto. }
       LOCKintro 1.
       LOCKapply DERIVED_RULE_right_before_local_before_eq_implies_true; try LOCKauto. }
 

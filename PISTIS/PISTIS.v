@@ -1,4 +1,4 @@
-Require Export DTimeQ.
+Require Export DTimeN.
 Require Export PISTISheader.
 Require Export ComponentSM.
 Require Export ComponentSM2.

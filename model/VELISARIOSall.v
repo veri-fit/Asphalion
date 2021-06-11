@@ -29,5 +29,5 @@
 Require Export LearnAndKnows.
 (* assumptions for synchronous systems *)
 Require Export Synch.
-(* instance of time that uses rational numbers *)
-Require Export DTimeQ.
+(* instance of time that uses natural numbers *)
+Require Export DTimeN.

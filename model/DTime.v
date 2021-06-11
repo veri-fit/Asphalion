@@ -53,18 +53,17 @@ Section DTime.
         dt_add              : dt_T -> dt_T -> dt_T;
         dt_mul              : dt_T -> dt_T -> dt_T;
         dt_sub              : dt_T -> dt_T -> dt_T;
-        dt_opp              : dt_T -> dt_T;
         dt_eq               : relation dt_T;
         dt_lt               : relation dt_T;
         dt_le               : relation dt_T;
         dt_eqv              : Equivalence dt_eq;
-        dt_ring             : ring_theory dt_0 dt_1 dt_add dt_mul dt_sub dt_opp dt_eq;
+        dt_semi_ring        : semi_ring_theory dt_0 dt_1 dt_add dt_mul dt_eq;
         dt_nat_inj          : nat -> dt_T;
         dt_approx           : dt_T -> nat;
 
         dt_add_morph        : forall x y, dt_eq x y -> forall u v, dt_eq u v -> dt_eq (dt_add x u) (dt_add y v);
         dt_mul_morph        : forall x y, dt_eq x y -> forall u v, dt_eq u v -> dt_eq (dt_mul x u) (dt_mul y v);
-        dt_opp_morph        : forall x y, dt_eq x y -> dt_eq (dt_opp x) (dt_opp y);
+        dt_sub_morph        : forall x y, dt_eq x y -> forall u v, dt_eq u v -> dt_eq (dt_sub x u) (dt_sub y v);
         dt_le_morph         : forall x y, dt_eq x y -> forall u v, dt_eq u v -> dt_le x u -> dt_le y v;
         dt_lt_morph         : forall x y, dt_eq x y -> forall u v, dt_eq u v -> dt_lt x u -> dt_lt y v;
 
@@ -118,13 +117,13 @@ Section DTime.
   Global Add Morphism dt_add with signature (dt_eq ==> dt_eq ==> dt_eq) as dt_add_ext.
   Proof. exact dt_add_morph. Qed.
 
+  Global Add Morphism dt_sub with signature (dt_eq ==> dt_eq ==> dt_eq) as dt_sub_ext.
+  Proof. exact dt_sub_morph. Qed.
+
   Global Add Morphism dt_mul with signature (dt_eq ==> dt_eq ==> dt_eq) as dt_mul_ext.
   Proof. exact dt_mul_morph. Qed.
 
-  Global Add Morphism dt_opp with signature (dt_eq ==> dt_eq) as dt_opp_ext.
-  Proof. exact dt_opp_morph. Qed.
-
-  Add Ring rg_dt : dt_ring.
+  Add Ring rg_dt : dt_semi_ring.
 
   Global Instance dt_le_eq : Proper (dt_eq ==> dt_eq ==> flip impl) dt_le.
   Proof.
@@ -150,6 +149,12 @@ Section DTime.
     eapply dt_add_morph; auto.
   Qed.
 
+  Global Instance dt_sub_eq : Proper (dt_eq ==> dt_eq ==> dt_eq) dt_sub.
+  Proof.
+    introv h1 h2.
+    eapply dt_sub_morph; auto.
+  Qed.
+
   (* We use positive rationals to model time *)
   Record PosDTime :=
     MkPosDTime
@@ -163,7 +168,7 @@ Section DTime.
       dt_le dt_0 (ntimes n dt_0 dt_1 dt_add).
   Proof.
     induction n; simpl; try reflexivity;[].
-    pose proof (Radd_0_l dt_ring dt_0) as z.
+    pose proof (SRadd_0_l dt_semi_ring dt_0) as z.
     pose proof (dt_add_le_compat dt_0 dt_0 dt_1 (ntimes n dt_0 dt_1 dt_add)) as w.
     repeat (autodimp w hyp).
     { apply dt_lt_le_weak; apply dt_lt_0_1. }
@@ -190,7 +195,7 @@ Section DTime.
     pose proof (dt_add_le_compat dt_0 dt_0 q1 q2) as w.
     repeat (autodimp w hyp).
     eapply dt_le_trans;[|exact w]; clear w.
-    rewrite (Radd_0_l dt_ring dt_0); try reflexivity.
+    rewrite (SRadd_0_l dt_semi_ring dt_0); try reflexivity.
   Defined.
 
   Delimit Scope dtime with dtime.
@@ -249,14 +254,14 @@ Section DTime.
   Lemma eq_dt_1 : dt_eq (dt_nat_inj 1) dt_1.
   Proof.
     rewrite dt_nat_inj_cond; simpl; auto.
-    rewrite (Radd_comm dt_ring).
-    rewrite (Radd_0_l dt_ring); reflexivity.
+    rewrite (SRadd_comm dt_semi_ring).
+    rewrite (SRadd_0_l dt_semi_ring); reflexivity.
   Qed.
 
   Lemma mu_plus_tau_pos : (0 < mu + tau)%dtime.
   Proof.
     pose proof (dt_add_lt_le_compat dt_0 dt_0 mu tau) as w.
-    rewrite (Radd_0_l dt_ring dt_0) in w.
+    rewrite (SRadd_0_l dt_semi_ring dt_0) in w.
     rewrite <- eq_dt_0 in w; apply w; auto;
       try (apply mu_strict_pos).
       try (apply dt_lt_le_weak; apply tau_strict_pos).
@@ -302,13 +307,13 @@ Section DTime.
 
     eapply dt_le_trans;[apply dt_add_le_compat;[eauto|apply dt_le_refl] |]; clear w2.
 
-    pose proof (Rdistr_l
-                  dt_ring
+    pose proof (SRdistr_l
+                  dt_semi_ring
                   n1
                   1
                   (mu + tau)%dtime) as xx.
     simpl in *.
-    rewrite eq_dt_1, (Rmul_1_l dt_ring) in xx.
+    rewrite eq_dt_1, (SRmul_1_l dt_semi_ring) in xx.
     rewrite <- xx; clear xx.
     apply dt_mul_le_compat_r;[|rewrite <- eq_dt_0;eauto 2 with dtime];[].
     rewrite <- eq_dt_1.
@@ -345,7 +350,7 @@ Section DTime.
   Proof.
     introv; simpl.
     rewrite eq_dt_1.
-    apply (Rmul_1_l dt_ring).
+    apply (SRmul_1_l dt_semi_ring).
   Qed.
 
   Lemma dt_add_0_l :
@@ -353,7 +358,7 @@ Section DTime.
   Proof.
     introv; simpl.
     rewrite eq_dt_0.
-    apply (Radd_0_l dt_ring).
+    apply (SRadd_0_l dt_semi_ring).
   Qed.
 
   Lemma dt_mul_le_r :
@@ -415,7 +420,7 @@ Section DTime.
     assert (S a = a + 1) as xx by omega.
     rewrite xx; clear xx.
     rewrite <- dt_nat_inj_add_dist.
-    pose proof (Rdistr_l dt_ring (dt_nat_inj a) (dt_nat_inj 1) b) as xx.
+    pose proof (SRdistr_l dt_semi_ring (dt_nat_inj a) (dt_nat_inj 1) b) as xx.
     rewrite xx; clear xx.
     apply dt_add_ext; try reflexivity.
     rewrite dt_mul_1_l; try reflexivity.

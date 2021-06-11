@@ -533,6 +533,20 @@ Section TrInckn.
   Definition ext_prim_interp : forall (eo : EventOrdering) (e : Event), ext_prim -> Prop :=
     fun eo e p => True.
 
+  Definition minbft_vouchers : Type := unit.
+  Definition minbft_num_vouchers : minbft_vouchers -> nat := fun v => 1.
+  Definition minbft_add_vouchers : minbft_vouchers -> minbft_vouchers -> minbft_vouchers := fun a b => tt.
+  Definition minbft_mk_vouchers : node_type -> minbft_vouchers := fun n => tt.
+  Definition minbft_data2category : MinBFT_data -> string := fun d => "".
+  Definition minbft_data2vouchers : MinBFT_data -> minbft_vouchers := fun d => tt.
+  Definition minbft_data2payload  : MinBFT_data -> MinBFT_data := fun d => d.
+  Lemma minbft_app_vouchers_inc1 : forall (v1 v2 : minbft_vouchers), minbft_num_vouchers v1 <= minbft_num_vouchers (minbft_add_vouchers v1 v2).
+  Proof. auto. Qed.
+  Lemma minbft_app_vouchers_inc2 : forall (v1 v2 : minbft_vouchers), minbft_num_vouchers v2 <= minbft_num_vouchers (minbft_add_vouchers v1 v2).
+  Proof. auto. Qed.
+  Lemma minbft_num_node2vouchers : forall (n : node_type), minbft_num_vouchers (minbft_mk_vouchers n) = 1.
+  Proof. auto. Qed.
+
   Global Instance MinBFT_I_KnowledgeComponents : KnowledgeComponents :=
     MkKnowledgeComponents
       MinBFT_data
@@ -542,6 +556,18 @@ Section TrInckn.
       similar_data
       similar_data_sym
       collision_resistant
+      (**)
+      minbft_vouchers
+      minbft_num_vouchers
+      minbft_add_vouchers
+      minbft_mk_vouchers
+      minbft_data2category
+      minbft_data2vouchers
+      minbft_data2payload
+      minbft_app_vouchers_inc1
+      minbft_app_vouchers_inc2
+      minbft_num_node2vouchers
+      (**)
       MinBFT_data2owner
       same_ui2owner
       MinBFT_auth2data

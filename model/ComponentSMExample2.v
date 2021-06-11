@@ -1,6 +1,6 @@
 Require Export ComponentSM2.
 Require Export ComponentSM4.
-Require Export DTimeQ.
+Require Export DTimeN.
 
 
 Inductive exmsg :=

@@ -238,8 +238,8 @@ Section CalculusSM_derived4.
     { inst_hyp e st'; repeat LOCKclear. }
 
     LOCKelim "ass1" t; try LOCKauto.
-    LOCKelim "ass1"; try LOCKauto.
-    LOCKelim "ass1"; try LOCKauto.
+    LOCKelim "ass1"; try (unfold KE_TLEARNS in *; LOCKauto).
+    LOCKelim "ass1"; try (unfold KE_TDISS_OWN in *; LOCKauto).
     LOCKelim "ass1".
     LOCKapply@ "ass1" (PRIMITIVE_RULE_unhappened_before_hyp_true "u").
     LOCKelim "ass1" "diss".
@@ -257,9 +257,9 @@ Section CalculusSM_derived4.
       { inst_hyp e0 st'; repeat LOCKclear; LOCKclear "u". }
       LOCKelim "ass2" d.
       LOCKelim "ass2" t.
-      repeat (LOCKelim "ass2"; try LOCKauto).
+      repeat (LOCKelim "ass2"; try (unfold KE_TOWNS in *; LOCKauto)).
 
-      LOCKapply@ "u" PRIMITIVE_RULE_unhappened_before_if_causal_true; try LOCKauto. }
+      LOCKapply@ "u" PRIMITIVE_RULE_unhappened_before_if_causal_true; try (unfold KE_TDISS_OWN in *; LOCKauto). }
 
     LOCKcut "ass2" (ASSUMPTION_learns_trusted_if_own @ e0).
     { inst_hyp e0 st'; repeat LOCKclear; LOCKclear "u". }
@@ -267,13 +267,13 @@ Section CalculusSM_derived4.
     LOCKelim "ass2" t.
     LOCKelim "ass2"; try LOCKauto.
     LOCKelim "ass2"; try LOCKauto.
-    LOCKelim "ass2"; try LOCKauto.
+    LOCKelim "ass2"; try (unfold KE_TOWNS in *; LOCKauto).
 
     LOCKapply@ "ass2" (DERIVED_RULE_unlocal_before_eq_hyp_true "v").
     LOCKapply@ "u" "ind" PRIMITIVE_RULE_forall_before_elim_trans_true.
     LOCKapply@ "v" "ind" DERIVED_RULE_forall_before_eq_elim_local_eq_true.
     LOCKelim "ind" t.
-    LOCKelim "ind"; try LOCKauto.
+    LOCKelim "ind"; try (unfold KE_TLEARNS in *; LOCKauto).
     LOCKapply@ "u" PRIMITIVE_RULE_unhappened_before_if_causal_trans_eq_true.
     LOCKapply@ "v" DERIVED_RULE_happened_before_if_local_eq_true; try LOCKauto.
   Qed.
@@ -357,8 +357,8 @@ Section CalculusSM_derived4.
   (************************************************************************************************)
   Definition DERIVED_RULE_forall_before_eq_elim u x {eo : EventOrdering} e e' R Q H J t a :=
     MkRule0
-      [⟬R ++ (u ⋈ e' ▶ e) :: Q⟭ H • (x › t @ e') » J ⊢ a]
-      (⟬R ++ (u ⋈ e' ▶ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e) » J ⊢ a).
+      [⟬R ++ (u ⋈ e' ▶ e) :: Q⟭ H • (x › t @ e') ⊕ J ⊢ a]
+      (⟬R ++ (u ⋈ e' ▶ e) :: Q⟭ H • (x › KE_FORALL_BEFORE_EQ t @ e) ⊕ J ⊢ a).
 
   Lemma DERIVED_RULE_forall_before_eq_elim_true :
     forall u x {eo : EventOrdering} e e' R Q H J t a,
@@ -385,8 +385,8 @@ Section CalculusSM_derived4.
   (************************************************************************************************)
   Definition DERIVED_RULE_swap_forall_before_eq_all_trust x {eo : EventOrdering} e f R H J a :=
     MkRule0
-      [⟬R⟭ H • (x › KE_ALL_TRUST (fun t => KE_FORALL_BEFORE_EQ (f t)) @ e) » J ⊢ a]
-      (⟬R⟭ H • (x › KE_FORALL_BEFORE_EQ (KE_ALL_TRUST f) @ e) » J ⊢ a).
+      [⟬R⟭ H • (x › KE_ALL_TRUST (fun t => KE_FORALL_BEFORE_EQ (f t)) @ e) ⊕ J ⊢ a]
+      (⟬R⟭ H • (x › KE_FORALL_BEFORE_EQ (KE_ALL_TRUST f) @ e) ⊕ J ⊢ a).
 
   Lemma DERIVED_RULE_swap_forall_before_eq_all_trust_true :
     forall x {eo : EventOrdering} e f R H J a,
@@ -498,8 +498,8 @@ Section CalculusSM_derived4.
     { inst_hyp e st'; repeat LOCKclear. }
 
     LOCKapply@ "ass1" (PRIMITIVE_RULE_all_trust_elim_true "ass1" t); try LOCKauto.
-    LOCKelim "ass1"; try LOCKauto.
-    LOCKelim "ass1"; try LOCKauto.
+    LOCKelim "ass1"; try (unfold KE_TLEARNS in *; LOCKauto).
+    LOCKelim "ass1"; try (unfold KE_TDISS_OWN in *; LOCKauto).
     LOCKelim "ass1".
     LOCKapply@ "ass1" (PRIMITIVE_RULE_unhappened_before_hyp_true "u").
     LOCKelim "ass1" "diss".
@@ -520,7 +520,7 @@ Section CalculusSM_derived4.
       LOCKcut "ass" (KE_ALL_DATA ASSUMPTION_knew_or_learns_or_gen @ e1).
       LOCKelim "ass" (kc_trust2data t); try LOCKauto. }
 
-    LOCKelim "ass3"; try LOCKauto.
+    LOCKelim "ass3"; try (unfold KE_TKNOWS in *; LOCKauto).
     LOCKapply@ "u" DERIVED_RULE_unhappened_before_if_causal_trans_true; try LOCKauto.
   Qed.
 
