@@ -25,8 +25,8 @@ Section MinBFTcount_gen_cond.
   | pres_cond1 :
       forall p, P p -> pres_is_M_break_out P 0 p
   | pres_cond2 :
-      forall k p i q o subs,
-        is_M_break_out (lift_M_1 (app_n_proc_at p i)) subs (Some (sm_or_at q), o)
+      forall k p t i q o subs,
+        is_M_break_out (lift_M_1 (app_n_proc_at p t i)) subs (hsome (sm_or_at q), o)
         -> pres_is_M_break_out P k p
         -> pres_is_M_break_out P (S k) q.
 
@@ -38,8 +38,8 @@ Section MinBFTcount_gen_cond.
     match j with
     | 0 => P p
     | S j =>
-      forall i q o l,
-        is_M_break_out (lift_M_1 (app_n_proc_at p i)) l (Some (sm_or_at q), o)
+      forall t i q o l,
+        is_M_break_out (lift_M_1 (app_n_proc_at p t i)) l (hsome (sm_or_at q), o)
         -> preserves_is_M_break_out j P q
     end.
 
@@ -48,21 +48,21 @@ Section MinBFTcount_gen_cond.
 
   Definition is_M_break_out_LOGname_implies_ex_entry
              (p : n_proc_at 0 LOGname) :=
-    forall c q subs,
+    forall t c q subs,
       (is_M_break_out
-         (lift_M_1 (app_n_proc_at p (is_committed_in c))) subs
-         (Some q, log_out true)
+         (lift_M_1 (app_n_proc_at p t (is_committed_in c))) subs
+         (hsome q, log_out true)
        \/ (exists o,
               is_M_break_out
-                 (lift_M_1 (app_n_proc_at p (log_new_commit_log_in c))) subs
-                (Some q, o))
+                 (lift_M_1 (app_n_proc_at p t (log_new_commit_log_in c))) subs
+                 (hsome q, o))
        \/ is_M_break_out
-            (lift_M_1 (app_n_proc_at p (prepare_already_in_log_in (commit2prepare c)))) subs
-            (Some q, log_out true)
+            (lift_M_1 (app_n_proc_at p t (prepare_already_in_log_in (commit2prepare c)))) subs
+            (hsome q, log_out true)
        \/ (exists o ui,
               is_M_break_out
-                (lift_M_1 (app_n_proc_at p (log_new_commit_log_in (mk_my_commit c ui)))) subs
-                (Some q, o)))
+                (lift_M_1 (app_n_proc_at p t (log_new_commit_log_in (mk_my_commit c ui)))) subs
+                (hsome q, o)))
       -> ex_entry (commit2request_data_i c) (sm2state q).
 
   Definition preserves_is_M_break_out_LOGname_implies_ex_entry
@@ -100,10 +100,10 @@ Section MinBFTcount_gen_cond.
   Qed.
 
   Lemma cond_implies_preserves_ex_entry :
-    forall (subs : n_procs 1) (p : n_proc_at 0 LOGname) q i o l,
+    forall (subs : n_procs 1) (p : n_proc_at 0 LOGname) q t i o l,
       cond_LOGname_ex_entry subs
       -> find_name LOGname subs = Some (sm_or_at p)
-      -> is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) i)) l (Some q, o)
+      -> is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t i)) l (hsome q, o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry (proc2at0 q).
   Proof.
     introv cond fn h; introv.
@@ -112,12 +112,12 @@ Section MinBFTcount_gen_cond.
     unfold preserves_is_M_break_out_LOGname_implies_ex_entry in *; simpl in *.
     unfold sm2p0 in *; simpl in *.
     destruct q; simpl in *; tcsp.
-    pose proof (fn i a o l) as fn; tcsp.
+    pose proof (fn t i a o l) as fn; tcsp.
   Qed.
 
   Lemma is_M_break_out_preserves_ex_entry :
-    forall (p : n_proc_at 0 LOGname) q i o l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) i)) l (Some q, o)
+    forall (p : n_proc_at 0 LOGname) q t i o l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t i)) l (hsome q, o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> preserves_is_M_break_out_LOGname_implies_ex_entry (proc2at0 q).
   Proof.
@@ -130,8 +130,8 @@ Section MinBFTcount_gen_cond.
   Hint Resolve is_M_break_out_preserves_ex_entry : minbft.
 
   Lemma is_M_break_out_preserves_ex_entry_2 :
-    forall (p : n_proc_at 0 LOGname) q i o l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) i)) l (Some (sm_or_at q), o)
+    forall (p : n_proc_at 0 LOGname) q t i o l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t i)) l (hsome (sm_or_at q), o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> preserves_is_M_break_out_LOGname_implies_ex_entry q.
   Proof.
@@ -178,13 +178,13 @@ Section MinBFTcount_gen_cond.
   Hint Resolve cond_LOGname_ex_entry_implies_preserves : minbft.
 
   Lemma preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry :
-    forall (p : MP_StateMachine (fun _ => False) LOGname) c q l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) (is_committed_in c))) l (Some q, log_out true)
+    forall (p : MP_StateMachine (fun _ => False) LOGname) t c q l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t (is_committed_in c))) l (hsome q, log_out true)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> ex_entry (commit2request_data_i c) (sm2state q).
   Proof.
     introv h w.
-    pose proof (w 0 c q l) as w; simpl in w; tcsp.
+    pose proof (w 0 t c q l) as w; simpl in w; tcsp.
   Qed.
   Hint Resolve preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry : minbft.
 
@@ -198,13 +198,13 @@ Section MinBFTcount_gen_cond.
   Hint Rewrite mk_my_commit_commit2ui_j : minbft.
 
   Lemma preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_log :
-    forall (p : MP_StateMachine (fun _ => False) LOGname) c q o l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) (log_new_commit_log_in c))) l (Some q, o)
+    forall (p : MP_StateMachine (fun _ => False) LOGname) t c q o l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t (log_new_commit_log_in c))) l (hsome q, o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> ex_entry (commit2request_data_i c) (sm2state q).
   Proof.
     introv h w.
-    pose proof (w 0 c q l) as w; simpl in w; tcsp.
+    pose proof (w 0 t c q l) as w; simpl in w; tcsp.
     apply w; clear w.
     right; right; right; eauto.
     exists o (commit2ui_j c).
@@ -213,36 +213,36 @@ Section MinBFTcount_gen_cond.
   Hint Resolve preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_log : minbft.
 
   Lemma preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_log_my :
-    forall (p : MP_StateMachine (fun _ => False) LOGname) c q o ui l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) (log_new_commit_log_in (mk_my_commit c ui)))) l (Some q, o)
+    forall (p : MP_StateMachine (fun _ => False) LOGname) t c q o ui l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t (log_new_commit_log_in (mk_my_commit c ui)))) l (hsome q, o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> ex_entry (commit2request_data_i c) (sm2state q).
   Proof.
     introv h w.
-    pose proof (w 0 c q l) as w; simpl in w; tcsp.
+    pose proof (w 0 t c q l) as w; simpl in w; tcsp.
     apply w; right; eauto.
   Qed.
   Hint Resolve preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_log_my : minbft.
 
   Lemma preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_prep :
-    forall (p : MP_StateMachine (fun _ => False) LOGname) c q l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) (prepare_already_in_log_in (commit2prepare c)))) l (Some q, log_out true)
+    forall (p : MP_StateMachine (fun _ => False) LOGname) t c q l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t (prepare_already_in_log_in (commit2prepare c)))) l (hsome q, log_out true)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> ex_entry (commit2request_data_i c) (sm2state q).
   Proof.
     introv h w.
-    pose proof (w 0 c q l) as w; simpl in w; tcsp.
+    pose proof (w 0 t c q l) as w; simpl in w; tcsp.
   Qed.
   Hint Resolve preserves_is_M_break_out_LOGname_implies_ex_entry_implies_ex_entry_prep : minbft.
 
   Lemma is_M_break_out_preserves_ex_entry2 :
-    forall p q i o l,
-      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) i)) l (Some (at2sm q), o)
+    forall p q t i o l,
+      is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t i)) l (hsome (at2sm q), o)
       -> preserves_is_M_break_out_LOGname_implies_ex_entry p
       -> preserves_is_M_break_out_LOGname_implies_ex_entry (sm2p0 q).
   Proof.
     introv a b.
-    pose proof (is_M_break_out_preserves_ex_entry p (at2sm q) i o l) as h.
+    pose proof (is_M_break_out_preserves_ex_entry p (at2sm q) t i o l) as h.
     apply h; auto.
   Qed.
   Hint Resolve is_M_break_out_preserves_ex_entry2 : minbft.

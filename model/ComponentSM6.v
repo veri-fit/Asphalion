@@ -32,7 +32,7 @@ Section ComponentSM6.
     | S m => fun sm =>
                match sm with
                | sm_or_at q => sm_update q
-               | sm_or_sm q => fun s i => M_on_pred (sm2update_p q s i)
+               | sm_or_sm q => fun s t i => M_on_pred (sm2update_p q s t i)
                end
     end.
 
@@ -114,8 +114,8 @@ Section ComponentSM6.
 
   Lemma sm2update_as_sm2update_p :
     forall {n} {cn}
-           (sm : n_proc n cn) s i,
-      sm2update sm s i = M_to (sm2level sm) (sm2update_p sm s i).
+           (sm : n_proc n cn) s t i,
+      sm2update sm s t i = M_to (sm2level sm) (sm2update_p sm s t i).
   Proof.
     induction n; introv; simpl in *; tcsp.
     destruct sm as [sm|sm]; simpl in *; auto; autorewrite with comp; auto;[].
@@ -126,8 +126,8 @@ Section ComponentSM6.
 
   Lemma sm2update_p_as_sm2update :
     forall {n} {cn}
-           (sm : n_proc n cn) s i,
-      sm2update_p sm s i = M_from (pred n) (sm2update sm s i).
+           (sm : n_proc n cn) s t i,
+      sm2update_p sm s t i = M_from (pred n) (sm2update sm s t i).
   Proof.
     induction n; introv; simpl in *; tcsp.
     destruct sm as [sm|sm]; simpl in *; auto; autorewrite with comp; auto;[].
@@ -137,7 +137,7 @@ Section ComponentSM6.
     apply functional_extensionality; introv; simpl.
     unfold M_on_pred, M_from.
     rewrite select_n_procs_decr_n_procs; auto.
-    remember (sm2update sm s i (select_n_procs (sm2level sm) x)) as w; repnd; f_equal.
+    remember (sm2update sm s t i (select_n_procs (sm2level sm) x)) as w; repnd; f_equal.
     rewrite incr_pred_n_procs_raise_to_n_procs; auto.
   Qed.
 
@@ -398,10 +398,10 @@ Section ComponentSM6.
   Hint Resolve is_proc_n_proc_at_upd_ls_main_op_state_and_subs : comp.*)
 
   Lemma is_proc_n_proc_at_update_implies_some :
-    forall cn n (p : n_proc_at n cn) s i subs1 subs2 sop out,
+    forall cn n (p : n_proc_at n cn) s t i subs1 subs2 sop out,
       is_proc_n_proc_at p
-      -> sm_update p s i subs1 = (subs2, (sop, out))
-      -> exists s, sop = Some s.
+      -> sm_update p s t i subs1 = (subs2, (sop, out))
+      -> exists s, sop = hsome s.
   Proof.
     introv isp e.
     unfold is_proc_n_proc_at in isp; exrepnd.
@@ -409,7 +409,7 @@ Section ComponentSM6.
     unfold proc2upd in *; simpl in *.
     unfold interp_s_proc, to_proc_some_state in *; simpl in *.
     unfold bind_pair, bind in *; simpl in *.
-    remember (interp_proc (p0 s i) subs1) as w; repnd; simpl in *; ginv; eauto.
+    remember (interp_proc (p0 s t i) subs1) as w; repnd; simpl in *; ginv; eauto.
     inversion e; subst; eauto.
   Qed.
 

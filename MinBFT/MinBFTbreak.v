@@ -19,15 +19,15 @@ Section MinBFTbreak.
 
 
   Lemma M_break_MinBFT_state_update :
-    forall {O} r s m subs (F : n_procs 1 -> option MAIN_state * DirectedMsgs -> O),
-      M_break (MAIN_update r s m) subs F
+    forall {O} r s t m subs (F : n_procs 1 -> hoption MAIN_state * DirectedMsgs -> O),
+      M_break (MAIN_update r s t m) subs F
       = match m with
-        | MinBFT_request _ => M_break (interp_s_proc (handle_request r s m)) subs F
-        | MinBFT_prepare _ => M_break (interp_s_proc (handle_prepare r s m)) subs F
-        | MinBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) subs F
-        | MinBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) subs F
-        | MinBFT_reply   _ => M_break (interp_s_proc (handle_reply   r s m)) subs F
-        | MinBFT_debug   _ => M_break (interp_s_proc (handle_debug   r s m)) subs F
+        | MinBFT_request _ => M_break (interp_s_proc (handle_request r s t m)) subs F
+        | MinBFT_prepare _ => M_break (interp_s_proc (handle_prepare r s t m)) subs F
+        | MinBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s t m)) subs F
+        | MinBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s t m)) subs F
+        | MinBFT_reply   _ => M_break (interp_s_proc (handle_reply   r s t m)) subs F
+        | MinBFT_debug   _ => M_break (interp_s_proc (handle_debug   r s t m)) subs F
         end.
   Proof.
     destruct m; introv; simpl; auto.
@@ -35,8 +35,8 @@ Section MinBFTbreak.
   Hint Rewrite @M_break_MinBFT_state_update : minbft.
 
   Lemma M_break_LOG_update :
-    forall {O} l i subs (F : n_procs 0 -> option LOG_state * LOG_output_interface  -> O),
-      M_break (LOG_update l i) subs F
+    forall {O} l t i subs (F : n_procs 0 -> hoption LOG_state * LOG_output_interface  -> O),
+      M_break (LOG_update l t i) subs F
       = match i with
         | log_new_prepare_log_in p => M_break (interp_s_proc (let l' := log_new_prepare p l in [R](l',log_out true))) subs F
         | log_new_commit_log_in c => M_break (interp_s_proc (let l' := log_new_commit c l in [R](l',log_out true))) subs F
@@ -50,13 +50,14 @@ Section MinBFTbreak.
 
   Lemma M_break_call_create_ui :
     forall {A n} {O}
+           (t    : PosDTime)
            (m    : View * Request * nat * nat)
            (d    : unit -> Proc A)
            (f    : UI -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_create_ui m d f)) subs F
-      = M_break (call_proc USIGname (create_ui_in m))
+      M_break (interp_proc (call_create_ui t m d f)) subs F
+      = M_break (call_proc USIGname t (create_ui_in m))
                 subs
                 (fun subs out =>
                    on_create_ui_out
@@ -74,13 +75,14 @@ Section MinBFTbreak.
 
   Lemma M_break_call_verify_ui :
     forall {A n} {O}
+           (t    : PosDTime)
            (mui  : View * Request * UI)
            (d    : unit -> Proc A)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_verify_ui mui d f)) subs F
-      = M_break (call_proc USIGname (verify_ui_in mui))
+      M_break (interp_proc (call_verify_ui t mui d f)) subs F
+      = M_break (call_proc USIGname t (verify_ui_in mui))
                 subs
                 (fun subs out =>
                    if_true_verify_ui_out
@@ -98,13 +100,14 @@ Section MinBFTbreak.
 
   Lemma M_break_call_prepare_already_in_log :
     forall {A n} {O}
+           (t    : PosDTime)
            (p    : Prepare)
            (d    : unit -> Proc A)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_prepare_already_in_log p d f)) subs F
-      = M_break (call_proc LOGname (prepare_already_in_log_in p))
+      M_break (interp_proc (call_prepare_already_in_log t p d f)) subs F
+      = M_break (call_proc LOGname t (prepare_already_in_log_in p))
                 subs
                 (fun subs out =>
                    on_log_out
@@ -122,12 +125,13 @@ Section MinBFTbreak.
 
   Lemma M_break_call_prepare_already_in_log_bool :
     forall {A n} {O}
+           (t    : PosDTime)
            (p    : Prepare)
            (f    : bool -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_prepare_already_in_log_bool p f)) subs F
-      = M_break (call_proc LOGname (prepare_already_in_log_in p))
+      M_break (interp_proc (call_prepare_already_in_log_bool t p f)) subs F
+      = M_break (call_proc LOGname t (prepare_already_in_log_in p))
                 subs
                 (fun subs out => M_break (interp_proc (on_log_out_bool f out)) subs F).
   Proof.
@@ -141,12 +145,13 @@ Section MinBFTbreak.
 
   Lemma M_break_call_log_prepare :
     forall {A n} {O}
+           (t    : PosDTime)
            (p    : Prepare)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_log_prepare p f)) subs F
-      = M_break (call_proc LOGname (log_new_prepare_log_in p))
+      M_break (interp_proc (call_log_prepare t p f)) subs F
+      = M_break (call_proc LOGname t (log_new_prepare_log_in p))
                 subs
                 (fun subs out => M_break (interp_proc (f tt)) subs F).
   Proof.
@@ -159,12 +164,13 @@ Section MinBFTbreak.
 
   Lemma M_break_call_log_commit :
     forall {A n} {O}
+           (t    : PosDTime)
            (c    : Commit)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_log_commit c f)) subs F
-      = M_break (call_proc LOGname (log_new_commit_log_in c))
+      M_break (interp_proc (call_log_commit t c f)) subs F
+      = M_break (call_proc LOGname t (log_new_commit_log_in c))
                 subs
                 (fun subs out => M_break (interp_proc (f tt)) subs F).
   Proof.
@@ -177,13 +183,14 @@ Section MinBFTbreak.
 
   Lemma M_break_call_is_committed :
     forall {A n} {O}
+           (t    : PosDTime)
            (c    : Commit)
            (d    : unit -> Proc A)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_is_committed c d f)) subs F
-      = M_break (call_proc LOGname (is_committed_in c))
+      M_break (interp_proc (call_is_committed t c d f)) subs F
+      = M_break (call_proc LOGname t (is_committed_in c))
                 subs
                 (fun subs out => on_log_out (fun _ => M_break (interp_proc (f tt)) subs F)
                                             (fun _ => M_break (interp_proc (d tt)) subs F)
@@ -201,18 +208,18 @@ Section MinBFTbreak.
   Definition lower_out_break {n} {A} {B}
              (l : n_procs (S n))
              (F : n_procs (S n) -> A -> B) : n_procs n -> A -> B :=
-    fun k a => F (update_subs l k) a.
+    fun k a => F (update_subs_decr l k) a.
 
   Lemma M_break_M_run_sm_on_input_MinBFT_replicaSM_new :
-    forall {O} r s m subs (F : n_procs 2 -> option MAIN_state * DirectedMsgs -> O),
-      M_break (M_run_sm_on_input (MinBFT_replicaSM_new r s) m) subs F
+    forall {O} r s t m subs (F : n_procs 2 -> hoption MAIN_state * DirectedMsgs -> O),
+      M_break (M_run_sm_on_input (MinBFT_replicaSM_new r s) t m) subs F
       = match m with
-        | MinBFT_request _ => M_break (interp_s_proc (handle_request r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MinBFT_prepare _ => M_break (interp_s_proc (handle_prepare r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MinBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MinBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MinBFT_reply   _ => M_break (interp_s_proc (handle_reply   r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MinBFT_debug   _ => M_break (interp_s_proc (handle_debug   r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_request _ => M_break (interp_s_proc (handle_request r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_prepare _ => M_break (interp_s_proc (handle_prepare r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_reply   _ => M_break (interp_s_proc (handle_reply   r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MinBFT_debug   _ => M_break (interp_s_proc (handle_debug   r s t m)) (decr_n_procs subs) (lower_out_break subs F)
         end.
   Proof.
     introv.

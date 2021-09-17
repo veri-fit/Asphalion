@@ -64,7 +64,7 @@ Section PrimaryBackup.
 
   Instance PB_I_Node : Node := MkNode PBnode Deq_PBnode.
 
-  Instance PB_I_Msg : Msg := MkMsg PBmsg.
+  Instance PB_I_Msg : Msg := MkMsg PBmsg (PBinput 0).
 
   Definition PB_msg_status (m : PBmsg) : msg_status :=
     match m with

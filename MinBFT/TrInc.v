@@ -30,7 +30,7 @@ Section TrInc.
      =============================================================== *)
 
   Definition USIG_update : M_Update 0 USIGname _ :=
-    fun (s : TRINC_state) (m : USIG_input_interface) =>
+    fun (s : TRINC_state) t (m : USIG_input_interface) =>
       interp_s_proc
         (match m with
          | create_ui_in (v,r,cid,c) =>

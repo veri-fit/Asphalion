@@ -64,12 +64,12 @@ Section ComponentSM4.
              {Lv Sp}
              (ls : LocalSystem Lv Sp)
              (cn : CompName)
-             (l  : list (cio_I (fio cn)))
+             (l  : list (PosDTime * cio_I (fio cn)))
     : LocalSystem Lv Sp :=
     match l with
     | [] => ls
-    | i :: l =>
-      let ls' := fst (call_proc cn i ls) in
+    | (t,i) :: l =>
+      let ls' := fst (call_proc cn t i ls) in
       call_procs ls' cn l
     end.
 
@@ -77,16 +77,17 @@ Section ComponentSM4.
              {Lv Sp}
              (ls : LocalSystem Lv Sp)
              (cn : CompName)
-             (l  : list (cio_I (fio cn)))
+             (l  : list (PosDTime * cio_I (fio cn)))
+             (t  : PosDTime)
              (i  : cio_I (fio cn))
     : cio_O (fio cn) :=
     let ls' := call_procs ls cn l in
-    snd (call_proc cn i ls').
+    snd (call_proc cn t i ls').
 
 
   (* None is for the halted process *)
   CoInductive Process (I O : Type) : Type :=
-  | proc (f : option (I -> (Process I O * O))).
+  | proc (f : option (PosDTime -> I -> (Process I O * O))).
   Arguments proc [I] [O] _.
 
   Definition haltedProc {I O} : Process I O := proc None.
@@ -95,10 +96,11 @@ Section ComponentSM4.
              (upd : M_Update n cn (sf cn))
              (s   : sf cn) : Process (cio_I (fio cn)) (cio_O (fio cn)) :=
     proc (Some
-            (fun (i : cio_I (fio cn)) =>
-               match M_break_nil (upd s i) with
-               | (Some s', out) => (build_process upd s', out)
-               | (None, out) => (haltedProc, out)
+            (fun (t : PosDTime) (i : cio_I (fio cn)) =>
+               match M_break_nil (upd s t i) with
+               | (hsome s', out) => (build_process upd s', out)
+               | (halt_local, out) => (haltedProc, out)
+               | (halt_global, out) => (haltedProc, out)
                end)).
 
   Definition n_proc_at2process {n} {cn}

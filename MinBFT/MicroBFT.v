@@ -84,7 +84,7 @@ Section MicroBFT.
   | MicroBFT_commit  (c : Commit)
   | MicroBFT_accept  (a : Accept).
 
-  Global Instance MicroBFT_I_Msg : Msg := MkMsg MicroBFT_msg.
+  Global Instance MicroBFT_I_Msg : Msg := MkMsg MicroBFT_msg (MicroBFT_request 0).
 
   Definition MicroBFTmsg2status (m : MicroBFT_msg) : msg_status :=
     match m with
@@ -328,7 +328,7 @@ Section MicroBFT.
     MkTrustedStateFun (fun _ => USIG_state).
 
   Definition USIG_update : M_Update 0 USIGname _ :=
-    fun (s : USIG_state) (m : USIG_input_interface) =>
+    fun (s : USIG_state) t (m : USIG_input_interface) =>
       interp_s_proc
         (match m with
          | create_ui_in r =>
@@ -345,7 +345,7 @@ Section MicroBFT.
   Definition LOGname : CompName := MkCN "LOG" 0 false.
 
   Definition LOG_update : M_Update 0 LOGname _ :=
-    fun (l : LOG_state) (m : LOG_input_interface) =>
+    fun (l : LOG_state) t (m : LOG_input_interface) =>
       interp_s_proc
         (match m with
          | log_new r =>
@@ -365,11 +365,11 @@ Section MicroBFT.
     | _ => d tt
     end.
 
-  Definition call_create_ui {A} (m : nat) (d : unit -> Proc A) (f : UI -> Proc A) :=
-    (USIGname [C] (create_ui_in m))
+  Definition call_create_ui {A} t (m : nat) (d : unit -> Proc A) (f : UI -> Proc A) :=
+    (USIGname [C] (create_ui_in m) @ t)
       [>>=] on_create_ui_out f d.
 
-  Notation "a >>cui>>=( d ) f" := (call_create_ui a d f) (at level 80, right associativity).
+  Notation "a >>cui>>=( t , d ) f" := (call_create_ui t a d f) (at level 80, right associativity).
 
   Definition if_true_verify_ui_out {A} (f d : unit -> A) (out : USIG_output_interface) : A :=
     match out with
@@ -377,11 +377,11 @@ Section MicroBFT.
     | _ => d tt
     end.
 
-  Definition call_verify_ui {A} (mui : nat * UI) (d f : unit -> Proc A) :=
-    (USIGname [C] (verify_ui_in mui))
+  Definition call_verify_ui {A} t (mui : nat * UI) (d f : unit -> Proc A) :=
+    (USIGname [C] (verify_ui_in mui) @ t)
       [>>=] if_true_verify_ui_out f d.
 
-  Notation " a >>vui>>=( d ) f" := (call_verify_ui a d f) (at level 80, right associativity).
+  Notation " a >>vui>>=( t , d ) f" := (call_verify_ui t a d f) (at level 80, right associativity).
 
   Definition on_data_message {A} (m : MicroBFT_msg) (d : unit -> Proc A) (f : nat -> Proc A) : Proc A :=
     match m with
@@ -436,7 +436,7 @@ Section MicroBFT.
 
   Definition handle_request (slf : MicroBFT_node) : UProc MAINname _ :=
     (* in case M_Update 0 _ := is output type it complains that "The term "m" has type "cio_I" while it is expected to have type "data_message"." *)
-    fun state m =>
+    fun state t m =>
       if not_primary slf then [R] (state, []) else
 
       m >>odm>>=(fun _ => [R] (state,[])) fun m =>
@@ -445,47 +445,47 @@ Section MicroBFT.
       let m' := sm_state state1 in
 
       (* create_UI and update of the current state *)
-      m' >>cui>>=(fun _ => [R](state1, [])) fun ui =>
+      m' >>cui>>=(t,fun _ => [R](state1, [])) fun ui =>
 
       (* create request *)
       let c := commit m' ui in
 
       (* we log this request *)
-      (LOGname [C] (log_new c)) [>>=] fun _ =>
+      (LOGname [C] (log_new c) @ t) [>>=] fun _ =>
 
       (* we broadcast the request message to all replicas *)
       [R] (state1, [broadcast2others (send_commit c)]).
 
   Definition handle_commit (slf : MicroBFT_node) : UProc MAINname _ :=
-    fun state m =>
+    fun state t m =>
       m >>oc>>=(fun _ => [R] (state,[])) fun c =>
       if invalid_commit slf c state then [R] (state, []) else
 
       (* we check whether the ui is created by some usig *)
       let n  := commit_n c in
       let ui := commit_ui c in
-      (n,ui) >>vui>>=(fun _ => [R] (state, [])) fun _ =>
+      (n,ui) >>vui>>=(t,fun _ => [R] (state, [])) fun _ =>
 
       let state1 := update_highest_received_counter (commit_ui c) state in
 
       (* we log this request *)
-      (LOGname [C] (log_new c)) [>>=] fun _ =>
+      (LOGname [C] (log_new c) @ t) [>>=] fun _ =>
 
       (* we broadcast the commit message to all replicas *)
       let acc := accept n (ui2counter ui) in
       [R] (state1, [send_accept acc [slf]]).
 
   Definition handle_accept (slf : MicroBFT_node) : UProc MAINname _ :=
-    fun (state : MAIN_state) m => [R](state,[]).
+    fun (state : MAIN_state) t m => [R](state,[]).
 
 
   Definition MAIN_update (slf : MicroBFT_node) : M_Update 1 MAINname _ :=
-    fun (s : MAIN_state) m =>
+    fun (s : MAIN_state) t m =>
       interp_s_proc
         (match m with
-         | MicroBFT_request _ => handle_request slf s m
-         | MicroBFT_commit  _ => handle_commit  slf s m
-         | MicroBFT_accept  _ => handle_accept  slf s m
+         | MicroBFT_request _ => handle_request slf s t m
+         | MicroBFT_commit  _ => handle_commit  slf s t m
+         | MicroBFT_accept  _ => handle_accept  slf s t m
          end).
 
   Definition MAIN_comp (slf : MicroBFT_node) : n_proc 2 MAINname :=

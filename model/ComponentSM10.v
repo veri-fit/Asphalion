@@ -44,9 +44,9 @@ Section ComponentSM10.
   Defined.
 
   Lemma M_run_ls_on_input_not_in :
-    forall {n} (l : n_procs n) cn (i : cio_I (fio cn)),
+    forall {n} (l : n_procs n) cn t (i : cio_I (fio cn)),
       ~In cn (get_names l)
-      -> M_run_ls_on_input l cn i = (l, None).
+      -> M_run_ls_on_input l cn t i = (l, None).
   Proof.
     introv ni.
     unfold M_run_ls_on_input, on_comp; simpl.
@@ -78,17 +78,17 @@ Section ComponentSM10.
   Hint Rewrite @decr_n_procs_incr_n_procs : comp.
 
   Lemma snd_M_run_ls_on_input_incr_n_procs_eq :
-    forall {n} (l : n_procs n) cn i,
-      snd (M_run_ls_on_input (incr_n_procs l) cn i)
-      = snd (M_run_ls_on_input l cn i).
+    forall {n} (l : n_procs n) cn t i,
+      snd (M_run_ls_on_input (incr_n_procs l) cn t i)
+      = snd (M_run_ls_on_input l cn t i).
   Proof.
     introv; unfold M_run_ls_on_input, on_comp; simpl.
     rewrite find_name_incr_n_procs.
     repeat dest_cases w; ginv; rev_Some; simpl.
     unfold M_break; simpl.
-    remember (M_run_sm_on_input (incr_n_proc w0) i (incr_n_procs l)) as u.
+    remember (M_run_sm_on_input (incr_n_proc w0) t i (incr_n_procs l)) as u.
     symmetry in Hequ; repnd; simpl in *.
-    remember (M_run_sm_on_input w0 i l) as v.
+    remember (M_run_sm_on_input w0 t i l) as v.
     symmetry in Heqv; repnd; simpl in *.
     unfold M_run_sm_on_input in *; simpl in *.
     unfold M_on_decr in *; simpl in *.
@@ -97,9 +97,9 @@ Section ComponentSM10.
   Qed.
 
   Lemma snd_M_run_ls_on_trusted_incr_n_procs_eq :
-    forall {n} (l : n_procs n) i,
-      snd (M_run_ls_on_trusted (incr_n_procs l) i)
-      = snd (M_run_ls_on_trusted l i).
+    forall {n} (l : n_procs n) t i,
+      snd (M_run_ls_on_trusted (incr_n_procs l) t i)
+      = snd (M_run_ls_on_trusted l t i).
   Proof.
     introv.
     apply snd_M_run_ls_on_input_incr_n_procs_eq.

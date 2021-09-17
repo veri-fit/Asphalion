@@ -117,7 +117,7 @@ are strictly part of Asphalion.
 Compilation
 ===========
 
-The code compiles with Coq version 8.9.0. To compile the code, first
+The code compiles with Coq version 8.10.2. To compile the code, first
 generate a Makefile by running `./create-makefile.sh` in the root
 directory of this repository.
 

@@ -1599,6 +1599,8 @@ Section KnowledgeCalculus.
       kc_same_state_event : trigger e = trigger e';
       kc_same_state_trig  : map trigger (localPreds e) = map trigger (localPreds e');
       kc_same_state_loc   : loc e = loc e';
+      kc_same_state_time  : time e = time e';
+      kc_same_state_times : map time (localPreds e) = map time (localPreds e');
     }.
 
   Lemma kc_same_state_refl :
@@ -1672,7 +1674,27 @@ Section KnowledgeCalculus.
       -> map trigger (localPreds e1) = map trigger (localPreds e2).
   Proof.
     introv same.
-    destruct same as [sse sst ssl]; auto.
+    destruct same; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_time :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> time e1 = time e2.
+  Proof.
+    introv same.
+    destruct same; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_times :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> map time (localPreds e1) = map time (localPreds e2).
+  Proof.
+    introv same.
+    destruct same; auto.
   Qed.
 
   Lemma kc_same_state_implies_eq_history_op :
@@ -1692,6 +1714,26 @@ Section KnowledgeCalculus.
     inversion h.
     rewrite (IHL K); tcsp; f_equal.
     unfold trigger_op; allrw; auto.
+  Qed.
+
+  Lemma kc_same_state_implies_eq_time_triggers_op :
+    forall (eo1 : EventOrdering) (e1 : Event)
+           (eo2 : EventOrdering) (e2 : Event),
+      kc_same_state eo1 e1 eo2 e2
+      -> map time_trigger_op (localPreds e1) = map time_trigger_op (localPreds e2).
+  Proof.
+    introv same.
+    applydup kc_same_state_implies_eq_history in same.
+    applydup kc_same_state_implies_eq_times in same.
+    remember (localPreds e1) as L; clear HeqL.
+    remember (localPreds e2) as K; clear HeqK.
+    revert dependent K.
+    induction L; introv h q; simpl in *; tcsp.
+    { destruct K; simpl in *; tcsp. }
+    destruct K; simpl in *; ginv.
+    inversion h; inversion q.
+    rewrite (IHL K); tcsp; f_equal.
+    unfold time_trigger_op, trigger_op; allrw; auto.
   Qed.
 
   Lemma kc_same_state_preserves_loc :
@@ -1719,8 +1761,10 @@ Section KnowledgeCalculus.
     unfold M_run_ls_on_event in *.
     unfold M_run_ls_before_event in *.
     applydup kc_same_state_implies_eq_history_op in same.
+    applydup kc_same_state_implies_eq_time_triggers_op in same.
     applydup kc_same_state_implies_eq_trigger_op in same.
-    rewrite <- same0, <- same1; auto.
+    applydup kc_same_state_implies_eq_time in same.
+    rewrite <- same1, <- same2, <- same3; auto.
   Qed.
 
   Lemma kc_same_state_preserves_state_sys_on_event :

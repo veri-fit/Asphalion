@@ -83,7 +83,7 @@ Section ComponentSM9.
     introv wf aps run.
     unfold M_byz_run_ls_on_this_one_event in run; simpl in *.
     unfold M_byz_run_ls_on_one_event in run; simpl in *.
-    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as h; repnd;
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as h; repnd;
       simpl in *; subst; symmetry in Heqh.
     remember (trigger e) as trig.
     destruct trig; simpl in *; tcsp; GC.
@@ -92,7 +92,7 @@ Section ComponentSM9.
       repeat (autodimp q hyp).
       { unfold isCorrect, trigger_op; allrw <-; simpl; auto. }
       { unfold M_byz_run_ls_on_this_one_event, M_byz_run_ls_on_one_event.
-        remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as run; repnd; simpl in *.
+        remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as run; repnd; simpl in *.
         revert dependent run.
         rewrite <- Heqtrig; simpl; introv q.
         rewrite Heqh in q; ginv. }
@@ -104,6 +104,7 @@ Section ComponentSM9.
     { unfold M_run_ls_on_trusted in Heqh.
       pose proof (M_run_ls_on_input_preserves_subs
                     (pre2trusted (it_name i))
+                    (time e)
                     (it_input i)
                     (procs2byz ls1)
                     ls2 h) as q.
@@ -150,7 +151,7 @@ Section ComponentSM9.
     introv wf aps run.
     unfold M_byz_run_ls_on_this_one_event in run; simpl in *.
     unfold M_byz_run_ls_on_one_event in run; simpl in *.
-    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as h; repnd;
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as h; repnd;
       simpl in *; subst; symmetry in Heqh.
     remember (trigger e) as trig.
     destruct trig; simpl in *; tcsp; GC.
@@ -159,7 +160,7 @@ Section ComponentSM9.
       repeat (autodimp q hyp).
       { unfold isCorrect, trigger_op; allrw <-; simpl; auto. }
       { unfold M_byz_run_ls_on_this_one_event, M_byz_run_ls_on_one_event.
-        remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as run; repnd; simpl in *.
+        remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as run; repnd; simpl in *.
         revert dependent run.
         rewrite <- Heqtrig; simpl; introv q.
         rewrite Heqh in q; ginv. }
@@ -171,6 +172,7 @@ Section ComponentSM9.
     { unfold M_run_ls_on_trusted in Heqh.
       pose proof (M_run_ls_on_input_preserves_subs
                     (pre2trusted (it_name i))
+                    (time e)
                     (it_input i)
                     (procs2byz ls1)
                     ls2 h) as q.
@@ -253,28 +255,30 @@ Section ComponentSM9.
   Qed.
 
   Lemma is_M_break_mon_preserves_subs :
-    forall {n} {cn} (p : n_proc_at n cn) (l k : n_procs (S n)) i,
+    forall {n} {cn} (p : n_proc_at n cn) (l k : n_procs (S n)) t i,
       wf_procs l
       -> is_proc_n_proc_at p
       -> are_procs_n_procs l
-      -> is_M_break_mon (lift_M_1 (app_n_proc_at p i)) l k
+      -> is_M_break_mon (lift_M_1 (app_n_proc_at p t i)) l k
       -> similar_subs l k.
   Proof.
     introv wf isp aps h.
     unfold is_M_break_mon, M_break_mon, M_break in h; simpl in h.
 
-    pose proof (app_m_proc_some2 (at2sm p) i l) as q.
+    pose proof (app_m_proc_some2 (at2sm p) t i l) as q.
     simpl in q; repeat (autodimp q hyp); eauto 3 with comp.
     rewrite q in h; clear q.
 
-    remember (sm_update p (sm_state p) i (select_n_procs n l)) as z;
+    remember (sm_update p (sm_state p) t i (select_n_procs n l)) as z;
       symmetry in Heqz; repnd; simpl in *; subst; simpl in *.
     fold (M_StateMachine n) in *; fold (n_proc n) in *; rewrite Heqz.
 
-    pose proof (are_procs_implies_preserves_sub p (sm_state p) i (select_n_procs n l)) as h.
+    pose proof (are_procs_implies_preserves_sub p (sm_state p) t i (select_n_procs n l)) as h.
     repeat (autodimp h hyp); eauto 3 with comp;[].
     unfold M_break in h.
     rewrite Heqz in h; repnd.
+
+    applydup similar_subs_preserves_get_names in h0 as eqn; rewrite eqn.
 
     rewrite raise_to_n_procs_as_incr_n_procs.
     rewrite <- decr_n_procs_as_select_n_procs in h0.
@@ -300,16 +304,16 @@ Section ComponentSM9.
   Hint Resolve implies_is_proc_n_proc_at_0 : comp.
 
   Lemma is_M_break_out_preserves_subs :
-    forall {n} {cn} (p : n_proc_at n cn) (l : n_procs (S n)) i a b,
+    forall {n} {cn} (p : n_proc_at n cn) (l : n_procs (S n)) t i a b,
       is_proc_n_proc_at p
-      -> is_M_break_out (lift_M_1 (app_n_proc_at p i)) l (a,b)
-      -> exists q, a = Some q /\ similar_sms (at2sm p) q.
+      -> is_M_break_out (lift_M_1 (app_n_proc_at p t i)) l (a,b)
+      -> exists q, a = hsome q /\ similar_sms (at2sm p) q.
   Proof.
     introv isp h.
     unfold is_M_break_out, M_break_out, M_break in h; simpl in h.
 
     unfold lift_M_1, M_on_decr, app_n_proc_at, bind_pair, bind in h; simpl in h.
-    remember (sm_update p (sm_state p) i (decr_n_procs l)) as z; symmetry in Heqz; repnd; simpl in *; ginv.
+    remember (sm_update p (sm_state p) t i (decr_n_procs l)) as z; symmetry in Heqz; repnd; simpl in *; ginv.
 
     unfold is_proc_n_proc_at in isp; exrepnd.
     rewrite isp0 in Heqz; simpl in *.
@@ -317,7 +321,7 @@ Section ComponentSM9.
     rewrite interp_s_proc_as in Heqz.
     unfold bind_pair, bind in Heqz; simpl in *.
 
-    remember (interp_proc (p0 (sm_state p) i) (decr_n_procs l)) as w; symmetry in Heqw; repnd; simpl in *.
+    remember (interp_proc (p0 (sm_state p) t i) (decr_n_procs l)) as w; symmetry in Heqw; repnd; simpl in *.
     rewrite Heqw in Heqz; simpl in *; ginv.
     inversion Heqz; subst; simpl in *; tcsp.
     eexists; dands; eauto; simpl; tcsp.

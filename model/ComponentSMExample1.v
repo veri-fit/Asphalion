@@ -6,7 +6,7 @@ Require Export Ref.
 
 Global Instance EX1Node : Node := MkNode nat deq_nat.
 Global Instance EX1Key : Key := MkKey nat nat.
-Global Instance EX1Msg : Msg := MkMsg nat.
+Global Instance EX1Msg : Msg := MkMsg nat 0.
 
 Global Instance EX1baseFunIO : baseFunIO := MkBaseFunIO (fun _ => CIOnat).
 Global Instance EX1baseStateFun : baseStateFun := MkBaseStateFun (fun _ => nat).
@@ -32,15 +32,19 @@ End SMat.
 Module Msm (sm : SM).
   Definition state : ref (sf sm.name) := ref_cons (sm2state sm.sm).
 
-  Definition update (i : cio_I (fio sm.name)) : unit * cio_O (fio sm.name) :=
-    let (sop,o) := M_break_nil (sm2update sm.sm (get_ref state) i) in
-    let u := match sop with | Some s => update_ref state s| None => tt end in
+  Definition update t (i : cio_I (fio sm.name)) : unit * cio_O (fio sm.name) :=
+    let (sop,o) := M_break_nil (sm2update sm.sm (get_ref state) t i) in
+    let u := match sop with
+             | hsome s => update_ref state s
+             | halt_local => tt
+             | halt_global => tt
+             end in
     (u,o).
 
-  Fixpoint run (l : list (cio_I (fio sm.name))) : list (cio_O (fio sm.name)) :=
+  Fixpoint run (l : list (PosDTime * cio_I (fio sm.name))) : list (cio_O (fio sm.name)) :=
     match l with
     | [] => []
-    | i :: rest => snd (update i) :: run rest
+    | (t,i) :: rest => snd (update t i) :: run rest
     end.
 
   Definition upd_lkup := update_lookup sm.level sm.name update.
@@ -49,15 +53,19 @@ End Msm.
 Module Msmat (sm : SMat).
   Definition state : ref (sf sm.name) := ref_cons (sm_state sm.sm).
 
-  Definition update (i : cio_I (fio sm.name)) : unit * cio_O (fio sm.name) :=
-    let (sop,o) := M_break_nil (sm_update sm.sm (get_ref state) i) in
-    let u := match sop with | Some s => update_ref state s | None => tt end in
+  Definition update t (i : cio_I (fio sm.name)) : unit * cio_O (fio sm.name) :=
+    let (sop,o) := M_break_nil (sm_update sm.sm (get_ref state) t i) in
+    let u := match sop with
+             | hsome s => update_ref state s
+             | halt_local => tt
+             | halt_global => tt
+             end in
     (u,o).
 
-  Fixpoint run (l : list (cio_I (fio sm.name))) : list (cio_O (fio sm.name)) :=
+  Fixpoint run (l : list (PosDTime * cio_I (fio sm.name))) : list (cio_O (fio sm.name)) :=
     match l with
     | [] => []
-    | i :: rest => snd (update i) :: run rest
+    | (t,i) :: rest => snd (update t i) :: run rest
     end.
 
   Definition upd_lkup := update_lookup sm.level sm.name update.
@@ -72,7 +80,7 @@ End Msmat.
 Definition Aname : CompName := MkCN "A" 0 true.
 
 Definition A_update : M_Update 0 Aname _ :=
-  fun (s : nat) i =>
+  fun (s : nat) t i =>
     interp_s_proc
       ([R] (s + i, s + i)).
 
@@ -93,9 +101,9 @@ Module MA := Msm (SMA).
 Definition Bname : CompName := MkCN "B" 1 true.
 
 Definition B_update : M_Update 1 Bname _ :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
-      ((Aname [C] i)
+      ((Aname [C] i @ t)
          [>>=] fun out =>
                  [R] (s + out + 1, s + out + 1)).
 
@@ -116,11 +124,11 @@ Module MB := Msm (SMB).
 Definition Cname : CompName := MkCN "C" 2 true.
 
 Definition C_update : M_Update 2 Cname _ :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
-      ((Bname [C] i)
+      ((Bname [C] i @ t)
          [>>=] fun out1 =>
-                 (Bname [C] i)
+                 (Bname [C] i @ t)
                    [>>=] fun out2 =>
                            [R] (s + out1 + out2 + 2, s + out1 + out2 + 2)).
 
@@ -141,9 +149,9 @@ Module MC := Msm (SMC).
 Definition Mname := msg_comp_name 0.
 
 Definition M_update : M_Update 3 Mname nat :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
-      ((Cname [C] i)
+      ((Cname [C] i @ t)
          [>>=] (fun out => [R] (s, [MkDMsg out [] ('0)]))).
 
 Definition M : n_proc _ _ :=
@@ -171,10 +179,10 @@ Definition progs : n_procs _ :=
 Definition ls : LocalSystem 4 2 := progs.
 
 
-Definition test1 := call_procs_out ls Mname [17] 17.
+Definition test1 := call_procs_out ls Mname [(pdt0,17)] pdt0 17.
 Eval compute in test1.
 
-Definition test2 := MM.run [17, 17].
+Definition test2 := MM.run [(pdt0,17), (pdt0,17)].
 Eval compute in test2.
 
 
@@ -290,4 +298,3 @@ Extraction Implicit foo [1].
 Fixpoint bar (n : nat) : fnat := fun x => x.
 
 Extraction "foo.ml" xxx yyy foo bar.
-

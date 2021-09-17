@@ -28,10 +28,10 @@ Section ComponentSM5.
   Inductive SpawnProc: forall (O : Type), Type :=
   | SPROC_RET   : forall O (f : O), SpawnProc O
   | SPROC_BIND  : forall A B (p : SpawnProc A) (q : A -> SpawnProc B), SpawnProc B
-  | SPROC_CALL  : forall (cn : CompName) (i : cio_I (fio cn)), SpawnProc (cio_O (fio cn))
+  | SPROC_CALL  : forall (cn : CompName) (t : PosDTime) (i : cio_I (fio cn)), SpawnProc (cio_O (fio cn))
   | SPROC_SPAWN : forall B
                          (cn : CompName)
-                         (u : sf cn -> cio_I (fio cn) -> SpawnProc (sf cn * cio_O (fio cn)))
+                         (u : sf cn -> PosDTime -> cio_I (fio cn) -> SpawnProc (sf cn * cio_O (fio cn)))
                          (s : sf cn)
                          (b : B),
       SpawnProc B.
@@ -66,10 +66,10 @@ Section ComponentSM5.
     induction p; introv.
     - exact (ret _ f).
     - exact (bind (IHp n) (fun a => X a n)).
-    - exact (call_proc cn i).
+    - exact (call_proc cn t i).
     - destruct n.
       { (* It doesn't use sub-components *) exact (ret _ b). }
-      exact (spawn (fun s i => to_M_n_some_state (X s i n)) s b).
+      exact (spawn (fun s t i => to_M_n_some_state (X s t i n)) s b).
   Defined.
 
 End ComponentSM5.

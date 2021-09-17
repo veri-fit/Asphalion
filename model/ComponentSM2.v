@@ -29,13 +29,13 @@ Section ComponentSM2.
   Inductive Proc: forall (O : Type), Type :=
   | PROC_RET  : forall O (f : O), Proc O
   | PROC_BIND : forall A B (p : Proc A) (q : A -> Proc B), Proc B
-  | PROC_CALL : forall (cn : CompName) (i : cio_I (fio cn)), Proc (cio_O (fio cn)).
+  | PROC_CALL : forall (cn : CompName) (t : PosDTime) (i : cio_I (fio cn)), Proc (cio_O (fio cn)).
   Global Arguments PROC_RET  [O] _.
   Global Arguments PROC_BIND [A] [B] _ _.
 
   Notation "a [>>=] f" := (PROC_BIND a f) (at level 80).
   Notation "[R] a" := (PROC_RET a) (at level 80).
-  Notation "a [C] b" := (PROC_CALL a b) (at level 80).
+  Notation "a [C] b @ t" := (PROC_CALL a t b) (at level 80).
 
   Definition proc_bind_pair {A B C} (m : Proc (A * B)) (f : A -> B -> Proc C) : Proc C :=
     m [>>=] fun p => let (a,b) := p in f a b.
@@ -50,33 +50,33 @@ Section ComponentSM2.
     induction p.
     - exact (ret _ f).
     - exact (bind IHp X).
-    - exact (call_proc cn i).
+    - exact (call_proc cn t i).
   Defined.
 
-  Definition to_proc_some_state {S} {O} (m : Proc (S * O)) :=
-    m [>>>=] fun s o => [R] (Some s, o).
+  Definition to_proc_some_state {S} {O} (m : Proc (S * O)) : Proc (hoption S * O) :=
+    m [>>>=] fun s o => [R] (hsome s, o).
 
   Definition to_M_n_some_state {n} {S} {O} (m : M_n n (S * O)) :=
-    m >>>= fun s o => ret _ (Some s, o).
+    m >>>= fun s o => ret _ (hsome s, o).
 
   Definition old_interp_s_proc
              {S : Type}
              {O : Type}
              {n : nat}
-             (p : Proc (S * O)) : M_n n (option S * O) :=
+             (p : Proc (S * O)) : M_n n (hoption S * O) :=
     to_M_n_some_state (interp_proc p).
 
   Definition interp_s_proc
              {S : Type}
              {O : Type}
              {n : nat}
-             (p : Proc (S * O)) : M_n n (option S * O) :=
+             (p : Proc (S * O)) : M_n n (hoption S * O) :=
     interp_proc (to_proc_some_state p).
 
-  Definition UProc (cn : CompName) S := S -> cio_I (fio cn) -> Proc (S * cio_O (fio cn)).
+  Definition UProc (cn : CompName) S := S -> PosDTime -> cio_I (fio cn) -> Proc (S * cio_O (fio cn)).
 
   Definition proc2upd {S} {n} {cn} (p : UProc cn S) : M_Update n cn S :=
-    fun s i => interp_s_proc (p s i).
+    fun s t i => interp_s_proc (p s t i).
 
   Lemma interp_s_proc_as :
     forall {S : Type}
@@ -84,7 +84,7 @@ Section ComponentSM2.
            {n : nat}
            (p : Proc (S * O)),
       interp_s_proc p
-      = (interp_proc p >>>= fun s o => ret n (Some s, o)).
+      = (interp_proc p >>>= fun s o => ret n (hsome s, o)).
   Proof.
     introv; simpl.
     unfold interp_s_proc; simpl.
@@ -102,7 +102,7 @@ Section ComponentSM2.
   Definition TESTcompb : CompName := nat_comp_name.
 
   Definition TESTcompa_upd : M_Update 0 TESTcompa _ :=
-    fun (s : bool) (m : bool) =>
+    fun (s : bool) (t : PosDTime) (m : bool) =>
       interp_s_proc
         (let b := andb s m in
          [R] (b, b)).
@@ -111,7 +111,7 @@ Section ComponentSM2.
     build_m_sm TESTcompa_upd true.
 
   Definition TESTcompb_upd : M_Update 0 TESTcompb _ :=
-    fun (s : nat) (m : nat) =>
+    fun (s : nat) t (m : nat) =>
       interp_s_proc
         (let k := s + m in
          [R] (k, k)).
@@ -120,18 +120,18 @@ Section ComponentSM2.
     build_m_sm TESTcompb_upd 0.
 
   Definition TESTmain_upd1 : M_Update 1 TESTmain _ :=
-    fun (s : nat) m =>
-      (call_proc TESTcompa true) >>= fun b =>
+    fun (s : nat) t m =>
+      (call_proc TESTcompa t true) >>= fun b =>
       let n := if b then 0 else 1 in
-      (call_proc TESTcompb n) >>= fun m =>
-      ret _ (Some (s + m), []).
+      (call_proc TESTcompb t n) >>= fun m =>
+      ret _ (hsome (s + m), []).
 
   Definition TESTmain_upd2 : M_Update 1 TESTmain _ :=
-    fun (s : unit) m =>
+    fun (s : unit) (t : PosDTime) m =>
       interp_s_proc
-        ((TESTcompa [C] true) [>>=] fun b =>
+        ((TESTcompa [C] true @ t) [>>=] fun b =>
          let n := if b then 0 else 1 in
-         (TESTcompb [C] n) [>>=] fun m =>
+         (TESTcompb [C] n @ t) [>>=] fun m =>
          [R] (s, [])).
 
   Definition TESTmain_sm : n_proc 2 TESTmain :=
@@ -147,13 +147,79 @@ Section ComponentSM2.
   (* ================================================================ *)
 
 
+
+  Inductive HProc (S O : Type) : Type :=
+  | HPROC_RET  : forall (s : S) (o : O), HProc S O
+  | HPROC_HALT : forall (o : O), HProc S O
+  | HPROC_CALL :
+      forall (cn : CompName) (t : PosDTime) (i : cio_I (fio cn))
+             (f : cio_O (fio cn) -> HProc S O),
+        HProc S O.
+  Global Arguments HPROC_RET  [S] [O] _.
+  Global Arguments HPROC_HALT [S] [O] _.
+  Global Arguments HPROC_CALL [S] [O] _.
+
+  Notation "{R} s {->} o" := (HPROC_RET s o) (at level 80).
+  Notation "{H} o" := (HPROC_HALT o) (at level 80).
+  Notation "c {C} i @ t {>>=} f" := (HPROC_CALL c t i f) (at level 80).
+
+  Definition interp_hproc
+             {S O : Type}
+             {n : nat}
+             (p : HProc S O) : M_n n (hoption S * O).
+  Proof.
+    induction p.
+    - exact (ret _ (hsome s, o)).
+    - exact (ret _ (halt_global, o)).
+    - exact (bind (call_proc cn t i) X).
+  Defined.
+
+  Definition UHProc (cn : CompName) S := S -> PosDTime -> cio_I (fio cn) -> HProc S (cio_O (fio cn)).
+
+  Definition hproc2upd {S} {n} {cn} (p : UHProc cn S) : M_Update n cn S :=
+    fun s t i => interp_hproc (p s t i).
+
+
+  (* ================================================================ *)
+  (* ====== TEST ====== *)
+
+  Definition HTESTmain : CompName := msg_comp_name 1.
+  Definition HTESTcomp : CompName := bool_comp_name.
+
+  Definition HTESTcomp_upd : M_Update 0 HTESTcomp _ :=
+    fun (s : bool) (t : PosDTime) (m : bool) =>
+      (*interp_hproc ({R} true {->} true).*)
+      interp_hproc ({H} true).
+
+  Definition HTESTcomp_sm : n_proc 1 HTESTcomp :=
+    build_m_sm HTESTcomp_upd true.
+
+  Definition HTESTmain_upd : M_Update 1 HTESTmain _ :=
+    fun (s : unit) (t : PosDTime) m =>
+      interp_hproc (HTESTcomp {C} true @ t {>>=} fun b => {R} s {->} []).
+  (*interp_hproc (HTESTcomp {C} true @ t {>>=} fun b => {H} []).*)
+
+  Definition HTESTmain_sm : n_proc 2 HTESTmain :=
+    build_m_sm HTESTmain_upd tt.
+
+  Definition HTESTls : LocalSystem _ 1 :=
+      [
+        MkPProc HTESTmain  HTESTmain_sm,
+        MkPProc HTESTcomp (incr_n_proc HTESTcomp_sm)
+      ].
+
+  Eval compute in (length (fst (M_run_ls_on_input HTESTls HTESTmain pdt0 default_msg))).
+
+  (* ================================================================ *)
+
+
   Definition is_proc_n_proc_at {n} {cn} (sm : n_proc_at n cn) : Prop :=
-    exists (p : sf cn -> cio_I (fio cn) -> Proc (sf cn * cio_O (fio cn))),
-      forall s i, sm_update sm s i = proc2upd p s i.
+    exists (p : sf cn -> PosDTime -> cio_I (fio cn) -> Proc (sf cn * cio_O (fio cn))),
+      forall s t i, sm_update sm s t i = proc2upd p s t i.
 
   Definition is_proc_n_proc {n} {cn} (sm : n_proc n cn) : Prop :=
-    exists (p : sf cn -> cio_I (fio cn) -> Proc (sf cn * cio_O (fio cn))),
-    forall s i, sm2update sm s i = proc2upd p s i.
+    exists (p : sf cn -> PosDTime -> cio_I (fio cn) -> Proc (sf cn * cio_O (fio cn))),
+    forall s t i, sm2update sm s t i = proc2upd p s t i.
 
   Definition is_proc_n_nproc {n} (np : n_nproc n) : Prop :=
     match np with
@@ -205,7 +271,7 @@ Section ComponentSM2.
     unfold is_proc_n_proc in *; exrepnd.
     exists p.
     introv.
-    pose proof (isp0 s i) as isp0.
+    pose proof (isp0 s t i) as isp0.
     applydup similar_sms_implies_eq_sm2levels in sim.
     symmetry in sim0.
     pose proof (similar_sms_implies_eq_sm2update cn n p1 p2 sim0) as q.
@@ -244,10 +310,10 @@ Section ComponentSM2.
   Hint Resolve similar_subs_preserves_are_procs_n_procs : comp.
 
   Lemma decr_n_proc_some_preserves_sm2update_eq_proc2upd :
-    forall cn n (a : n_proc n cn) p s i b,
+    forall cn n (a : n_proc n cn) p s t i b,
       decr_n_proc a = Some b
-      -> sm2update a s i = proc2upd p s i
-      -> sm2update b s i = proc2upd p s i.
+      -> sm2update a s t i = proc2upd p s t i
+      -> sm2update b s t i = proc2upd p s t i.
   Proof.
     introv d e.
     destruct n; simpl in *; ginv; tcsp;[].
@@ -256,10 +322,10 @@ Section ComponentSM2.
   Qed.
 
   Lemma select_n_proc_preserves_sm2update_eq_proc2upd :
-    forall cn k n (a : n_proc n cn) b p s i,
+    forall cn k n (a : n_proc n cn) b p s t i,
       select_n_proc k a = Some b
-      -> sm2update a s i = proc2upd p s i
-      -> sm2update b s i = proc2upd p s i.
+      -> sm2update a s t i = proc2upd p s t i
+      -> sm2update b s t i = proc2upd p s t i.
   Proof.
     induction n; introv u v; simpl in *; tcsp;[].
     destruct k.
@@ -268,7 +334,7 @@ Section ComponentSM2.
 
     destruct (deq_nat n k); subst; tcsp; ginv;[].
     destruct a; simpl in *; tcsp;[].
-    pose proof (IHn b0 b p s i) as IHn.
+    pose proof (IHn b0 b p s t i) as IHn.
     repeat (autodimp IHn hyp).
   Qed.
 
@@ -290,7 +356,7 @@ Section ComponentSM2.
     apply option_map_Some in sel; exrepnd; subst; simpl in *.
     exists p.
     introv.
-    pose proof (isp0 s i) as isp0.
+    pose proof (isp0 s t i) as isp0.
     eapply decr_n_proc_some_preserves_sm2update_eq_proc2upd in Heqd;[|eauto].
     eapply select_n_proc_preserves_sm2update_eq_proc2upd; eauto.
   Qed.
@@ -1000,6 +1066,15 @@ Section ComponentSM2.
       destruct a0 as [x y]; simpl in *; tcsp.
   Qed.
 
+  Lemma incr_n_procs_remove_names :
+    forall l {n} (subs : n_procs n),
+      incr_n_procs (remove_names subs l)
+      = remove_names (incr_n_procs subs) l.
+  Proof.
+    induction l; introv; simpl; auto.
+    rewrite IHl, incr_n_procs_remove_name; auto.
+  Qed.
+
   Lemma incr_n_procs_remove_subs :
     forall {m} (l : n_procs m) {n} (subs : n_procs n),
       incr_n_procs (remove_subs subs l)
@@ -1068,13 +1143,13 @@ Section ComponentSM2.
     rewrite IHsubs; auto.
   Qed.
 
-  Lemma remove_subs_decr_n_procs_as_keep_highest_subs :
+  Lemma remove_names_decr_n_procs_as_keep_highest_subs :
     forall {n} (subs : n_procs n),
       no_dup_subs subs = true
-      -> remove_subs subs (decr_n_procs subs)
+      -> remove_names subs (get_names (decr_n_procs subs))
          = keep_highest_procs subs.
   Proof.
-    unfold remove_subs, decr_n_procs, keep_highest_procs, no_dup_subs.
+    unfold decr_n_procs, keep_highest_procs, no_dup_subs.
     induction subs; introv nodup; simpl in *; tcsp.
     destruct a as [cn p]; simpl in *.
     destruct n; simpl in *; tcsp.
@@ -1092,6 +1167,15 @@ Section ComponentSM2.
       inversion i1; subst; auto. }
 
     { rewrite IHsubs; auto. }
+  Qed.
+
+  Lemma remove_subs_decr_n_procs_as_keep_highest_subs :
+    forall {n} (subs : n_procs n),
+      no_dup_subs subs = true
+      -> remove_subs subs (decr_n_procs subs)
+         = keep_highest_procs subs.
+  Proof.
+    introv; apply remove_names_decr_n_procs_as_keep_highest_subs.
   Qed.
 
   Lemma rm_highest_procs_trivial :
@@ -1182,18 +1266,185 @@ Section ComponentSM2.
     apply implies_norepeatsb_remove_fst; auto.
   Qed.
 
+  Lemma in_implies_in_proc_names :
+    forall n (subs : n_procs n) a,
+      In a subs
+      -> In (pp_name a) (get_names subs).
+  Proof.
+    induction subs; introv i; simpl in *; tcsp.
+    repndors; subst; tcsp.
+  Qed.
+  Hint Resolve in_implies_in_proc_names : comp.
+
+  Lemma no_dup_subs_same_names_implies :
+    forall n (subs : n_procs n) a b,
+      no_dup_subs subs = true
+      -> In a subs
+      -> In b subs
+      -> pp_name a = pp_name b
+      -> a = b.
+  Proof.
+    induction subs; introv nodup i j e; simpl in *; tcsp.
+    unfold no_dup_subs in nodup; simpl in *; dest_cases w.
+    repndors; subst; tcsp.
+
+    { applydup in_implies_in_proc_names in i.
+      rewrite e in i0; tcsp. }
+
+    { applydup in_implies_in_proc_names in j.
+      rewrite <- e in j0; tcsp. }
+  Qed.
+
+  Lemma keep_highest_proc_some_implies :
+    forall {n} {cn} (p q : n_proc n cn),
+      keep_highest_proc p = Some q
+      -> sm2level p = pred n.
+  Proof.
+    introv h; destruct n; simpl in *; tcsp.
+    destruct p; simpl in *; ginv.
+  Qed.
+
+  Lemma rm_highest_proc_some_implies :
+    forall {n} {cn} (p q : n_proc n cn),
+      rm_highest_proc p = Some q
+      -> sm2level p < pred n.
+  Proof.
+    introv h; destruct n; simpl in *; tcsp.
+    destruct p; simpl in *; ginv; eauto 3 with comp.
+  Qed.
+
+  Lemma select_n_proc_some_implies :
+    forall {n} {cn} (p : n_proc n cn) m q,
+      select_n_proc m p = Some q
+      -> sm2level p <= pred m.
+  Proof.
+    induction n; introv h.
+    { simpl in *; tcsp. }
+    destruct m; simpl in *; tcsp.
+    dest_cases w; ginv; tcsp.
+
+    { destruct p; auto.
+      pose proof (sm2level_le_pred _ _ b) as q; omega. }
+
+    { destruct p; ginv.
+      pose proof (IHn cn b (S m) q) as z.
+      simpl in *; auto. }
+  Qed.
+
+  Lemma disjoint_names_highest_select :
+    forall m {n} (subs : n_procs n),
+      m <= pred n
+      -> no_dup_subs subs = true
+      -> disjoint (get_names (keep_highest_procs subs))
+                  (get_names (select_n_procs m subs)).
+  Proof.
+    introv le nodud i j.
+    apply in_map_iff in i; apply in_map_iff in j; exrepnd; subst.
+    apply in_mapOption in i0; apply in_mapOption in j0; exrepnd.
+    pose proof (no_dup_subs_same_names_implies n subs a0 a) as q.
+    destruct a0, x0, a, x; simpl in *; subst.
+    apply option_map_Some in i1; exrepnd; ginv.
+    apply option_map_Some in j2; exrepnd; ginv.
+    dup i2 as xx; inversion xx; subst; apply decomp_p_nproc in i2; subst; GC.
+    dup j1 as xx; inversion xx; subst; apply decomp_p_nproc in j1; subst; GC.
+    repeat (autodimp q hyp).
+    apply decomp_p_nproc in q; subst; GC.
+    applydup @keep_highest_proc_some_implies in i1.
+    applydup @select_n_proc_some_implies in j2.
+    rewrite i2 in j0.
+    destruct n, m; simpl in *; tcsp; omega.
+  Qed.
+
+  Lemma disjoint_names_keep_rm_highest :
+    forall {n} (subs : n_procs n),
+      no_dup_subs subs = true
+      -> disjoint (get_names (keep_highest_procs subs))
+                  (get_names (rm_highest_procs subs)).
+  Proof.
+    introv nodud i j.
+    apply in_map_iff in i; apply in_map_iff in j; exrepnd; subst.
+    apply in_mapOption in i0; apply in_mapOption in j0; exrepnd.
+    pose proof (no_dup_subs_same_names_implies n subs a0 a) as q.
+    destruct a0, x0, a, x; simpl in *; subst.
+    apply option_map_Some in i1; exrepnd; ginv.
+    apply option_map_Some in j2; exrepnd; ginv.
+    dup i2 as xx; inversion xx; subst; apply decomp_p_nproc in i2; subst; GC.
+    dup j1 as xx; inversion xx; subst; apply decomp_p_nproc in j1; subst; GC.
+    repeat (autodimp q hyp).
+    apply decomp_p_nproc in q; subst; GC.
+    applydup @keep_highest_proc_some_implies in i1.
+    applydup @rm_highest_proc_some_implies in j2; omega.
+  Qed.
+  Hint Resolve disjoint_names_keep_rm_highest : comp.
+
+  Lemma remove_names_disjoint :
+    forall {n} l (subs : n_procs n),
+      disjoint (get_names subs) l
+      -> remove_names subs l = subs.
+  Proof.
+    induction l; introv disj; simpl in *; tcsp.
+    apply disjoint_cons_r in disj; repnd.
+    rewrite IHl; auto.
+
+    { rewrite remove_name_trivial; auto. }
+
+    rewrite get_names_remove_name; introv i.
+    apply in_remove_fst_implies in i; apply disj0 in i; auto.
+  Qed.
+
+  Lemma keep_highest_procs_as_remove_names_select :
+    forall {n} m (subs : n_procs (S n)),
+      m <= n
+      -> no_dup_subs subs = true
+      -> keep_highest_procs subs
+         = remove_names (keep_highest_procs subs)
+                        (get_names (select_n_procs m subs)).
+  Proof.
+    introv le nodup.
+    rewrite remove_names_disjoint; auto.
+    apply disjoint_names_highest_select; simpl; auto.
+  Qed.
+
+  Lemma remove_name_disjoint :
+    forall a {n} (l k : n_procs n),
+      disjoint (get_names l) (get_names k)
+      -> remove_name (l ++ k) a
+         = remove_name l a ++ remove_name k a.
+  Proof.
+    induction l; introv disj; simpl in *; auto.
+    destruct a0 as [cn p]; simpl in *.
+    repeat (dest_cases w; subst; simpl in *; tcsp);
+      apply disjoint_cons_l in disj; repnd; f_equal; auto.
+    rewrite remove_name_trivial; auto.
+  Qed.
+
+  Lemma remove_names_app_disjoint :
+    forall {n} k (l1 l2 : n_procs n),
+      disjoint (get_names l1) (get_names l2)
+      -> remove_names l1 k ++ remove_names l2 k = remove_names (l1 ++ l2) k.
+  Proof.
+    induction k; introv disj; simpl; auto.
+    rewrite remove_name_disjoint; auto.
+    apply IHk.
+    repeat rewrite get_names_remove_name.
+    introv i j.
+    apply in_remove_fst_implies in i; apply in_remove_fst_implies in j.
+    apply disj in i; tcsp.
+  Qed.
+
   Lemma app_m_proc_some2 :
     forall {n} {cn}
            (sm : n_proc n cn)
+           (t  : PosDTime)
            (i  : cio_I (fio cn))
            (subs : n_procs n)
            (nod  : no_dup_subs subs = true)
            (ord  : ordered_subs subs = true),
-      app_m_proc sm i subs
-      = match sm2update sm (sm2state sm) i (select_n_procs (sm2level sm) subs) with
+      app_m_proc sm t i subs
+      = match sm2update sm (sm2state sm) t i (select_n_procs (sm2level sm) subs) with
         | (subs', (sop, out)) =>
-          (remove_subs subs subs' ++ raise_to_n_procs n subs',
-           (option_map (update_state_m sm) sop, out))
+          (remove_names subs (get_names (select_n_procs (sm2level sm) subs)) ++ raise_to_n_procs n subs',
+           (hoption_map (update_state_m sm) sop, out))
         end.
   Proof.
     induction n; introv nodup ord; simpl in *; tcsp.
@@ -1202,21 +1453,21 @@ Section ComponentSM2.
     { unfold n_proc in *.
       fold M_StateMachine in *.
       fold n_proc in *.
-      remember (sm_update sm (sm_state sm) i (select_n_procs n subs)) as w; symmetry in Heqw.
+      remember (sm_update sm (sm_state sm) t i (select_n_procs n subs)) as w; symmetry in Heqw.
       repnd.
 
       unfold lift_n_procs_eq; simpl; autorewrite with comp in *.
-      unfold lift_M_1, M_on_decr, app_n_proc_at, bind_pair, bind; simpl.
+      unfold lift_M_1, M_on_decr, app_n_proc_at, bind_pair, bind, update_subs_decr; simpl.
       rewrite decr_n_procs_as_select_n_procs.
       rewrite Heqw; simpl; auto.
       rewrite raise_to_n_procs_as_incr_n_procs.
       destruct w1; simpl; tcsp. }
 
-    { pose proof (IHn cn sm i (select_n_procs n subs)) as IHn.
+    { pose proof (IHn cn sm t i (select_n_procs n subs)) as IHn.
       pose proof (sm2level_le_pred _ _ sm) as lvl.
       rewrite select_n_procs_select_n_procs_le in IHn; auto; eauto 3 with comp; try omega;[].
 
-      remember (sm2update sm (sm2state sm) i (select_n_procs (sm2level sm) subs)) as w.
+      remember (sm2update sm (sm2state sm) t i (select_n_procs (sm2level sm) subs)) as w.
       symmetry in Heqw; repnd.
 
       unfold lift_M_2, M_on_decr, bind_pair, bind, M_on_pred.
@@ -1227,22 +1478,24 @@ Section ComponentSM2.
       rewrite IHn; simpl; auto; clear IHn; eauto 3 with comp;
         try (complete (apply (ordered_subs_decr_n_procs subs); auto));[].
 
-      unfold update_subs.
+      unfold update_subs_decr, update_subs.
       rewrite incr_n_procs_app.
       rewrite incr_n_procs_raise_to_n_procs; auto; try omega;[].
       f_equal;[|destruct w1; simpl; auto];[].
       rewrite app_assoc; f_equal.
-      rewrite remove_subs_app.
-      rewrite remove_subs_raise_to_n_procs; try omega;[].
-      rewrite incr_n_procs_remove_subs.
+
+      rewrite incr_n_procs_remove_names.
       pose proof (incr_n_procs_decr_n_procs_as_rm_highest subs) as h;
         simpl in *; rewrite h; clear h; auto.
-      rewrite remove_subs_nested; auto.
-      pose proof (remove_subs_decr_n_procs_as_keep_highest_subs subs) as h;
+
+      pose proof (remove_names_decr_n_procs_as_keep_highest_subs subs) as h;
         simpl in *; rewrite h; clear h; auto.
       pose proof (split_as_rm_highest_keep_highest subs) as h.
       repeat (autodimp h hyp).
-      rewrite <- remove_subs_split_if_no_dup; rewrite <- h; auto. }
+
+      rewrite (keep_highest_procs_as_remove_names_select (sm2level sm)); auto; try omega.
+      rewrite remove_names_app_disjoint; eauto 3 with comp;[].
+      rewrite <- h; auto. }
   Qed.
 
   Lemma are_procs_n_procs_find_name :
@@ -1275,7 +1528,7 @@ Section ComponentSM2.
     unfold is_proc_n_proc in *.
     unfold is_proc_n_proc_at; exrepnd.
     exists p; introv.
-    pose proof (h0 s i) as h0.
+    pose proof (h0 s t i) as h0.
     autorewrite with comp; auto.
   Qed.
   Hint Resolve implies_is_proc_n_proc_at_sm2at : comp.
@@ -1538,10 +1791,10 @@ Section ComponentSM2.
   Hint Resolve similar_subs_replace_subs : comp.*)
 
   Lemma is_proc_n_proc_update_implies_some :
-    forall cn n (p : n_proc n cn) s i subs1 subs2 sop out,
+    forall cn n (p : n_proc n cn) s t i subs1 subs2 sop out,
       is_proc_n_proc p
-      -> sm2update p s i subs1 = (subs2, (sop, out))
-      -> exists s, sop = Some s.
+      -> sm2update p s t i subs1 = (subs2, (sop, out))
+      -> exists s, sop = hsome s.
   Proof.
     introv isp e.
     unfold is_proc_n_proc in isp; exrepnd.
@@ -1549,7 +1802,7 @@ Section ComponentSM2.
     unfold proc2upd in *; simpl in *.
     unfold interp_s_proc, to_proc_some_state in *; simpl in *.
     unfold bind_pair, bind in *; simpl in *.
-    remember (interp_proc (p0 s i) subs1) as w; repnd; simpl in *; ginv; eauto.
+    remember (interp_proc (p0 s t i) subs1) as w; repnd; simpl in *; ginv; eauto.
   Qed.
 
   Lemma similar_sms_update_state_m :
@@ -1674,16 +1927,6 @@ Section ComponentSM2.
     destruct p1; simpl in *; ginv.
     inversion h; auto.
   Qed.
-
-  Lemma in_implies_in_proc_names :
-    forall n (subs : n_procs n) a,
-      In a subs
-      -> In (pp_name a) (get_names subs).
-  Proof.
-    induction subs; introv i; simpl in *; tcsp.
-    repndors; subst; tcsp.
-  Qed.
-  Hint Resolve in_implies_in_proc_names : comp.
 
   Lemma wf_procs_same_names_implies :
     forall n (subs : n_procs n) a b,
@@ -2134,7 +2377,7 @@ Section ComponentSM2.
     unfold is_proc_n_proc in *; exrepnd.
     exists p.
     introv.
-    pose proof (isp0 s i) as isp0.
+    pose proof (isp0 s t i) as isp0.
     eapply select_n_proc_preserves_sm2update_eq_proc2upd; eauto.
   Qed.
   Hint Resolve is_proc_n_nproc_select_n_nproc : comp.
@@ -2756,6 +2999,7 @@ Section ComponentSM2.
               (cn    : CompName)
               (main  : n_proc_at m cn)
               (s     : sf cn)
+              (t     : PosDTime)
               (i     : cio_I (fio cn))
               (subs1 : n_procs m),
           m < n
@@ -2763,7 +3007,7 @@ Section ComponentSM2.
           -> are_procs_n_procs subs1
           -> wf_procs subs1
           -> M_break
-               (sm_update main s i)
+               (sm_update main s t i)
                subs1
                (fun subs2 _ =>
                   similar_subs subs1 subs2
@@ -2791,9 +3035,9 @@ Section ComponentSM2.
     { unfold M_break, call_proc; simpl.
       remember (find_name cn subs1) as fd; symmetry in Heqfd; destruct fd; eauto 3 with comp;[].
       rename n0 into p.
-      remember (app_m_proc p i subs1) as ap; symmetry in Heqap; repnd.
-      rewrite (app_m_proc_some2 p i) in Heqap; eauto 3 with comp;[].
-      remember (sm2update p (sm2state p) i (select_n_procs (sm2level p) subs1)) as w; symmetry in Heqw.
+      remember (app_m_proc p t i subs1) as ap; symmetry in Heqap; repnd.
+      rewrite (app_m_proc_some2 p t i) in Heqap; eauto 3 with comp;[].
+      remember (sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs1)) as w; symmetry in Heqw.
       repnd; ginv; simpl in *.
       inversion Heqap; subst; simpl in *; clear Heqap.
 
@@ -2804,7 +3048,7 @@ Section ComponentSM2.
 
       applydup is_proc_n_proc_update_implies_some in Heqw; auto;[]; exrepnd; subst; simpl in *.
 
-      pose proof (imp (sm2level p) _ (sm2at p) (sm2state p) i (select_n_procs (sm2level p) subs1)) as imp.
+      pose proof (imp (sm2level p) _ (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs1)) as imp.
       repeat (autodimp imp hyp); try omega; eauto 3 with comp;
         try (complete (destruct n; simpl in *; tcsp; try omega)).
       autorewrite with comp in *.
@@ -2834,6 +3078,8 @@ Section ComponentSM2.
                (remove_subs subs1 w0)) in imp0;
         [|apply similar_subs_preserves_get_names in simb;
           unfold remove_subs; allrw; eauto 2 with comp];[].
+
+      applydup similar_subs_preserves_get_names in simb as eqn; rewrite eqn.
 
       dands.
 
@@ -2878,6 +3124,7 @@ Section ComponentSM2.
               (cn    : CompName)
               (main  : n_proc_at m cn)
               (s     : sf cn)
+              (t     : PosDTime)
               (i     : cio_I (fio cn))
               (subs1 : n_procs m),
           m < n
@@ -2885,7 +3132,7 @@ Section ComponentSM2.
           -> are_procs_n_procs subs1
           -> wf_procs subs1
           -> M_break
-               (sm_update main s i)
+               (sm_update main s t i)
                subs1
                (fun subs2 _ =>
                   similar_subs subs1 subs2
@@ -2912,12 +3159,13 @@ Section ComponentSM2.
     forall {n} {cn}
            (main  : n_proc_at n cn)
            (s     : sf cn)
+           (t     : PosDTime)
            (i     : cio_I (fio cn))
            (subs1 : n_procs n),
       is_proc_n_proc_at main
       -> are_procs_n_procs subs1
       -> wf_procs subs1
-      -> M_break (sm_update main s i)
+      -> M_break (sm_update main s t i)
                  subs1
                  (fun subs2 _ =>
                     similar_subs subs1 subs2
@@ -3028,10 +3276,10 @@ Section ComponentSM2.
   Hint Resolve implies_similar_subs_remove_subs : comp.
 
   Lemma implies_similar_subs_update_subs :
-    forall {n} (l1 l2 : n_procs (S n)) k1 k2,
+    forall {n} (l1 l2 : n_procs (S n)) k1 k2 j,
       similar_subs l1 l2
       -> similar_subs k1 k2
-      -> similar_subs (update_subs l1 k1) (update_subs l2 k2).
+      -> similar_subs (update_subs l1 j k1) (update_subs l2 j k2).
   Proof.
     introv siml simk.
     unfold update_subs.
@@ -3043,12 +3291,13 @@ Section ComponentSM2.
     forall {n} (l : n_procs (S n)),
       no_dup_subs l = true
       -> ordered_subs l = true
-      -> update_subs l (decr_n_procs l) = l.
+      -> update_subs l (get_names (decr_n_procs l)) (decr_n_procs l) = l.
   Proof.
     introv nodup ord; unfold update_subs.
     pose proof (incr_n_procs_decr_n_procs_as_rm_highest l) as q.
     simpl in *; rewrite q; clear q.
     pose proof (remove_subs_decr_n_procs_as_keep_highest_subs l) as q.
+    unfold remove_subs in q.
     simpl in *; rewrite q; clear q; auto.
     rewrite <- split_as_rm_highest_keep_highest; eauto 3 with comp.
   Qed.
@@ -3057,7 +3306,7 @@ Section ComponentSM2.
     forall {n} (l : n_procs (S n)),
       no_dup_subs l = true
       -> ordered_subs l = true
-      -> similar_subs l (update_subs l (decr_n_procs l)).
+      -> similar_subs l (update_subs l (get_names (decr_n_procs l)) (decr_n_procs l)).
   Proof.
     introv nodup ord; rewrite update_subs_decr_n_procs_eq; eauto 3 with comp.
   Qed.
@@ -3066,12 +3315,13 @@ Section ComponentSM2.
   Lemma are_procs_implies_preserves_sub_M_run_sm_on_input :
     forall {n} {cn}
            (main  : n_proc n cn)
+           (t     : PosDTime)
            (i     : cio_I (fio cn))
            (subs1 : n_procs n),
       is_proc_n_proc main
       -> are_procs_n_procs subs1
       -> wf_procs subs1
-      -> M_break (M_run_sm_on_input main i)
+      -> M_break (M_run_sm_on_input main t i)
                  subs1
                  (fun subs2 _ =>
                     similar_subs subs1 subs2
@@ -3082,11 +3332,11 @@ Section ComponentSM2.
     destruct main; simpl in *; tcsp.
 
     { unfold M_break, M_on_decr; simpl.
-      remember (sm_update a (sm_state a) i (decr_n_procs subs1)) as w;
+      remember (sm_update a (sm_state a) t i (decr_n_procs subs1)) as w;
         symmetry in Heqw; repnd; simpl in *.
       pose proof (are_procs_implies_preserves_sub
                     a (sm_state a)
-                    i
+                    t i
                     (decr_n_procs subs1)) as q.
       repeat (autodimp q hyp); eauto 3 with comp;
         try (complete (apply (wf_procs_decr_n_procs subs1); auto));
@@ -3095,37 +3345,37 @@ Section ComponentSM2.
       rewrite Heqw in q; repnd.
       pose proof (implies_similar_subs_update_subs
                     subs1 subs1
-                    (decr_n_procs subs1) w0) as z.
+                    (decr_n_procs subs1) w0 (get_names (decr_n_procs subs1))) as z.
       repeat (autodimp z hyp); eauto 3 with comp.
       rewrite update_subs_decr_n_procs_eq in z; eauto 3 with comp. }
 
     { unfold M_on_decr, M_break; simpl in *.
-      pose proof (IHn cn b i (decr_n_procs subs1)) as IHn.
+      pose proof (IHn cn b t i (decr_n_procs subs1)) as IHn.
       repeat (autodimp IHn hyp);
         try (complete (apply (wf_procs_decr_n_procs subs1); auto));
         try (complete (apply (are_procs_n_procs_decr_n_procs subs1); auto));[].
       unfold M_break in IHn; simpl in *.
       remember (M_on_sm
                   b
-                  (fun p => sm_update p (sm_state p) i)
+                  (fun p => sm_update p (sm_state p) t i)
                   (decr_n_procs subs1)) as z; symmetry in Heqz.
       simpl in *; rewrite Heqz; rewrite Heqz in IHn.
       repnd; simpl in *.
       pose proof (implies_similar_subs_update_subs
                     subs1 subs1
-                    (decr_n_procs subs1) z0) as x.
+                    (decr_n_procs subs1) z0 (get_names (decr_n_procs subs1))) as x.
       repeat (autodimp x hyp); eauto 3 with comp.
       rewrite update_subs_decr_n_procs_eq in x; eauto 3 with comp. }
   Qed.
 
   Lemma is_proc_n_proc_run_on_input_implies_some :
-    forall {cn} {n} (p : n_proc n cn) (i : cio_I (fio cn))
+    forall {cn} {n} (p : n_proc n cn) (t : PosDTime) (i : cio_I (fio cn))
            (subs1 subs2 : n_procs n)
-           (sop : option (sf cn))
+           (sop : hoption (sf cn))
            (out : cio_O (fio cn)),
       is_proc_n_proc p
-      -> M_run_sm_on_input p i subs1 = (subs2, (sop, out))
-      -> exists s0, sop = Some s0.
+      -> M_run_sm_on_input p t i subs1 = (subs2, (sop, out))
+      -> exists s0, sop = hsome s0.
   Proof.
     unfold M_run_sm_on_input.
     induction n; introv isp run; simpl in *; tcsp.
@@ -3138,7 +3388,7 @@ Section ComponentSM2.
       unfold proc2upd in Heqw; simpl in *.
       unfold interp_s_proc, to_proc_some_state in Heqw; simpl in *.
       unfold bind_pair, bind in Heqw; simpl in *.
-      remember (interp_proc (p (sm_state a) i) (decr_n_procs subs1)) as z.
+      remember (interp_proc (p (sm_state a) t i) (decr_n_procs subs1)) as z.
       simpl in *; rewrite <- Heqz in Heqw.
       repnd; simpl in *; inversion Heqw; subst.
       inversion run; subst; eauto. }
@@ -3185,7 +3435,7 @@ Section ComponentSM2.
     dest_cases w; rev_Some; simpl in *; tcsp; eauto 3 with comp;[].
 
     pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input
-                  w i ls0) as z.
+                  w t i ls0) as z.
     repeat (autodimp z hyp); eauto 3 with comp;[].
     unfold M_break in *; simpl in *.
     dest_cases u; repnd; simpl in *; symmetry in Hequ.
@@ -3497,7 +3747,7 @@ Section ComponentSM2.
     unfold is_proc_n_proc in *; exrepnd.
     exists p0.
     introv.
-    pose proof (i0 s0 i) as i0.
+    pose proof (i0 s0 t i) as i0.
     induction n; simpl in *; tcsp; destruct p as [p|p]; tcsp.
   Qed.
   Hint Resolve implies_is_proc_n_proc_update_state_m : comp.
@@ -3597,7 +3847,7 @@ Section ComponentSM2.
       rewrite isp'0.
       unfold proc2upd, interp_s_proc, M_break.
       pose proof (ind m) as ind; autodimp ind hyp.
-      pose proof (ind _ subs1 (to_proc_some_state (p0 s i))) as ind.
+      pose proof (ind _ subs1 (to_proc_some_state (p0 s t i))) as ind.
       repeat (autodimp ind hyp); repnd.
       split_pair; dands; auto. }
 
@@ -3630,20 +3880,21 @@ Section ComponentSM2.
   Definition update_state_op_m
              {n} {cn}
              (sm  : n_proc n cn)
-             (sop : option (sf cn)) : n_proc n cn :=
+             (sop : hoption (sf cn)) : n_proc n cn :=
     match sop with
-    | Some s => update_state_m sm s
-    | None => sm
+    | hsome s => update_state_m sm s
+    | halt_local => sm
+    | halt_global => sm
     end.
 
   Fixpoint run_sm_on_inputs {n} {cn}
            (p : n_proc n cn)
-           (l : list (cio_I (fio cn)))
+           (l : list (PosDTime * cio_I (fio cn)))
            (subs : n_procs n) : n_procs n * n_proc n cn :=
     match l with
     | [] => (subs, p)
-    | i :: l =>
-      match sm2update p (sm2state p) i (select_n_procs (sm2level p) subs) with
+    | (t,i) :: l =>
+      match sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs) with
       | (subs', (sop, o)) =>
         run_sm_on_inputs
           (update_state_op_m p sop)
@@ -3674,7 +3925,7 @@ Section ComponentSM2.
       sm2level p = 0
       -> In (MkPProc cn p) subs1
       ->
-      exists (l : list (cio_I (fio cn))),
+      exists (l : list (PosDTime * cio_I (fio cn))),
         In (MkPProc cn (snd (run_sm_on_inputs p l subs1))) subs2.
 
   Definition run_subs_leaves {n} (subs1 subs2 : n_procs n) : Prop :=
@@ -3682,7 +3933,7 @@ Section ComponentSM2.
       sm2level p = 0
       -> In (MkPProc cn p) subs1
       ->
-      exists (l : list (cio_I (fio cn))) comp,
+      exists (l : list (PosDTime * cio_I (fio cn))) comp,
         M_comp_ls_on_op_inputs (sm2ls p) cn (map Some l) = Some comp
         /\ In (MkPProc cn comp) subs2.
 
@@ -3698,9 +3949,9 @@ Section ComponentSM2.
   Qed.
 
   Lemma snd_M_run_sm_on_input_eq :
-    forall {n} {cn} (p : n_proc n cn) i subs,
-      snd (M_run_sm_on_input p i subs)
-      = snd (sm2update p (sm2state p) i (select_n_procs (sm2level p) subs)).
+    forall {n} {cn} (p : n_proc n cn) t i subs,
+      snd (M_run_sm_on_input p t i subs)
+      = snd (sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs)).
   Proof.
     unfold M_run_sm_on_input.
     induction n; introv; simpl in *; tcsp;[].
@@ -3788,7 +4039,7 @@ Section ComponentSM2.
     dest_cases w; repnd; simpl in *; symmetry in Heqw.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqw; auto.
     exrepnd; subst; simpl in *.
-    pose proof (snd_M_run_sm_on_input_eq p a (sm2ls p)) as q.
+    pose proof (snd_M_run_sm_on_input_eq p a0 a (sm2ls p)) as q.
     rewrite Heqw in q; simpl in q.
 
     assert (select_n_procs (sm2level p) subs = []) as eqn.
@@ -3801,7 +4052,7 @@ Section ComponentSM2.
     split_pair; simpl in *; rewrite <- q; simpl.
     rewrite <- IHl; autorewrite with comp; eauto 3 with comp;[].
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a (sm2ls p)) as w.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a0 a (sm2ls p)) as w.
     repeat (autodimp w hyp); eauto 3 with comp;[].
     unfold M_break in w.
     rewrite Heqw in w; repnd.
@@ -3872,7 +4123,7 @@ Section ComponentSM2.
       run_subs_leaves subs subs.
   Proof.
     introv lvl i.
-    exists ([] : list (cio_I (fio cn))); simpl; auto.
+    exists ([] : list (PosDTime * cio_I (fio cn))); simpl; auto.
     autorewrite with comp; eauto.
   Qed.
   Hint Resolve run_subs_leaves_refl : comp.
@@ -3882,21 +4133,21 @@ Section ComponentSM2.
       run_subs_leaves_direct subs subs.
   Proof.
     introv lvl i.
-    exists ([] : list (cio_I (fio cn))); simpl; auto.
+    exists ([] : list (PosDTime * cio_I (fio cn))); simpl; auto.
   Qed.
   Hint Resolve run_subs_leaves_direct_refl : comp.
 
   Lemma run_sm_on_inputs_app :
     forall {n} {cn : CompName}
-           (l1 l2 : list (cio_I (fio cn)))
+           (l1 l2 : list (PosDTime * cio_I (fio cn)))
            (p     : n_proc n cn)
            (subs  : n_procs n),
       run_sm_on_inputs p (l1 ++ l2) subs
       = let (subs',q) := run_sm_on_inputs p l1 subs
         in run_sm_on_inputs q l2 subs'.
   Proof.
-    induction l1; introv; simpl; auto.
-    remember (sm2update p (sm2state p) a (select_n_procs (sm2level p) subs)) as w; symmetry in Heqw.
+    induction l1; introv; simpl; repnd; auto.
+    remember (sm2update p (sm2state p) a0 a (select_n_procs (sm2level p) subs)) as w; symmetry in Heqw.
     repnd.
     destruct w1; simpl; auto.
   Qed.
@@ -3996,7 +4247,7 @@ Section ComponentSM2.
     unfold is_proc_n_proc in *; exrepnd.
     apply option_map_Some in sel; exrepnd; subst; simpl in *.
     unfold is_proc_n_proc; exists p; introv.
-    pose proof (isp0 s i) as isp0.
+    pose proof (isp0 s t i) as isp0.
     eapply select_n_proc_preserves_sm2update_eq_proc2upd in sel1; eauto.
   Qed.
   Hint Resolve select_n_nproc_preserves_is_proc_n_nproc : comp.
@@ -4215,11 +4466,11 @@ Section ComponentSM2.
   Qed.
 
   Lemma select_n_proc_preserves_sm2update :
-    forall cn n k (a : n_proc n cn) b s i (subs : n_procs n),
+    forall cn n k (a : n_proc n cn) b s t i (subs : n_procs n),
       k <= n
       -> select_n_proc k a = Some b
-      -> sm2update b s i (select_n_procs (sm2level b) subs)
-         = match sm2update a s i (select_n_procs (sm2level a) subs) with
+      -> sm2update b s t i (select_n_procs (sm2level b) subs)
+         = match sm2update a s t i (select_n_procs (sm2level a) subs) with
            | (subs', o) => (select_n_procs (sm2level b) subs', o)
            end.
   Proof.
@@ -4239,7 +4490,7 @@ Section ComponentSM2.
     { applydup select_n_proc_S_incr_implies_level in sel; subst.
       split_pairs.
       autorewrite with comp.
-      pose proof (IHn (S (sm2level a)) a (sm_or_at b) s i (decr_n_procs subs)) as IHn.
+      pose proof (IHn (S (sm2level a)) a (sm_or_at b) s t i (decr_n_procs subs)) as IHn.
       repeat (autodimp IHn hyp); try omega.
       simpl in *.
       pose proof (select_n_procs_decr_n_procs (S n) (sm2level a) subs) as q; simpl in *.
@@ -4248,7 +4499,7 @@ Section ComponentSM2.
       split_pairs; simpl; autorewrite with comp; auto. }
 
     { apply select_n_proc_S_sm_implies in sel.
-      pose proof (IHn k a b s i (decr_n_procs subs)) as IHn; simpl in *.
+      pose proof (IHn k a b s t i (decr_n_procs subs)) as IHn; simpl in *.
       repeat (autodimp IHn hyp); try omega.
       applydup select_n_proc_preserves_sm2level in sel.
       pose proof (sm2level_le_pred _ _ a) as lvl.
@@ -4424,7 +4675,7 @@ Section ComponentSM2.
 
   Lemma select_n_proc_fst_run_sm_in_inputs :
     forall (cn : CompName) n j
-           (l : list (cio_I (fio cn)))
+           (l : list (PosDTime * cio_I (fio cn)))
            (p : n_proc n cn)
            (q : n_proc j cn)
            (subs : n_procs n),
@@ -4443,24 +4694,26 @@ Section ComponentSM2.
 
     destruct (deq_nat j 0) as [d|d];[subst; simpl in *; tcsp|];[].
 
-    pose proof (select_n_proc_preserves_sm2update cn n j p q (sm2state q) a subs) as w.
+    repnd; simpl in *.
+
+    pose proof (select_n_proc_preserves_sm2update cn n j p q (sm2state q) a0 a subs) as w.
     repeat (autodimp w hyp).
     simpl in *.
     rewrite w; clear w.
     split_pairs; simpl.
     rewrite <- sel1.
 
-    remember (fst (snd (sm2update p (sm2state p) a (select_n_procs (sm2level p) subs)))) as w; symmetry in Heqw.
+    remember (fst (snd (sm2update p (sm2state p) a0 a (select_n_procs (sm2level p) subs)))) as w; symmetry in Heqw.
     simpl in *; rewrite Heqw.
 
     pose proof (IHl
                   (update_state_op_m p w)
                   (update_state_op_m q w)
-                  (raise_to_n_procs n (fst (sm2update p (sm2state p) a (select_n_procs (sm2level p) subs)))))
+                  (raise_to_n_procs n (fst (sm2update p (sm2state p) a0 a (select_n_procs (sm2level p) subs)))))
       as IHl.
     simpl in *.
     rewrite IHl; clear IHl; auto; eauto 3 with comp;[].
-    remember (fst (sm2update p (sm2state p) a (select_n_procs (sm2level p) subs))) as subs'; symmetry in Heqsubs'.
+    remember (fst (sm2update p (sm2state p) a0 a (select_n_procs (sm2level p) subs))) as subs'; symmetry in Heqsubs'.
     simpl in *; rewrite Heqsubs'.
     rewrite <- sel0.
     autorewrite with comp.
@@ -4526,13 +4779,14 @@ Section ComponentSM2.
               (cn   : CompName)
               (main : n_proc_at m cn)
               (s    : sf cn)
+              (t    : PosDTime)
               (i    : cio_I (fio cn))
               (subs : n_procs m),
           m < n
           -> is_proc_n_proc_at main
           -> are_procs_n_procs subs
           -> wf_procs subs
-          -> run_subs_leaves_direct subs (fst (sm_update main s i subs)))
+          -> run_subs_leaves_direct subs (fst (sm_update main s t i subs)))
       -> are_procs_n_procs subs
       -> wf_procs subs
       -> run_subs_leaves_direct subs (fst (interp_proc p subs)).
@@ -4561,13 +4815,13 @@ Section ComponentSM2.
       remember (find_name cn subs) as fn; symmetry in Heqfn.
       destruct fn; simpl; eauto 3 with comp;[].
       rename n0 into p.
-      remember (app_m_proc p i subs) as ap; symmetry in Heqap; repnd.
+      remember (app_m_proc p t i subs) as ap; symmetry in Heqap; repnd.
       split_pairs; simpl.
 
       pose proof (sm2level_le_pred _ _ p) as ln0.
 
-      rewrite (app_m_proc_some2 p i) in Heqap; simpl; eauto 3 with comp;[].
-      remember (sm2update p (sm2state p) i (select_n_procs (sm2level p) subs)) as w; symmetry in Heqw.
+      rewrite (app_m_proc_some2 p t i) in Heqap; simpl; eauto 3 with comp;[].
+      remember (sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs)) as w; symmetry in Heqw.
       repnd; simpl.
       inversion Heqap; subst; simpl in *; clear Heqap.
 
@@ -4583,10 +4837,10 @@ Section ComponentSM2.
       unfold proc2upd in Heqw; simpl in *.
       unfold interp_s_proc, to_M_n_some_state in Heqw; simpl in *.
       unfold bind_pair, bind in Heqw; simpl in *.
-      remember (interp_proc (p1 (sm2state p) i) (select_n_procs (sm2level p) subs)) as itr; symmetry in Heqitr.
+      remember (interp_proc (p1 (sm2state p) t i) (select_n_procs (sm2level p) subs)) as itr; symmetry in Heqitr.
       repnd; simpl in *; ginv.
 
-      pose proof (are_procs_implies_preserves_sub (sm2at p) (sm2state p) i (select_n_procs (sm2level p) subs)) as q.
+      pose proof (are_procs_implies_preserves_sub (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs)) as q.
       repeat (autodimp q hyp); eauto 3 with comp;[].
       rewrite sm_update_sm2at in q.
       rewrite isp0 in q.
@@ -4601,7 +4855,7 @@ Section ComponentSM2.
         rewrite select_n_procs_nil_if_leaf in Heqitr; auto.
         rewrite select_n_procs_nil_if_leaf in q0; auto.
         inversion q0; subst; clear q0; autorewrite with comp list.
-        exists [i]; simpl.
+        exists [(t,i)]; simpl.
         rewrite select_n_procs_nil_if_leaf; auto.
         rewrite isp0.
         unfold proc2upd; simpl.
@@ -4609,7 +4863,7 @@ Section ComponentSM2.
         unfold bind_pair, bind; simpl.
         rewrite Heqitr; simpl; eauto 3 with comp. }
 
-      pose proof (imp (sm2level p) _ (sm2at p) (sm2state p) i (select_n_procs (sm2level p) subs)) as imp.
+      pose proof (imp (sm2level p) _ (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs)) as imp.
       repeat (autodimp imp hyp); try omega; eauto 3 with comp;
         try (complete (destruct n; simpl in *; tcsp; try omega));[].
       autorewrite with comp in *.
@@ -4650,7 +4904,7 @@ Section ComponentSM2.
 
       { applydup similar_subs_preserves_get_names in q0 as eqns.
         dup d as d'; rewrite eqns in d'.
-        exists ([] : list (cio_I (fio cn0))); simpl.
+        exists ([] : list (PosDTime * cio_I (fio cn0))); simpl.
         apply in_replace_name_diff; simpl; tcsp;[].
         apply in_app_iff; left; auto.
         apply implies_in_remove_names; simpl; auto. } }
@@ -4662,13 +4916,14 @@ Section ComponentSM2.
               (cn   : CompName)
               (main : n_proc_at m cn)
               (s    : sf cn)
+              (t    : PosDTime)
               (i    : cio_I (fio cn))
               (subs : n_procs m),
           m < n
           -> is_proc_n_proc_at main
           -> are_procs_n_procs subs
           -> wf_procs subs
-          -> run_subs_leaves_direct subs (fst (sm_update main s i subs)))
+          -> run_subs_leaves_direct subs (fst (sm_update main s t i subs)))
       -> are_procs_n_procs subs
       -> wf_procs subs
       -> run_subs_leaves_direct subs (fst (interp_s_proc p subs)).
@@ -4685,12 +4940,13 @@ Section ComponentSM2.
     forall {n} {cn}
            (main : n_proc_at n cn)
            (s    : sf cn)
+           (t    : PosDTime)
            (i    : cio_I (fio cn))
            (subs : n_procs n),
       is_proc_n_proc_at main
       -> are_procs_n_procs subs
       -> wf_procs subs
-      -> run_subs_leaves_direct subs (fst (sm_update main s i subs)).
+      -> run_subs_leaves_direct subs (fst (sm_update main s t i subs)).
   Proof.
     induction n as [? ind] using comp_ind; introv ip ap wf;[].
     unfold is_proc_n_proc_at in ip; exrepnd.
@@ -4801,37 +5057,49 @@ Section ComponentSM2.
     pose proof (sm2level_le_pred _ _ p) as u.
     repeat (autodimp z hyp); try omega.
     rewrite z; clear z.
-    dest_cases w; repnd; simpl in *; symmetry in Heqw.
+    repeat (dest_cases w; repnd; simpl in *; symmetry in Heqw; ginv).
     rewrite update_state_op_m_incr_n_proc.
     rewrite IHl; clear IHl.
     rewrite decr_n_procs_raise_to_n_procs; auto; try omega.
   Qed.
 
   Lemma update_subs_nil_r :
-    forall {n} (l : n_procs (S n)), update_subs l [] = l.
+    forall {n} (l : n_procs (S n)), update_subs l [] [] = l.
   Proof.
     introv; unfold update_subs; simpl; autorewrite with comp list; auto.
   Qed.
   Hint Rewrite @update_subs_nil_r : comp.
 
+  Lemma decr_n_procs_1 :
+    forall (subs : n_procs 1),
+      decr_n_procs subs = [].
+  Proof.
+    induction subs; simpl; auto.
+    unfold decr_n_procs in *; simpl in *; rewrite IHsubs.
+    destruct a as [cn p]; simpl in *.
+    destruct p; simpl in *; auto; tcsp.
+  Qed.
+  Hint Rewrite decr_n_procs_1 : comp.
+
   Lemma are_procs_implies_run_subs_direct2 :
     forall {n} {cn}
            (p    : n_proc n cn)
+           (t    : PosDTime)
            (i    : cio_I (fio cn))
            (subs : n_procs n),
       is_proc_n_proc p
       -> are_procs_n_procs subs
       -> wf_procs subs
-      -> run_subs_leaves_direct subs (fst (M_run_sm_on_input p i subs)).
+      -> run_subs_leaves_direct subs (fst (M_run_sm_on_input p t i subs)).
   Proof.
     unfold M_run_sm_on_input.
     induction n as [? ind] using comp_ind; introv ip ap wf;[].
     destruct n; simpl in *; tcsp.
     destruct p; simpl in *; tcsp.
 
-    { unfold M_on_decr; simpl; dest_cases w; symmetry in Heqw; repnd; simpl in *.
+    { unfold M_on_decr, update_subs_decr; simpl; dest_cases w; symmetry in Heqw; repnd; simpl in *.
       pose proof (are_procs_implies_run_subs
-                    a (sm_state a) i (decr_n_procs subs)) as q.
+                    a (sm_state a) t i (decr_n_procs subs)) as q.
       repeat (autodimp q hyp); eauto 3 with comp;
         try (apply (are_procs_n_procs_decr_n_procs subs); auto);
         try (apply (wf_procs_decr_n_procs subs); auto);[].
@@ -4844,7 +5112,7 @@ Section ComponentSM2.
 
       { subst.
         pose proof (n_procs_0 w0); subst; autorewrite with comp.
-        exists ([] : list (cio_I (fio cn0))); simpl; auto. }
+        exists ([] : list (PosDTime * cio_I (fio cn0))); simpl; auto. }
 
       exrepnd.
       simpl in *.
@@ -4864,11 +5132,11 @@ Section ComponentSM2.
 
     { unfold M_on_decr; split_pair; simpl.
       pose proof (ind n) as ind; autodimp ind hyp.
-      pose proof (ind cn b i (decr_n_procs subs)) as ind.
+      pose proof (ind cn b t i (decr_n_procs subs)) as ind.
       repeat (autodimp ind hyp); eauto 3 with comp;
         try (apply (are_procs_n_procs_decr_n_procs subs); auto);
         try (apply (wf_procs_decr_n_procs subs); auto);[].
-      remember (fst (M_on_sm b (fun p => sm_update p (sm_state p) i) (decr_n_procs subs))) as subs'.
+      remember (fst (M_on_sm b (fun p => sm_update p (sm_state p) t i) (decr_n_procs subs))) as subs'.
       simpl in *.
       rewrite <- Heqsubs' in ind; rewrite <- Heqsubs'.
       clear Heqsubs'.
@@ -4905,8 +5173,8 @@ Section ComponentSM2.
     exists comp, find_name cn ls = Some comp.
 
   Definition ls_run_subs cn {n} (ls : n_procs n) :=
-    forall i,
-      run_subs_leaves ls (M_run_ls_on_input_ls ls cn i).
+    forall t i,
+      run_subs_leaves ls (M_run_ls_on_input_ls ls cn t i).
 
   Lemma are_procs_n_procs_implies_ls_run_sub :
     forall cn {n} (ls : n_procs n),
@@ -4922,25 +5190,25 @@ Section ComponentSM2.
     unfold M_run_ls_on_input, on_comp; simpl.
     unfold has_comp in hm; exrepnd; allrw.
     unfold M_break.
-    remember (M_run_sm_on_input comp i ls) as run; symmetry in Heqrun.
+    remember (M_run_sm_on_input comp t i ls) as run; symmetry in Heqrun.
     repnd; simpl in *.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqrun; eauto 3 with comp;[].
     exrepnd; subst; simpl in *.
 
-    pose proof (are_procs_implies_run_subs_direct2 comp i ls) as q; repeat (autodimp q hyp); eauto 3 with comp;[].
+    pose proof (are_procs_implies_run_subs_direct2 comp t i ls) as q; repeat (autodimp q hyp); eauto 3 with comp;[].
     rewrite Heqrun in q; simpl in *.
     introv lvl j.
     destruct (CompNameDeq cn cn0); subst; simpl in *;
       [|apply q in j; auto; exrepnd; exists l; apply in_replace_name_right; simpl; auto];[].
 
     eapply find_name_in_implies_eq in j; eauto; subst; simpl in *.
-    exists [i]; simpl.
-    pose proof (snd_M_run_sm_on_input_eq p i ls) as z.
+    exists [(t,i)]; simpl.
+    pose proof (snd_M_run_sm_on_input_eq p t i ls) as z.
     rewrite Heqrun in z; simpl in z.
     split_pair.
     simpl in *; rewrite <- z; simpl.
     apply implies_in_replace_name.
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p i ls) as x.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p t i ls) as x.
     repeat (autodimp x hyp); eauto 3 with comp;[].
     unfold M_break in x; rewrite Heqrun in x; repnd.
     apply similar_subs_preserves_get_names in x0; rewrite <- x0; eauto 3 with comp.
@@ -4990,7 +5258,7 @@ Section ComponentSM2.
     introv wf aps cor run.
     unfold M_byz_run_ls_on_this_one_event in run; simpl in *.
     unfold M_byz_run_ls_on_one_event in run; simpl in *.
-    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as h; repnd;
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as h; repnd;
       simpl in *; subst; symmetry in Heqh.
     unfold isCorrect, trigger_op in *.
     remember (trigger e) as trig; clear Heqtrig.
@@ -5000,9 +5268,9 @@ Section ComponentSM2.
       [|ginv; dands; eauto 3 with comp];[].
 
     pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input
-                  w d ls1) as q.
+                  w (time e) d ls1) as q.
     repeat (autodimp q hyp); eauto 3 with comp;[].
-    pose proof (are_procs_implies_run_subs_direct2 w d ls1) as z.
+    pose proof (are_procs_implies_run_subs_direct2 w (time e) d ls1) as z.
     repeat (autodimp z hyp); eauto 3 with comp;[].
     unfold M_break in *.
     dest_cases u; symmetry in Hequ; repnd; simpl in *.
@@ -5025,9 +5293,9 @@ Section ComponentSM2.
       destruct (CompNameDeq cn (msg_comp_name S)); subst; tcsp;
         [|exists l; apply in_replace_name_right; auto];[].
       dup Heqw as fn; eapply find_name_in_implies_eq in Heqw; eauto; subst.
-      exists [d]; simpl.
+      exists [(time e, d)]; simpl.
       dest_cases v; symmetry in Heqv; repnd; simpl in *.
-      pose proof (snd_M_run_sm_on_input_eq p d ls1) as x.
+      pose proof (snd_M_run_sm_on_input_eq p (time e) d ls1) as x.
       rewrite Hequ in x; rewrite Heqv in x; simpl in x; ginv; simpl in *.
       apply implies_in_replace_name; eauto 3 with comp.
       apply similar_subs_preserves_get_names in q0; rewrite <- q0.
@@ -5269,15 +5537,15 @@ Section ComponentSM2.
   Hint Rewrite sm2state_update_state_m : comp.
 
   Lemma sm2update_update_state_m :
-    forall {cn n} (p : n_proc n cn) s x i subs,
-      let (subs', o) := sm2update (update_state_m p s) x i subs in
-      sm2update p x i (select_n_procs (sm2level p) subs) = (select_n_procs (sm2level p ) subs', o).
+    forall {cn n} (p : n_proc n cn) s x t i subs,
+      let (subs', o) := sm2update (update_state_m p s) x t i subs in
+      sm2update p x t i (select_n_procs (sm2level p) subs) = (select_n_procs (sm2level p ) subs', o).
   Proof.
     induction n; introv; simpl in *; tcsp;[].
     destruct p as [p|p]; simpl in *; tcsp.
 
     { fold (M_StateMachine n) in *; fold (n_proc n) in *.
-      remember (sm_update p x i subs) as xx; symmetry in Heqxx; repnd; simpl.
+      remember (sm_update p x t i subs) as xx; symmetry in Heqxx; repnd; simpl.
       autorewrite with comp; auto. }
 
     apply IHn; auto.
@@ -5589,7 +5857,7 @@ Section ComponentSM2.
   Hint Rewrite decr_n_procs_0 : comp.
 
   Definition unit_update : M_Update 0 (msg_comp_name 1) unit :=
-    fun s m => interp_s_proc ([R] (s,[])).
+    fun s t m => interp_s_proc ([R] (s,[])).
 
   Definition unit_sm : n_proc 1 (msg_comp_name 1) :=
     build_m_sm unit_update tt.
@@ -5668,7 +5936,7 @@ Section ComponentSM2.
     introv h; subst.
     unfold M_byz_run_ls_on_this_one_event; simpl in *.
     unfold M_byz_run_ls_on_one_event; simpl in *.
-    remember (M_byz_run_ls_on_input (empty_ls l s) (msg_comp_name s) (trigger e)) as run.
+    remember (M_byz_run_ls_on_input (empty_ls l s) (msg_comp_name s) (time e) (trigger e)) as run.
     symmetry in Heqrun; repnd; simpl in *.
     remember (trigger e) as trig; destruct trig; simpl in *; tcsp; ginv;
       unfold M_run_ls_on_trusted,  M_run_ls_on_input, on_comp in *; simpl in *; ginv.
@@ -5734,28 +6002,28 @@ Section ComponentSM2.
   Hint Resolve similar_subs_preserves_has_comp : comp.
 
   Lemma M_run_sm_on_input_implies_M_run_sm2ls_on_input :
-    forall {n} {cn} (p : n_proc n cn) i ls1 ls2 s out,
+    forall {n} {cn} (p : n_proc n cn) t i ls1 ls2 s out,
       is_proc_n_proc p
       -> sm2level p = 0
-      -> M_run_sm_on_input p i ls1 = (ls2, (Some s, out))
-      -> M_run_ls_on_input (sm2ls p) cn i = (sm2ls (update_state_m p s), Some out).
+      -> M_run_sm_on_input p t i ls1 = (ls2, (hsome s, out))
+      -> M_run_ls_on_input (sm2ls p) cn t i = (sm2ls (update_state_m p s), Some out).
   Proof.
     introv isp lvl run.
     unfold M_run_ls_on_input, M_break, on_comp; simpl.
     destruct (CompNameDeq cn cn) as [d|d]; tcsp.
     rewrite (UIP_refl_CompName _ d); simpl; auto; GC.
-    remember (M_run_sm_on_input p i (sm2ls p)) as q; symmetry in Heqq; repnd; simpl in *.
+    remember (M_run_sm_on_input p t i (sm2ls p)) as q; symmetry in Heqq; repnd; simpl in *.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqq; auto; exrepnd; subst; simpl in *.
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p i (sm2ls p)) as z.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p t i (sm2ls p)) as z.
     repeat (autodimp z hyp); eauto 3 with comp;[].
     unfold M_break in z.
     rewrite Heqq in z; repnd.
     apply similar_subs_sm2ls in z0; exrepnd; subst; simpl in *.
     dest_cases w; GC.
 
-    pose proof (snd_M_run_sm_on_input_eq p i (sm2ls p)) as x1.
-    pose proof (snd_M_run_sm_on_input_eq p i ls1) as x2.
+    pose proof (snd_M_run_sm_on_input_eq p t i (sm2ls p)) as x1.
+    pose proof (snd_M_run_sm_on_input_eq p t i ls1) as x2.
     rewrite Heqq in x1.
     rewrite run in x2.
     simpl in *.
@@ -5780,16 +6048,16 @@ Section ComponentSM2.
 
     apply map_option_Some in run; exrepnd; subst; simpl in *; rev_Some.
     unfold M_run_ls_on_input_ls in *.
-    remember (M_run_ls_on_input (sm2ls p) cn a0) as z; symmetry in Heqz; repnd; simpl in *.
+    remember (M_run_ls_on_input (sm2ls p) cn a1 a0) as z; symmetry in Heqz; repnd; simpl in *.
     unfold M_run_ls_on_input, on_comp in Heqz; simpl in *.
     destruct (CompNameDeq cn cn) as [d|d]; tcsp; simpl in *.
     rewrite (UIP_refl_CompName _ d) in Heqz; simpl in *; GC.
     unfold M_break in Heqz; simpl in *.
-    remember (M_run_sm_on_input p a0 (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
+    remember (M_run_sm_on_input p a1 a0 (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqx; auto; exrepnd; subst; simpl in *.
     inversion Heqz; subst; simpl in *; clear Heqz.
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a0 (sm2ls p)) as u.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a1 a0 (sm2ls p)) as u.
     repeat (autodimp u hyp); eauto 3 with comp.
     unfold M_break in u.
     rewrite Heqx in u; repnd.
@@ -5808,20 +6076,20 @@ Section ComponentSM2.
       is_proc_n_proc p
       -> exists (q : n_proc n cn), M_run_ls_on_inputs (sm2ls p) cn l = sm2ls q /\ similar_sms p q.
   Proof.
-    induction l; introv isp; simpl in *; ginv.
+    induction l; introv isp; simpl in *; repnd; ginv.
     { exists p; dands; eauto 3 with comp. }
 
-    unfold M_run_ls_on_input_ls in *.
-    remember (M_run_ls_on_input (sm2ls p) cn a) as z; symmetry in Heqz; repnd; simpl in *.
+    unfold M_run_ls_on_input_ls in *; simpl.
+    remember (M_run_ls_on_input (sm2ls p) cn a0 a) as z; symmetry in Heqz; repnd; simpl in *.
     unfold M_run_ls_on_input, on_comp in Heqz; simpl in *.
     destruct (CompNameDeq cn cn) as [d|d]; tcsp; simpl in *.
     rewrite (UIP_refl_CompName _ d) in Heqz; simpl in *; GC.
     unfold M_break in Heqz; simpl in *.
-    remember (M_run_sm_on_input p a (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
+    remember (M_run_sm_on_input p a0 a (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqx; auto; exrepnd; subst; simpl in *.
     inversion Heqz; subst; simpl in *; clear Heqz.
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a (sm2ls p)) as u.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a0 a (sm2ls p)) as u.
     repeat (autodimp u hyp); eauto 3 with comp.
     unfold M_break in u.
     rewrite Heqx in u; repnd.
@@ -5878,16 +6146,16 @@ Section ComponentSM2.
     apply map_option_Some in runa1; exrepnd; subst; rev_Some.
 
     unfold M_run_ls_on_input_ls in *; simpl in *.
-    remember (M_run_ls_on_input (sm2ls p) cn a2) as z; symmetry in Heqz; repnd; simpl in *.
+    remember (M_run_ls_on_input (sm2ls p) cn a3 a2) as z; symmetry in Heqz; repnd; simpl in *.
     unfold M_run_ls_on_input, on_comp in Heqz; simpl in *.
     destruct (CompNameDeq cn cn) as [d|d]; tcsp; simpl in *.
     rewrite (UIP_refl_CompName _ d) in Heqz; simpl in *; GC.
     unfold M_break in Heqz; simpl in *.
-    remember (M_run_sm_on_input p a2 (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
+    remember (M_run_sm_on_input p a3 a2 (sm2ls p)) as x; symmetry in Heqx; repnd; simpl in *.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqx; auto; exrepnd; subst; simpl in *.
     inversion Heqz; subst; simpl in *; clear Heqz.
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a2 (sm2ls p)) as u.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p a3 a2 (sm2ls p)) as u.
     repeat (autodimp u hyp); eauto 3 with comp.
     unfold M_break in u.
     rewrite Heqx in u; repnd.
@@ -5901,10 +6169,10 @@ Section ComponentSM2.
   Hint Resolve implies_M_comp_sm2ls_on_op_inputs_app : comp.
 
   Lemma M_run_ls_on_input_preserves_subs :
-    forall cn i {n} (ls1 ls2 : n_procs n) o,
+    forall cn t i {n} (ls1 ls2 : n_procs n) o,
       wf_procs ls1
       -> are_procs_n_procs ls1
-      -> M_run_ls_on_input ls1 cn i = (ls2, o)
+      -> M_run_ls_on_input ls1 cn t i = (ls2, o)
       -> (wf_procs ls2
           /\ are_procs_n_procs ls2
           /\ similar_subs ls1 ls2
@@ -5914,7 +6182,7 @@ Section ComponentSM2.
     unfold M_run_ls_on_input, on_comp, M_break in run.
     dest_cases w; rev_Some;[|ginv; dands; tcsp; eauto 3 with comp];[].
     dest_cases z; symmetry in Heqz; repnd; simpl in *.
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input w i ls1) as h.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input w t i ls1) as h.
     repeat (autodimp h hyp); eauto 3 with comp;[].
     unfold M_break in h.
     rewrite Heqz in h; repnd.
@@ -5922,7 +6190,7 @@ Section ComponentSM2.
     exrepnd; subst; simpl in *.
     inversion run; subst; simpl in *; clear run.
 
-    pose proof (are_procs_implies_run_subs_direct2 w i ls1) as q.
+    pose proof (are_procs_implies_run_subs_direct2 w t i ls1) as q.
     repeat (autodimp q hyp); eauto 3 with comp;[].
     apply run_subs_leaves_eq_direct in q; auto;[].
     rewrite Heqz in q; simpl in q.
@@ -5948,10 +6216,10 @@ Section ComponentSM2.
       { eapply find_name_in_implies_eq in j; eauto; subst; GC.
         pose proof (implies_in_replace_name cn n z0 (update_state_m p s0)) as x.
         repeat (autodimp x hyp); eauto 3 with comp.
-        exists [i] (update_state_m p s0); dands; auto.
+        exists [(t,i)] (update_state_m p s0); dands; auto.
         unfold M_comp_ls_on_op_inputs, on_some; simpl.
         unfold M_run_ls_on_input_ls.
-        pose proof (M_run_sm_on_input_implies_M_run_sm2ls_on_input p i ls1 z0 s0 z1) as w.
+        pose proof (M_run_sm_on_input_implies_M_run_sm2ls_on_input p t i ls1 z0 s0 z1) as w.
         repeat (autodimp w hyp); eauto 3 with comp;[].
         rewrite w; clear w; simpl; dest_cases z.
         rewrite (UIP_refl_CompName _ z); tcsp. }
@@ -5979,8 +6247,8 @@ Section ComponentSM2.
     apply map_option_Some in run; exrepnd; subst; simpl in *; rev_Some.
 
     unfold M_run_ls_on_input_ls in run0.
-    remember (M_run_ls_on_input ls1 cn a0) as run; symmetry in Heqrun; repnd; simpl in *.
-    pose proof (M_run_ls_on_input_preserves_subs cn a0 ls1 run1 run) as z.
+    remember (M_run_ls_on_input ls1 cn a1 a0) as run; symmetry in Heqrun; repnd; simpl in *.
+    pose proof (M_run_ls_on_input_preserves_subs cn a1 a0 ls1 run1 run) as z.
     repeat (autodimp z hyp); repnd.
     apply IHl in run0; auto; repnd.
     dands; eauto 3 with comp.
@@ -5996,12 +6264,12 @@ Section ComponentSM2.
           /\ similar_subs ls1 ls2
           /\ run_subs_leaves ls1 ls2).
   Proof.
-    induction l; introv wf aps run; simpl in *; ginv; tcsp.
+    induction l; introv wf aps run; repnd; simpl in *; ginv; tcsp.
     { subst; dands; eauto 2 with comp. }
 
     unfold M_run_ls_on_input_ls in run.
-    remember (M_run_ls_on_input ls1 cn a) as run'; symmetry in Heqrun'; repnd; simpl in *.
-    pose proof (M_run_ls_on_input_preserves_subs cn a ls1 run'0 run') as z.
+    remember (M_run_ls_on_input ls1 cn a0 a) as run'; symmetry in Heqrun'; repnd; simpl in *.
+    pose proof (M_run_ls_on_input_preserves_subs cn a0 a ls1 run'0 run') as z.
     repeat (autodimp z hyp); repnd.
     apply IHl in run; auto; repnd.
     dands; eauto 3 with comp.
@@ -6010,15 +6278,16 @@ Section ComponentSM2.
   Definition M_comp_ls_on_input {n}
              (ls : n_procs n)
              cn
+             (t : PosDTime)
              (i : cio_I (fio cn)) : option (n_proc n cn) :=
-    find_name cn (M_run_ls_on_input_ls ls cn i).
+    find_name cn (M_run_ls_on_input_ls ls cn t i).
 
   Lemma implies_M_comp_sm2ls_on_op_inputs_snoc :
-    forall {cn} l i {n} (p : n_proc n cn) q r,
+    forall {cn} l t i {n} (p : n_proc n cn) q r,
       is_proc_n_proc p
       -> M_comp_ls_on_op_inputs (sm2ls p) cn l = Some q
-      -> M_comp_ls_on_input (sm2ls q) cn i = Some r
-      -> M_comp_ls_on_op_inputs (sm2ls p) cn (snoc l (Some i)) = Some r.
+      -> M_comp_ls_on_input (sm2ls q) cn t i = Some r
+      -> M_comp_ls_on_op_inputs (sm2ls p) cn (snoc l (Some (t,i))) = Some r.
   Proof.
     introv isp runa runb.
     rewrite snoc_as_app.
@@ -6063,7 +6332,7 @@ Section ComponentSM2.
 
   Lemma M_non_byz_compose_gen :
     forall cn0
-           (k : oplist (cio_I (fio cn0)))
+           (k : oplist (PosDTime * cio_I (fio cn0)))
            {n}
            (ls : n_procs n)
            {cn}
@@ -6074,7 +6343,7 @@ Section ComponentSM2.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (l : oplist (cio_I (fio cn))),
+      exists (l : oplist (PosDTime * cio_I (fio cn))),
         M_state_ls_on_op_inputs (sm2ls sm) cn l
         (*snd (M_run_sm_on_list sm l (select_n_procs (sm2level sm) (ls_subs ls)))*)
         = map_option (state_of_component cn) (M_run_ls_on_op_inputs ls cn0 k).
@@ -6083,7 +6352,7 @@ Section ComponentSM2.
 
     remember (M_run_ls_on_op_inputs ls cn0 k) as run; symmetry in Heqrun.
     destruct run; simpl in *; eauto;
-      [|exists [None : option (cio_I (fio cn))]; simpl; auto].
+      [|exists [None : option (PosDTime * cio_I (fio cn))]; simpl; auto].
 
     rename n0 into ls'.
 
@@ -6110,7 +6379,7 @@ Section ComponentSM2.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (l : oplist (cio_I (fio cn))),
+      exists (l : oplist (PosDTime * cio_I (fio cn))),
         M_state_ls_on_op_inputs (sm2ls sm) cn l
         (*snd (M_run_sm_on_list sm l (select_n_procs (sm2level sm) (ls_subs ls)))*)
         = M_state_ls_before_event ls e cn.
@@ -6121,12 +6390,12 @@ Section ComponentSM2.
 
   Fixpoint run_sm_on_op_inputs {n} {cn}
            (p : n_proc n cn)
-           (l : oplist (cio_I (fio cn)))
+           (l : oplist (PosDTime * cio_I (fio cn)))
            (subs : n_procs n) : n_procs n * option (n_proc n cn) :=
     match l with
     | [] => (subs, Some p)
-    | Some i :: l =>
-      match sm2update p (sm2state p) i (select_n_procs (sm2level p) subs) with
+    | Some (t,i) :: l =>
+      match sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs) with
       | (subs', (sop, o)) =>
         run_sm_on_op_inputs
           (update_state_op_m p sop)
@@ -6158,7 +6427,7 @@ Section ComponentSM2.
     dest_cases w; repnd; simpl in *; symmetry in Heqw.
     applydup @is_proc_n_proc_run_on_input_implies_some in Heqw; auto.
     exrepnd; subst; simpl in *.
-    pose proof (snd_M_run_sm_on_input_eq p i (sm2ls p)) as q.
+    pose proof (snd_M_run_sm_on_input_eq p i0 i (sm2ls p)) as q.
     rewrite Heqw in q; simpl in q.
 
     assert (select_n_procs (sm2level p) subs = []) as eqn.
@@ -6171,7 +6440,7 @@ Section ComponentSM2.
     split_pair; simpl in *; rewrite <- q; simpl.
     rewrite <- IHl; autorewrite with comp; eauto 3 with comp;[].
 
-    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p i (sm2ls p)) as w.
+    pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input p i0 i (sm2ls p)) as w.
     repeat (autodimp w hyp); eauto 3 with comp;[].
     unfold M_break in w.
     rewrite Heqw in w; repnd.
@@ -6191,7 +6460,7 @@ Section ComponentSM2.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (l : oplist (cio_I (fio cn))),
+      exists (l : oplist (PosDTime * cio_I (fio cn))),
         option_map sm2state (snd (run_sm_on_op_inputs sm l []))
         (*snd (M_run_sm_on_list sm l (select_n_procs (sm2level sm) (ls_subs ls)))*)
         = M_state_ls_before_event ls e cn.
@@ -6452,14 +6721,14 @@ Section ComponentSM2.
   Definition M_byz_comp_ls_on_inputs {n}
              (ls : n_procs n)
              cn
-             (l : list (trigger_info (cio_I (fio cn))))
+             (l : list (PosDTime * trigger_info (cio_I (fio cn))))
     : option (n_proc n cn) :=
     find_name cn (M_byz_run_ls_on_inputs ls cn l).
 
   Definition M_byz_state_ls_on_inputs {n}
              (ls : n_procs n)
              cn
-             (l : list (trigger_info (cio_I (fio cn))))
+             (l : list (PosDTime * trigger_info (cio_I (fio cn))))
     : option (sf cn) :=
     state_of_component cn (M_byz_run_ls_on_inputs ls cn l).
 
@@ -6467,7 +6736,7 @@ Section ComponentSM2.
     forall {n}
            (ls : n_procs n)
            cn
-           (l : list (trigger_info (cio_I (fio cn)))),
+           (l : list (PosDTime * trigger_info (cio_I (fio cn)))),
       M_byz_state_ls_on_inputs ls cn l
       = option_map
           sm2state
@@ -6500,25 +6769,25 @@ Section ComponentSM2.
   Hint Resolve all_trusted_procs2byz : comp.
 
   Lemma wf_procs_M_run_ls_on_input :
-    forall {n} (ls : n_procs n) cn i,
+    forall {n} (ls : n_procs n) cn t i,
       wf_procs ls
       -> are_procs_n_procs ls
-      -> wf_procs (fst (M_run_ls_on_input ls cn i)).
+      -> wf_procs (fst (M_run_ls_on_input ls cn t i)).
   Proof.
     introv wf aps.
-    remember (M_run_ls_on_input ls cn i) as z; symmetry in Heqz; repnd; simpl in *.
+    remember (M_run_ls_on_input ls cn t i) as z; symmetry in Heqz; repnd; simpl in *.
     eapply M_run_ls_on_input_preserves_subs; eauto.
   Qed.
   Hint Resolve wf_procs_M_run_ls_on_input : comp.
 
   Lemma are_procs_n_procs_M_run_ls_on_input :
-    forall {n} (ls : n_procs n) cn i,
+    forall {n} (ls : n_procs n) cn t i,
       wf_procs ls
       -> are_procs_n_procs ls
-      -> are_procs_n_procs (fst (M_run_ls_on_input ls cn i)).
+      -> are_procs_n_procs (fst (M_run_ls_on_input ls cn t i)).
   Proof.
     introv wf aps.
-    remember (M_run_ls_on_input ls cn i) as z; symmetry in Heqz; repnd; simpl in *.
+    remember (M_run_ls_on_input ls cn t i) as z; symmetry in Heqz; repnd; simpl in *.
     eapply M_run_ls_on_input_preserves_subs; eauto.
   Qed.
   Hint Resolve are_procs_n_procs_M_run_ls_on_input : comp.
@@ -6633,71 +6902,75 @@ Section ComponentSM2.
   Hint Rewrite @procs2byz_procs2byz : comp.
 
   Lemma split_M_byz_run_ls_on_op_inputs :
-    forall cn (k : list (trigger_info (cio_I (fio cn)))) {n} (ls : n_procs n),
+    forall cn (k : list (PosDTime * trigger_info (cio_I (fio cn)))) {n} (ls : n_procs n),
       wf_procs ls
       -> are_procs_n_procs ls
       ->
       (
-        (exists (k' : list (cio_I (fio cn))),
+        (exists (k' : list (PosDTime * cio_I (fio cn))),
             M_run_ls_on_op_inputs ls cn (map Some k') = Some (M_byz_run_ls_on_inputs ls cn k)
-            /\ k = map (fun x => trigger_info_data x)  k'
+            /\ k = map (fun x => (fst x, trigger_info_data (snd x))) k'
         )
         \/
-        (exists (k1  : list (cio_I (fio cn)))
+        (exists (k1  : list (PosDTime * cio_I (fio cn)))
                 (ls1 : n_procs n)
                 (ls2 : n_procs n)
+                (t   : PosDTime)
                 (i   : byz_input)
-                (k2  : list (trigger_info (cio_I (fio cn)))),
+                (k2  : list (PosDTime * trigger_info (cio_I (fio cn)))),
             (* correct initial segment of the run *)
             M_run_ls_on_op_inputs ls cn (map Some k1) = Some ls1
             (* 1st byz event *)
-            /\ fst (M_byz_run_ls_on_input (procs2byz ls1) cn (byz2trigger i)) = ls2
+            /\ fst (M_byz_run_ls_on_input (procs2byz ls1) cn t (byz2trigger i)) = ls2
             (* the rest of the run  *)
             /\ M_byz_run_ls_on_inputs ls2 cn k2 = M_byz_run_ls_on_inputs ls cn k
-            /\ k = (map (fun x => trigger_info_data x) k1) ++ (byz2trigger i) :: k2
+            /\ k = (map (fun x => (fst x, trigger_info_data (snd x))) k1) ++ (t, byz2trigger i) :: k2
         )
       ).
   Proof.
-    induction k; introv wf aps; simpl in *.
-    { left; exists ([] : list (cio_I (fio cn))); simpl; tcsp. }
+    induction k; introv wf aps; repnd; simpl in *.
+    { left; exists ([] : list (PosDTime * cio_I (fio cn))); simpl; tcsp. }
 
     destruct a; simpl in *;[| |].
 
-    { pose proof (IHk _ (fst (M_run_ls_on_input ls cn d))) as IHk.
+    { pose proof (IHk _ (fst (M_run_ls_on_input ls cn a0 d))) as IHk.
       repeat (autodimp IHk hyp); eauto 3 with comp;[].
       repndors; exrepnd; subst; simpl in *;[|].
 
       { left.
-        exists (d :: k'); simpl.
+        exists ((a0,d) :: k'); simpl.
         unfold M_run_ls_on_input_ls; simpl in *.
         rewrite IHk1; simple; dands; auto. }
 
       { right.
-        exists (d :: k1) ls1 (fst (M_byz_run_ls_on_input (procs2byz ls1) cn (byz2trigger i))) i k2.
+        exists ((a0,d) :: k1) ls1 (fst (M_byz_run_ls_on_input (procs2byz ls1) cn t (byz2trigger i))) t i k2.
         simpl.
         dands; tcsp. } }
 
     { right.
-      exists ([] : list (cio_I (fio cn)))
+      exists ([] : list (PosDTime * cio_I (fio cn)))
              ls
-             (fst (M_byz_run_ls_on_input (procs2byz ls) cn trigger_info_arbitrary))
+             (fst (M_byz_run_ls_on_input (procs2byz ls) cn a0 trigger_info_arbitrary))
+             a0
              byz_input_arbitrary
              k; simpl; dands; tcsp; autorewrite with comp; eauto 3 with comp. }
 
     { right.
-      exists ([] : list (cio_I (fio cn)))
+      exists ([] : list (PosDTime * cio_I (fio cn)))
              ls
-             (fst (M_byz_run_ls_on_input (procs2byz ls) cn (trigger_info_trusted i)))
+             (fst (M_byz_run_ls_on_input (procs2byz ls) cn a0 (trigger_info_trusted i)))
+             a0
              (byz_input_trusted i)
              k; simpl; dands; tcsp; eauto 3 with comp.
       unfold M_run_ls_on_trusted; simpl.
       autorewrite with comp.
 
-      remember (M_run_ls_on_input (procs2byz ls) (pre2trusted (it_name i)) (it_input i)) as run;
+      remember (M_run_ls_on_input (procs2byz ls) (pre2trusted (it_name i)) a0 (it_input i)) as run;
         symmetry in Heqrun; repnd; simpl in *.
 
       pose proof (M_run_ls_on_input_preserves_subs
                     (pre2trusted (it_name i))
+                    a0
                     (it_input i)
                     (procs2byz ls)
                     run0 run) as q.
@@ -6723,16 +6996,16 @@ Section ComponentSM2.
       -> exists k, l = map Some k.
   Proof.
     induction l; introv run; simpl in *; ginv.
-    { exists ([] : list (cio_I (fio cn))); simpl; auto. }
+    { exists ([] : list (PosDTime * cio_I (fio cn))); simpl; auto. }
     apply map_option_Some in run; exrepnd; subst; simpl in *; rev_Some.
     apply IHl in run0; exrepnd; subst.
-    exists (a0 :: k); simpl; tcsp.
+    exists ((a1,a0) :: k); simpl; tcsp.
   Qed.
 
   Lemma M_run_ls_on_op_inputs_some_implies_byz :
     forall cn l {n} (ls1 : n_procs n) ls2,
       M_run_ls_on_op_inputs ls1 cn (map Some l) = Some ls2
-      -> M_byz_run_ls_on_inputs ls1 cn (map (fun x => trigger_info_data x) l) = ls2.
+      -> M_byz_run_ls_on_inputs ls1 cn (map (fun x => (fst x, trigger_info_data (snd x))) l) = ls2.
   Proof.
     induction l; introv run; simpl in *; ginv; auto.
   Qed.
@@ -6746,7 +7019,7 @@ Section ComponentSM2.
     induction l; introv run; simpl in *; ginv; tcsp.
     apply map_option_Some in run; exrepnd; subst; rev_Some.
     unfold M_run_ls_on_input_ls in run0.
-    remember (M_run_ls_on_input ls1 cn a0) as run'; symmetry in Heqrun'; repnd; simpl in *.
+    remember (M_run_ls_on_input ls1 cn a1 a0) as run'; symmetry in Heqrun'; repnd; simpl in *.
     apply IHl in run0; clear IHl.
     unfold M_run_ls_on_input, on_comp in *.
     dest_cases w; rev_Some.
@@ -6766,11 +7039,11 @@ Section ComponentSM2.
   Qed.
 
   Lemma M_byz_run_ls_on_input_preserves_subs :
-    forall cn i {n} (ls1 ls2 : n_procs n) o,
+    forall cn t i {n} (ls1 ls2 : n_procs n) o,
       all_trusted ls1
       -> wf_procs ls1
       -> are_procs_n_procs ls1
-      -> M_byz_run_ls_on_input ls1 cn i = (ls2, o)
+      -> M_byz_run_ls_on_input ls1 cn t i = (ls2, o)
       -> (wf_procs ls2
           /\ are_procs_n_procs ls2
           /\ similar_subs ls1 ls2
@@ -6790,6 +7063,7 @@ Section ComponentSM2.
       unfold M_run_ls_on_trusted in run.
       pose proof (M_run_ls_on_input_preserves_subs
                     (pre2trusted (it_name i))
+                    t
                     (it_input i)
                     (procs2byz ls1) ls2 o) as q.
       repeat (autodimp q hyp); eauto 3 with comp.
@@ -6807,11 +7081,11 @@ Section ComponentSM2.
           /\ similar_subs ls1 ls2
           /\ run_subs_leaves ls1 ls2).
   Proof.
-    induction l; introv allt wf aps run; simpl in *; ginv; tcsp.
+    induction l; introv allt wf aps run; repnd; simpl in *; ginv; tcsp.
     { subst; dands; eauto 2 with comp. }
 
-    remember (M_byz_run_ls_on_input ls1 cn a) as z; symmetry in Heqz; repnd; simpl in *.
-    pose proof (M_byz_run_ls_on_input_preserves_subs cn a ls1 z0 z) as w.
+    remember (M_byz_run_ls_on_input ls1 cn a0 a) as z; symmetry in Heqz; repnd; simpl in *.
+    pose proof (M_byz_run_ls_on_input_preserves_subs cn a0 a ls1 z0 z) as w.
     repeat (autodimp w hyp); repnd.
     apply IHl in run; auto; repnd; eauto 3 with comp.
     dands; eauto 3 with comp.
@@ -6837,7 +7111,7 @@ Section ComponentSM2.
 
   Lemma M_byz_compose_gen_all_trusted :
     forall cn0
-           (k : list (trigger_info (cio_I (fio cn0))))
+           (k : list (PosDTime * trigger_info (cio_I (fio cn0))))
            {n}
            (ls : n_procs n)
            {cn}
@@ -6849,7 +7123,7 @@ Section ComponentSM2.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (l : list (cio_I (fio cn))),
+      exists (l : list (PosDTime * cio_I (fio cn))),
         M_state_ls_on_inputs (sm2ls sm) cn l
         (*snd (M_run_sm_on_list sm l (select_n_procs (sm2level sm) (ls_subs ls)))*)
         = state_of_component cn (M_byz_run_ls_on_inputs ls cn0 k).
@@ -6917,7 +7191,7 @@ Section ComponentSM2.
 
   Lemma M_byz_compose_gen :
     forall cn0
-           (k : list (trigger_info (cio_I (fio cn0))))
+           (k : list (PosDTime * trigger_info (cio_I (fio cn0))))
            {n}
            (ls : n_procs n)
            {cn}
@@ -6929,7 +7203,7 @@ Section ComponentSM2.
       -> sm2level sm = 0
       -> comp_name_trust cn = true
       ->
-      exists (l : list (cio_I (fio cn))),
+      exists (l : list (PosDTime * cio_I (fio cn))),
         M_state_ls_on_inputs (sm2ls sm) cn l
         = state_of_component cn (M_byz_run_ls_on_inputs ls cn0 k).
   Proof.
@@ -6967,9 +7241,9 @@ Section ComponentSM2.
     { clear dependent k.
       pose proof (M_non_byz_compose_gen cn0 (map Some k1) ls sm) as z.
       repeat (autodimp z hyp); exrepnd.
-      rewrite q1 in z0; simpl in z0.
+      rewrite q0 in z0; simpl in z0.
 
-      applydup M_run_ls_on_op_inputs_preserves_subs in q1; auto; repnd;[].
+      applydup M_run_ls_on_op_inputs_preserves_subs in q0; auto; repnd;[].
 
       rename_hyp_with @similar_subs sim; dup sim as sim'.
       eapply similar_subs_preserves_find_name in sim'; eauto; exrepnd.
@@ -6983,7 +7257,7 @@ Section ComponentSM2.
       applydup @M_run_ls_on_op_inputs_some_implies_some in z0; exrepnd; subst l.
       rewrite M_run_ls_on_op_inputs_as_M_run_ls_on_inputs in z0; ginv.
 
-      remember (M_byz_run_ls_on_input (procs2byz ls1) cn0 (byz2trigger i)) as runo; symmetry in Heqruno; repnd.
+      remember (M_byz_run_ls_on_input (procs2byz ls1) cn0 t (byz2trigger i)) as runo; symmetry in Heqruno; repnd.
       simpl in *; rewrite Heqruno; simpl in *.
 
       pose proof (M_run_sm2ls_on_inputs_some_implies_sm2ls k sm) as xx.
@@ -6993,13 +7267,13 @@ Section ComponentSM2.
       { apply similar_sms_implies_eq; eauto 3 with comp. }
       applydup similar_sms_implies_eq_sm2levels in sim'0.
 
-      pose proof (M_byz_compose_gen_all_trusted cn0 [byz2trigger i] (procs2byz ls1) s') as v.
+      pose proof (M_byz_compose_gen_all_trusted cn0 [(t,byz2trigger i)] (procs2byz ls1) s') as v.
       rewrite find_name_procs2byz_if_trusted in v; auto.
       simpl in *; rewrite Heqruno in v; simpl in v.
       repeat (autodimp v hyp); eauto 3 with comp; try congruence;[].
       exrepnd.
 
-      pose proof (M_byz_run_ls_on_input_preserves_subs cn0 (byz2trigger i) (procs2byz ls1) runo0 runo) as v.
+      pose proof (M_byz_run_ls_on_input_preserves_subs cn0 t (byz2trigger i) (procs2byz ls1) runo0 runo) as v.
       simpl in *; rewrite Heqruno in v.
       repeat (autodimp v hyp); eauto 3 with comp; repnd.
 
@@ -7049,7 +7323,7 @@ Section ComponentSM2.
       -> sm2level sm = 0
       -> comp_name_trust cn = true
       ->
-      exists (l : list (cio_I (fio cn))),
+      exists (l : list (PosDTime * cio_I (fio cn))),
         M_state_ls_on_inputs (sm2ls sm) cn l
         (*map_untrusted_op
           (snd (run_sm_on_byz_inputs sm l (ls_subs ls)))
@@ -7132,8 +7406,8 @@ Section ComponentSM2.
   Qed.
 
   Lemma M_run_ls_on_trusted_empty_ls_implies :
-    forall {L S} i ls o,
-      M_run_ls_on_trusted (empty_ls L S) i = (ls, o)
+    forall {L S} t i ls o,
+      M_run_ls_on_trusted (empty_ls L S) t i = (ls, o)
       -> ls = empty_ls L S /\ o = None.
   Proof.
     introv h.
@@ -7203,7 +7477,7 @@ Section ComponentSM2.
     introv wf aps nontr run.
     unfold M_byz_run_ls_on_this_one_event in run; simpl in *.
     unfold M_byz_run_ls_on_one_event in run; simpl in *.
-    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as h; repnd;
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as h; repnd;
       simpl in *; subst; symmetry in Heqh.
     inversion run; subst; clear run.
 
@@ -7220,9 +7494,9 @@ Section ComponentSM2.
       [|ginv; left; dands; eauto 3 with comp];[].
 
     pose proof (are_procs_implies_preserves_sub_M_run_sm_on_input
-                  w d ls1) as q.
+                  w (time e) d ls1) as q.
     repeat (autodimp q hyp); eauto 3 with comp;[].
-    pose proof (are_procs_implies_run_subs_direct2 w d ls1) as z.
+    pose proof (are_procs_implies_run_subs_direct2 w (time e) d ls1) as z.
     repeat (autodimp z hyp); eauto 3 with comp;[].
     unfold M_break in *.
     dest_cases u; symmetry in Hequ; repnd; simpl in *.
@@ -7245,9 +7519,9 @@ Section ComponentSM2.
       destruct (CompNameDeq cn (msg_comp_name S)); subst; tcsp;
         [|exists l; apply in_replace_name_right; auto];[].
       dup Heqw as fn; eapply find_name_in_implies_eq in Heqw; eauto; subst.
-      exists [d]; simpl.
+      exists [(time e, d)]; simpl.
       dest_cases v; symmetry in Heqv; repnd; simpl in *.
-      pose proof (snd_M_run_sm_on_input_eq p d ls1) as x.
+      pose proof (snd_M_run_sm_on_input_eq p (time e) d ls1) as x.
       rewrite Hequ in x; rewrite Heqv in x; simpl in x; ginv; simpl in *.
       apply implies_in_replace_name; eauto 3 with comp. }
   Qed.
@@ -7361,7 +7635,7 @@ Section ComponentSM2.
 
       { clear z0 z1 z2 z3 z4.
         unfold M_run_ls_on_input_out.
-        unfold M_byz_run_ls_on_one_event, isCorrect, event2out, dmsg_is_in_out, trigger_op in *.
+        unfold M_byz_run_ls_on_one_event, isCorrect, event2out, dmsg_is_in_out, time_trigger_op, trigger_op in *.
         remember (trigger e) as trig; destruct trig; simpl in *; tcsp; GC.
         unfold LocalSystem in *; rewrite Heqrun'; simpl; auto. }
     }
@@ -7375,6 +7649,801 @@ Section ComponentSM2.
       rewrite q in *; simpl in *; ginv. }
   Qed.
 
+
+  Definition is_hproc_n_proc_at {n} {cn} (sm : n_proc_at n cn) : Prop :=
+    exists (p : sf cn -> PosDTime -> cio_I (fio cn) -> HProc (sf cn) (cio_O (fio cn))),
+      forall s t i, sm_update sm s t i = hproc2upd p s t i.
+
+  Definition is_hproc_n_proc {n} {cn} (sm : n_proc n cn) : Prop :=
+    exists (p : sf cn -> PosDTime -> cio_I (fio cn) -> HProc (sf cn) (cio_O (fio cn))),
+    forall s t i, sm2update sm s t i = hproc2upd p s t i.
+
+  Definition is_hproc_n_nproc {n} (np : n_nproc n) : Prop :=
+    match np with
+    | MkPProc cn sm => is_hproc_n_proc sm
+    end.
+
+  (* ls is made out of [Proc] except for its [cn] component, which is a [HProc] *)
+  Definition almost_procs {n} (ls : n_procs n) cn :=
+    forall p,
+      In p ls
+      -> if CompNameDeq (pp_name p) cn
+         then is_hproc_n_nproc p
+         else is_proc_n_nproc p.
+
+  (* true if all components are non-trusted *)
+  Definition non_trusted {L S} (ls : LocalSystem L S) :=
+    forall p, In p ls -> is_trusted p = false.
+
+
+  Lemma in_implies_find_name_some :
+    forall {n} (p : n_nproc n) ls,
+      In p ls
+      -> exists q, find_name (pp_name p) ls = Some q.
+  Proof.
+    induction ls; introv i; simpl in *; repndors; subst; tcsp.
+
+    { destruct p; simpl in *; dest_cases w; subst; GC; eauto. }
+
+    apply IHls in i; clear IHls; exrepnd.
+    destruct a; simpl in *; dest_cases w; subst; eauto.
+  Qed.
+
+  Lemma almost_procs_implies_are_procs_n_procs :
+    forall {n} (ls : n_procs n) cn,
+      find_name cn ls = None
+      -> almost_procs ls cn
+      -> are_procs_n_procs ls.
+  Proof.
+    introv fn alm i.
+    applydup alm in i; dest_cases w; subst; auto.
+    apply in_implies_find_name_some in i; exrepnd.
+    rewrite fn in *; ginv.
+  Qed.
+  Hint Resolve almost_procs_implies_are_procs_n_procs : comp.
+
+  Lemma are_procs_n_procs_app :
+    forall {n} (l k : n_procs n),
+      are_procs_n_procs l
+      -> are_procs_n_procs k
+      -> are_procs_n_procs (l ++ k).
+  Proof.
+    introv a b i; apply in_app_iff in i; repndors; tcsp.
+  Qed.
+  Hint Resolve are_procs_n_procs_app : comp.
+
+  Lemma in_remove_name :
+    forall {n} (p : n_nproc n) (l : n_procs n) a,
+      In p (remove_name l a)
+      -> In p l.
+  Proof.
+    induction l; introv i; simpl in *; tcsp.
+    dest_cases w; simpl in *; repndors; subst; tcsp.
+    apply IHl in i; tcsp.
+  Qed.
+
+  Lemma in_remove_names :
+    forall {n} k (p : n_nproc n) (l : n_procs n),
+      In p (remove_names l k)
+      -> In p l.
+  Proof.
+    induction k; introv i; simpl in *; tcsp.
+    apply IHk in i; apply in_remove_name in i; auto.
+  Qed.
+
+  Lemma are_procs_n_procs_remove_subs :
+    forall {n m} (l : n_procs n) (p : n_procs m),
+      are_procs_n_procs l
+      -> are_procs_n_procs (remove_subs l p).
+  Proof.
+    introv a i; apply a.
+    unfold remove_subs in *.
+    apply in_remove_names in i; auto.
+  Qed.
+  Hint Resolve are_procs_n_procs_remove_subs : comp.
+
+  Lemma are_procs_n_procs_raise_to_n_procs :
+    forall {n m} (l : n_procs n) (p : n_procs m),
+      are_procs_n_procs l
+      -> similar_subs (select_n_procs m l) p
+      -> are_procs_n_procs (raise_to_n_procs n p).
+  Proof.
+    introv ps sim i.
+    apply raise_to_n_procs_preserves_proc in i; eauto 3 with comp.
+  Qed.
+  Hint Resolve are_procs_n_procs_raise_to_n_procs : comp.
+
+  Lemma interp_hproc_preserves_subs :
+    forall {A S} (p : HProc A S) {n} (subs1 : n_procs n),
+      are_procs_n_procs subs1
+      -> wf_procs subs1
+      -> M_break
+           (interp_hproc p)
+           subs1
+           (fun subs2 _ =>
+              similar_subs subs1 subs2
+              /\ wf_procs subs2).
+  Proof.
+    induction p as [| |cn t i f ind]; introv wf aps; simpl; autorewrite with comp; eauto 3 with comp.
+
+    { unfold M_break, call_proc; simpl.
+      remember (find_name cn subs1) as fd; symmetry in Heqfd; destruct fd; eauto 3 with comp;
+        try (complete (apply ind; auto)).
+
+      rename n0 into p.
+      remember (app_m_proc p t i subs1) as ap; symmetry in Heqap; repnd.
+      rewrite (app_m_proc_some2 p t i) in Heqap; eauto 3 with comp;[].
+      remember (sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs1)) as w; symmetry in Heqw.
+      repnd; ginv; simpl in *.
+      inversion Heqap; subst; simpl in *; clear Heqap.
+
+      pose proof (sm2level_le_pred _ _ p) as ln0.
+
+      pose proof (are_procs_n_procs_find_name _ _ subs1 p) as isp; simpl in isp.
+      repeat (autodimp isp hyp).
+
+      applydup is_proc_n_proc_update_implies_some in Heqw; auto;[]; exrepnd; subst; simpl in *.
+
+      pose proof (are_procs_implies_preserves_sub (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs1)) as imp.
+      repeat (autodimp imp hyp); try omega; eauto 3 with comp;
+        try (complete (destruct n; simpl in *; tcsp; try omega)).
+      autorewrite with comp in *.
+
+      simpl in *.
+      unfold M_break in imp.
+      rewrite Heqw in imp; repnd.
+
+      assert (find_name cn (remove_subs subs1 w0 ++ raise_to_n_procs n w0) = Some p) as fn.
+      { rewrite find_name_app_l.
+        { rewrite find_name_remove_subs; auto.
+          apply similar_subs_preserves_get_names in imp0.
+          rewrite <- imp0; eauto 3 with comp. }
+        pose proof (no_dup_find_name_implies_no_in_names_select cn p subs1) as q.
+        repeat (autodimp q hyp); eauto 3 with comp.
+        apply similar_subs_preserves_get_names in imp0.
+        rewrite imp0 in q.
+        unfold remove_subs.
+        rewrite get_names_remove_subs; eauto 3 with comp.
+        apply in_diff; dands; eauto 3 with comp. }
+
+      dup imp0 as simb.
+      apply (raise_to_n_procs_similar_subs n) in imp0.
+      apply (implies_similar_app
+               _ _
+               (remove_subs subs1 (select_n_procs (sm2level p) subs1))
+               (remove_subs subs1 w0)) in imp0;
+        [|apply similar_subs_preserves_get_names in simb;
+          unfold remove_subs; allrw; eauto 2 with comp];[].
+
+      unfold M_break in ind.
+      pose proof (ind ap n (replace_name (update_state_m p s) (remove_subs subs1 w0 ++ raise_to_n_procs n w0))) as ind.
+      repeat (autodimp ind hyp); eauto 3 with comp;[| |].
+
+      { introv j.
+        eapply in_replace_name_update_state_m_implies_is_proc_n_proc; try exact j; eauto 2 with comp.
+        apply are_procs_n_procs_app; eauto 3 with comp. }
+
+      { eapply wf_procs_replace_name; autorewrite with comp; eauto 3 with comp.
+        autorewrite with comp.
+
+        eapply similar_subs_preserves_wf_procs;[eauto|].
+        rewrite raise_to_n_procs_select_n_procs_as_rm_highest_procs_upto; try omega;[].
+        rewrite remove_subs_select_n_procs_as_rm_highest_procs_upto; try omega; eauto 3 with comp;[].
+        rewrite <- split_as_rm_highest_keep_highest_upto; eauto 3 with comp. }
+
+      unfold remove_subs in ind.
+      applydup similar_subs_preserves_get_names in simb as eqn; rewrite eqn.
+
+      remember (interp_hproc
+                  (f ap)
+                  (replace_name
+                     (update_state_m p s)
+                     (remove_names subs1 (get_names w0) ++ raise_to_n_procs n w0))) as q;
+        symmetry in Heqq; repnd; simpl in *.
+      repndors; repnd; subst; auto.
+
+      dands; auto.
+
+      eapply similar_subs_trans;[|eauto].
+      apply similar_subs_sym.
+      eapply similar_subs_trans;
+        [apply similar_subs_replace_name_update_state_m_find_name;
+         auto|];[].
+      eapply similar_subs_trans;[apply similar_subs_sym;eauto|];[].
+      rewrite raise_to_n_procs_select_n_procs_as_rm_highest_procs_upto; try omega;[].
+      rewrite remove_subs_select_n_procs_as_rm_highest_procs_upto; try omega; eauto 3 with comp;[].
+      rewrite <- split_as_rm_highest_keep_highest_upto; eauto 3 with comp. }
+  Qed.
+
+  Lemma almost_procs_implies_preserves_sub :
+    forall {n} {cn}
+           (main  : n_proc_at n cn)
+           (s     : sf cn)
+           (t     : PosDTime)
+           (i     : cio_I (fio cn))
+           (subs1 : n_procs n),
+      is_hproc_n_proc_at main
+      -> are_procs_n_procs subs1
+      -> wf_procs subs1
+      -> M_break (sm_update main s t i)
+                 subs1
+                 (fun subs2 _ =>
+                    similar_subs subs1 subs2
+                    /\ wf_procs subs2).
+  Proof.
+    introv ip ap wf.
+    unfold is_hproc_n_proc_at in ip; exrepnd.
+    rewrite ip0.
+    unfold hproc2upd; simpl.
+    apply interp_hproc_preserves_subs; auto.
+  Qed.
+
+  Definition highest_component {n} cn (l : n_procs n) :=
+    exists p, In p l /\ pp_name p = cn /\ S (sm2level (pp_proc p)) = n.
+
+  Lemma decr_n_proc_some_implies_raise_to_n_proc_some :
+    forall {n} {cn} p (a : n_proc n cn),
+      decr_n_proc a = Some p
+      -> raise_to_n_proc n p = Some a.
+  Proof.
+    induction n; introv d; simpl in *; tcsp.
+    destruct a; ginv.
+    apply Some_inj in d; subst.
+    dest_cases w;[assert False;tcsp;apply n_Sn in w;tcsp|].
+    autorewrite with comp; auto.
+  Qed.
+
+  Lemma decr_n_nproc_some_implies_raise_to_n_nproc_some :
+    forall {n} p (a : n_nproc n),
+      decr_n_nproc a = Some p
+      -> raise_to_n_nproc n p = Some a.
+  Proof.
+    introv d.
+    destruct a, p; simpl in *.
+    remember (decr_n_proc pp_proc) as q; symmetry in Heqq; destruct q; ginv.
+    apply Some_inj in d.
+    dup d as x; inversion x; subst.
+    apply decomp_p_nproc in d; subst; GC.
+    apply decr_n_proc_some_implies_raise_to_n_proc_some in Heqq; rewrite Heqq; simpl; auto.
+  Qed.
+
+  Lemma in_decr_n_procs_implies :
+    forall {n} p (subs : n_procs n),
+      In p (decr_n_procs subs)
+      -> exists q, raise_to_n_nproc n p = Some q /\ In q subs.
+  Proof.
+    induction subs; introv i; simpl in *; tcsp.
+    unfold decr_n_procs in i; simpl in *.
+    remember (decr_n_nproc a) as d; symmetry in Heqd; destruct d; simpl in *;
+      [|apply IHsubs in i; exrepnd; eauto];[].
+
+    repndors; subst; tcsp;
+      [|apply IHsubs in i; exrepnd; eauto];[].
+
+    exists a; dands; auto.
+    apply decr_n_nproc_some_implies_raise_to_n_nproc_some; auto.
+  Qed.
+
+  Lemma raise_to_n_nproc_some_implies_sm2level :
+    forall {n} (p : n_nproc n) m q,
+      raise_to_n_nproc m p = Some q
+      -> sm2level (pp_proc q) <= pred m.
+  Proof.
+    introv i; simpl in *; tcsp.
+    destruct p as [cn p]; simpl in *.
+    apply option_map_Some in i; exrepnd; subst; simpl in *.
+    applydup raise_to_n_proc_implies_same_level in i1.
+    pose proof (sm2level_le_pred _ _ a) as lvl; try omega.
+  Qed.
+
+  Lemma raise_to_n_proc_preserves_is_proc_n_proc_rev :
+    forall {n} {k} {cn} (a : n_proc k cn) (p : n_proc n cn),
+      raise_to_n_proc n a = Some p
+      -> is_proc_n_proc p
+      -> is_proc_n_proc a.
+  Proof.
+    induction n; introv h q; simpl in *; tcsp.
+    dest_cases w.
+    apply option_map_Some in h; exrepnd; subst.
+    eapply IHn; eauto.
+  Qed.
+
+  Lemma raise_to_n_nproc_preserves_is_proc_n_nproc_rev :
+    forall {n} {k} (a : n_nproc k) (p : n_nproc n),
+      raise_to_n_nproc n a = Some p
+      -> is_proc_n_nproc p
+      -> is_proc_n_nproc a.
+  Proof.
+    introv h q; destruct a, p; simpl in *.
+    apply option_map_Some in h; exrepnd.
+    dup h0 as z; inversion z; subst; apply decomp_p_nproc in h0; subst; GC.
+    eapply raise_to_n_proc_preserves_is_proc_n_proc_rev; eauto.
+  Qed.
+  Hint Resolve raise_to_n_nproc_preserves_is_proc_n_nproc_rev : comp.
+
+  Lemma are_procs_n_procs_decr_n_procs_if_almost_procs :
+    forall {n} cn (subs : n_procs n),
+      wf_procs subs
+      -> highest_component cn subs
+      -> almost_procs subs cn
+      -> are_procs_n_procs (decr_n_procs subs).
+  Proof.
+    introv wf h a i.
+    unfold highest_component in h; exrepnd.
+    pose proof (sm2level_lt _ _ (pp_proc p)) as lvl.
+    apply in_decr_n_procs_implies in i; exrepnd.
+    applydup a in i0; dest_cases w; subst; eauto 2 with comp;[].
+
+    eapply wf_procs_same_names_implies in e; eauto; subst; GC.
+    apply raise_to_n_nproc_preserves_sm2level in i1.
+    rewrite i1 in lvl; omega.
+  Qed.
+  Hint Resolve are_procs_n_procs_decr_n_procs_if_almost_procs : comp.
+
+  Lemma almost_procs_implies_preserves_sub_M_run_sm_on_input :
+    forall {n} {cn}
+           (main  : n_proc n cn)
+           (t     : PosDTime)
+           (i     : cio_I (fio cn))
+           (subs1 : n_procs n),
+      highest_component cn subs1
+      -> is_hproc_n_proc main
+      -> almost_procs subs1 cn
+      -> wf_procs subs1
+      -> find_name cn subs1 = Some main
+      -> M_break (M_run_sm_on_input main t i)
+                 subs1
+                 (fun subs2 _ =>
+                    similar_subs subs1 subs2
+                    /\ wf_procs subs2).
+  Proof.
+    unfold M_run_sm_on_input.
+    destruct n; introv hc isp aps wf fn; simpl in *; tcsp.
+    destruct main; simpl in *; tcsp.
+
+    { unfold M_break, M_on_decr; simpl.
+      remember (sm_update a (sm_state a) t i (decr_n_procs subs1)) as w;
+        symmetry in Heqw; repnd; simpl in *.
+      pose proof (almost_procs_implies_preserves_sub
+                    a (sm_state a)
+                    t i
+                    (decr_n_procs subs1)) as q.
+      repeat (autodimp q hyp); eauto 3 with comp;
+        try (complete (apply (wf_procs_decr_n_procs subs1); auto));
+        try (complete (apply (are_procs_n_procs_decr_n_procs subs1); auto));
+        try (complete (apply (are_procs_n_procs_decr_n_procs_if_almost_procs cn subs1); auto));[].
+
+      unfold M_break in q.
+      rewrite Heqw in q; repnd.
+
+      pose proof (implies_similar_subs_update_subs
+                    subs1 subs1
+                    (decr_n_procs subs1) w0 (get_names (decr_n_procs subs1))) as z.
+      repeat (autodimp z hyp); eauto 3 with comp.
+      rewrite update_subs_decr_n_procs_eq in z; eauto 3 with comp. }
+
+    { assert False; tcsp.
+      pose proof (sm2level_lt _ _ b) as q.
+      unfold highest_component in *; exrepnd; subst; simpl in *.
+      destruct p as [cn p]; simpl in *.
+      pose proof (find_name_in_implies_eq cn (S n) subs1 (sm_or_sm b) p) as z.
+      simpl in *; repeat (autodimp z hyp); subst; try omega. }
+  Qed.
+
+  Lemma interp_hproc_implies_some_or_halt :
+    forall {S O} {n} (p : HProc S O) (subs1 subs2 : n_procs n) s o,
+      interp_hproc p subs1 = (subs2, (s, o))
+      -> (exists s0, s = hsome s0) \/ s = halt_global.
+  Proof.
+    induction p as [| |? ? ? ? ind]; introv h; simpl in *.
+    { inversion h; subst; eauto. }
+    { inversion h; subst; eauto. }
+    unfold bind in h; repeat (dest_cases w); repnd; simpl in *.
+    symmetry in Heqw0; ginv.
+    apply ind in Heqw0; repndors; auto.
+  Qed.
+
+  Lemma is_hproc_n_proc_run_on_input_implies_some_or_halt :
+    forall {cn} {n} (p : n_proc n cn) (t : PosDTime) (i : cio_I (fio cn))
+           (subs1 subs2 : n_procs n)
+           (sop : hoption (sf cn))
+           (out : cio_O (fio cn)),
+      is_hproc_n_proc p
+      -> M_run_sm_on_input p t i subs1 = (subs2, (sop, out))
+      -> (exists s0, sop = hsome s0) \/ sop = halt_global.
+  Proof.
+    unfold M_run_sm_on_input.
+    induction n; introv isp run; simpl in *; tcsp.
+    destruct p; simpl in *; tcsp.
+    { unfold M_on_decr in *; simpl in *.
+      dest_cases w; symmetry in Heqw; repnd; simpl in *; ginv.
+      unfold is_hproc_n_proc in isp; simpl in *.
+      exrepnd.
+      rewrite isp0 in Heqw.
+      unfold hproc2upd in Heqw; simpl in *.
+      applydup @interp_hproc_implies_some_or_halt in Heqw; repndors; exrepnd; subst; eauto. }
+    { unfold M_on_decr in run; simpl in *.
+      dest_cases w; symmetry in Heqw; repnd; simpl in *.
+      apply IHn in Heqw; auto; exrepnd; subst; simpl in *.
+      inversion run; subst; eauto. }
+  Qed.
+
+  Lemma similar_sms_preserves_is_hproc_n_proc :
+    forall cn n (p1 p2 : n_proc n cn),
+      similar_sms p1 p2
+      -> is_hproc_n_proc p1
+      -> is_hproc_n_proc p2.
+  Proof.
+    introv sim isp.
+    unfold is_hproc_n_proc in *; exrepnd.
+    exists p.
+    introv.
+    pose proof (isp0 s t i) as isp0.
+    applydup similar_sms_implies_eq_sm2levels in sim.
+    symmetry in sim0.
+    pose proof (similar_sms_implies_eq_sm2update cn n p1 p2 sim0) as q.
+    repeat (autodimp q hyp).
+    rewrite q in isp0; clear q sim.
+
+    remember (sm2level p1) as n1; clear Heqn1.
+    subst; simpl in *; auto.
+  Qed.
+  Hint Resolve similar_sms_preserves_is_hproc_n_proc : comp.
+
+  Lemma similar_procs_preserves_is_hproc_n_nproc :
+    forall n (p1 p2 : n_nproc n),
+      similar_procs p1 p2
+      -> is_hproc_n_nproc p1
+      -> is_hproc_n_nproc p2.
+  Proof.
+    introv sim isp.
+    destruct p1 as [cn1 p1], p2 as [cn2 p2]; simpl in *.
+    applydup @similar_procs_implies_same_name in sim; simpl in *; subst.
+    apply similar_procs_implies_same_proc in sim; eauto 3 with comp.
+  Qed.
+  Hint Resolve similar_procs_preserves_is_hproc_n_nproc : comp.
+
+  Lemma similar_subs_preserves_almost_procs :
+    forall {n} (l k : n_procs n) cn,
+      similar_subs l k
+      -> almost_procs l cn
+      -> almost_procs k cn.
+  Proof.
+    introv sim a i.
+    eapply in_similar_subs_implies in i;[|apply similar_subs_sym;eauto]; exrepnd.
+    apply a in i1.
+    applydup @similar_procs_implies_same_name in i0; rewrite i2.
+    dest_cases w; subst; auto; eauto 3 with comp.
+  Qed.
+  Hint Resolve similar_subs_preserves_almost_procs : comp.
+
+  Lemma in_replace_name_same_name :
+    forall {n} (subs : n_procs n) (q : n_nproc n) (p : n_proc n (pp_name q)),
+      wf_procs subs
+      -> In q (replace_name p subs)
+      -> pp_proc q = p.
+  Proof.
+    induction subs; introv wf i; simpl in *; tcsp.
+    destruct a as [cn a]; simpl in *; dest_cases w; simpl in *; repndors; subst; simpl in *; tcsp.
+
+    { destruct q as [cn q]; simpl in *.
+      apply decomp_p_nproc in i; auto. }
+
+    { allrw wf_procs_cons; repnd; simpl in *.
+      apply in_implies_in_proc_names in i; tcsp. }
+
+    { allrw wf_procs_cons; repnd.
+      apply IHsubs in i; tcsp. }
+  Qed.
+
+  Lemma almost_procs_replace_name :
+    forall {n} cn (p : n_proc n cn) (subs : n_procs n),
+      wf_procs subs
+      -> is_hproc_n_proc p
+      -> almost_procs subs cn
+      -> almost_procs (replace_name p subs) cn.
+  Proof.
+    introv wf isp a i.
+    dest_cases w; subst.
+
+    { applydup @in_replace_name_same_name in i; auto; subst.
+      destruct p0 as [cn p0]; simpl in *; auto. }
+
+    { apply if_in_replace_name_diff in i; auto.
+      apply a in i; dest_cases w. }
+  Qed.
+
+  Lemma implies_is_hproc_n_proc_update_state_m :
+    forall n cn (p : n_proc n cn) s,
+      is_hproc_n_proc p
+      -> is_hproc_n_proc (update_state_m p s).
+  Proof.
+    introv i.
+    unfold is_hproc_n_proc in *; exrepnd.
+    exists p0.
+    introv.
+    pose proof (i0 s0 t i) as i0.
+    induction n; simpl in *; tcsp; destruct p as [p|p]; tcsp.
+  Qed.
+  Hint Resolve implies_is_hproc_n_proc_update_state_m : comp.
+
+(*
+  Lemma interp_hproc_run_subs_leaves_direct :
+    forall {S} {O} {cn} (p : HProc S O) {n} (subs : n_procs n),
+      (forall (m    : nat)
+              (cn   : CompName)
+              (main : n_proc_at m cn)
+              (s    : sf cn)
+              (t    : PosDTime)
+              (i    : cio_I (fio cn))
+              (subs : n_procs m),
+          m < n
+          -> is_hproc_n_proc_at main
+          -> almost_procs subs cn
+          -> wf_procs subs
+          -> run_subs_leaves_direct subs (fst (sm_update main s t i subs)))
+      -> almost_procs subs cn
+      -> wf_procs subs
+      -> run_subs_leaves_direct subs (fst (interp_hproc p subs)).
+  Proof.
+    induction p as [| |]; introv imp wf aps; simpl in *; autorewrite with comp in *; eauto 3 with comp.
+
+    unfold call_proc, bind; simpl.
+    remember (find_name cn0 subs) as fn; symmetry in Heqfn.
+    destruct fn;[|split_pair; simpl; auto];[].
+    split_pairs; simpl.
+
+    rename n0 into p.
+    remember (app_m_proc p t i subs) as ap; symmetry in Heqap; repnd; simpl.
+
+    pose proof (sm2level_le_pred _ _ p) as ln0.
+
+    rewrite (app_m_proc_some2 p t i) in Heqap; simpl; eauto 3 with comp;[].
+    remember (sm2update p (sm2state p) t i (select_n_procs (sm2level p) subs)) as w; symmetry in Heqw.
+    repnd; simpl.
+    inversion Heqap; subst; simpl in *; clear Heqap.
+
+    pose proof (almost_procs_find_name _ n subs p) as isp.
+    repeat (autodimp isp hyp);[].
+
+    introv lvl j.
+
+    applydup is_proc_n_proc_update_implies_some in Heqw; auto;[]; exrepnd; subst; simpl in *.
+    dup isp as isp'.
+    unfold is_proc_n_proc in isp; exrepnd.
+    rewrite isp0 in Heqw.
+    unfold proc2upd in Heqw; simpl in *.
+    unfold interp_s_proc, to_M_n_some_state in Heqw; simpl in *.
+    unfold bind_pair, bind in Heqw; simpl in *.
+    remember (interp_proc (p1 (sm2state p) t i) (select_n_procs (sm2level p) subs)) as itr; symmetry in Heqitr.
+    repnd; simpl in *; ginv.
+
+    pose proof (are_procs_implies_preserves_sub (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs)) as q.
+    repeat (autodimp q hyp); eauto 3 with comp;[].
+    rewrite sm_update_sm2at in q.
+    rewrite isp0 in q.
+    unfold proc2upd, M_break in q; simpl in q.
+    unfold interp_s_proc, to_M_n_some_state in q; simpl in q.
+    unfold bind_pair, bind in q; simpl in q.
+    rewrite Heqitr in q; simpl in q; repnd.
+
+    destruct (CompNameDeq cn0 cn); subst.
+
+    { eapply find_name_in_implies_eq in j; eauto; subst.
+      rewrite select_n_procs_nil_if_leaf in Heqitr; auto.
+      rewrite select_n_procs_nil_if_leaf in q0; auto.
+      inversion q0; subst; clear q0; autorewrite with comp list.
+      exists [(t,i)]; simpl.
+      rewrite select_n_procs_nil_if_leaf; auto.
+      rewrite isp0.
+      unfold proc2upd; simpl.
+      unfold interp_s_proc, to_M_n_some_state; simpl.
+      unfold bind_pair, bind; simpl.
+      rewrite Heqitr; simpl; eauto 3 with comp. }
+
+    pose proof (imp (sm2level p) _ (sm2at p) (sm2state p) t i (select_n_procs (sm2level p) subs)) as imp.
+    repeat (autodimp imp hyp); try omega; eauto 3 with comp;
+      try (complete (destruct n; simpl in *; tcsp; try omega));[].
+    autorewrite with comp in *.
+    rewrite isp0 in imp.
+    unfold proc2upd in imp; simpl in *.
+    unfold interp_s_proc, to_M_n_some_state in imp; simpl in *.
+    unfold bind_pair, bind in imp; simpl in *.
+    rewrite Heqitr in imp; simpl in *.
+    applydup in_implies_in_proc_names in j; simpl in *.
+
+    destruct (in_dec CompNameDeq cn0 (get_names (select_n_procs (sm2level p) subs))) as [d|d].
+
+    { destruct (deq_nat (sm2level p) 0) as [d1|d1];
+        [rewrite d1 in *; autorewrite with comp in *; simpl in *; tcsp|];[].
+      pose proof (select_n_procs_level_lt_implies_some cn0 n (sm2level p) p0) as eqs.
+      rewrite lvl in eqs.
+      repeat (autodimp eqs hyp); try omega.
+      exrepnd.
+      pose proof (lt_level_implies_in_select_n_procs cn0 n (sm2level p) p0 subs q1) as z.
+      repeat (autodimp z hype); try omega;[].
+      applydup select_n_proc_preserves_sm2level in eqs0.
+      apply imp in z; auto; try omega;[].
+      exrepnd.
+
+      exists l.
+      apply in_replace_name_diff; simpl; tcsp;[].
+      apply in_app_iff; right.
+      rewrite lvl in eqs1; symmetry in eqs1.
+      apply implies_in_raise_to_n_procs; try omega.
+      eexists;dands;[|eauto];[].
+      simpl.
+      rewrite option_map_Some.
+      eexists;dands;[|eauto];[].
+
+      pose proof (sm2level_le_pred _ _ p) as lvln0.
+      apply raise_to_n_proc_as_select_n_proc; try omega.
+      apply select_n_proc_fst_run_sm_in_inputs; auto; try omega. }
+
+    { applydup similar_subs_preserves_get_names in q0 as eqns.
+      dup d as d'; rewrite eqns in d'.
+      exists ([] : list (PosDTime * cio_I (fio cn0))); simpl.
+      apply in_replace_name_diff; simpl; tcsp;[].
+      apply in_app_iff; left; auto.
+      apply implies_in_remove_names; simpl; auto. }
+  Qed.
+
+  Lemma almost_procs_implies_run_subs :
+    forall {n} {cn}
+           (main : n_proc_at n cn)
+           (s    : sf cn)
+           (t    : PosDTime)
+           (i    : cio_I (fio cn))
+           (subs : n_procs n),
+      is_hproc_n_proc_at main
+      -> almost_procs subs cn
+      -> wf_procs subs
+      -> run_subs_leaves_direct subs (fst (sm_update main s t i subs)).
+  Proof.
+    induction n as [? ind] using comp_ind; introv ip ap wf;[].
+    unfold is_hproc_n_proc_at in ip; exrepnd.
+    rewrite ip0.
+    unfold hproc2upd; simpl.
+    apply interp_s_proc_run_subs_leaves_direct; auto.
+  Qed.
+
+  Lemma almost_procs_implies_run_subs_direct2 :
+    forall {n} {cn}
+           (p    : n_proc n cn)
+           (t    : PosDTime)
+           (i    : cio_I (fio cn))
+           (subs : n_procs n),
+      is_hproc_n_proc p
+      -> almost_procs subs cn
+      -> wf_procs subs
+      -> run_subs_leaves_direct subs (fst (M_run_sm_on_input p t i subs)).
+  Proof.
+    unfold M_run_sm_on_input.
+    induction n as [? ind] using comp_ind; introv ip ap wf;[].
+    destruct n; simpl in *; tcsp.
+    destruct p; simpl in *; tcsp.
+
+    { unfold M_on_decr, update_subs_decr; simpl; dest_cases w; symmetry in Heqw; repnd; simpl in *.
+      pose proof (are_procs_implies_run_subs
+                    a (sm_state a) t i (decr_n_procs subs)) as q.
+      repeat (autodimp q hyp); eauto 3 with comp;
+        try (apply (are_procs_n_procs_decr_n_procs subs); auto);
+        try (apply (wf_procs_decr_n_procs subs); auto);[].
+      rewrite Heqw in q; simpl in q.
+
+      introv lvl j.
+      applydup @level_zero_implies_in_decr_n_procs in j;
+        try (complete (simpl; destruct p; simpl in *; tcsp));[].
+      repndors.
+
+      { subst.
+        pose proof (n_procs_0 w0); subst; autorewrite with comp.
+        exists ([] : list (PosDTime * cio_I (fio cn0))); simpl; auto. }
+
+      exrepnd.
+      simpl in *.
+      destruct p; simpl in *; tcsp; ginv; GC.
+
+      inversion j0; subst; simpl in *; GC; clear j0.
+      apply q in j1; exrepnd; auto;[].
+      exists l.
+      apply in_app_iff; right.
+      pose proof (snd_run_sm_on_inputs_incr_n_proc_eq
+                    l b subs) as z.
+      unfold incr_n_proc in z; simpl in *.
+      fold (M_StateMachine n) in *; fold (n_proc n) in *.
+      rewrite z; clear z.
+      simpl.
+      apply in_map_iff; eexists; dands;[|eauto]; simpl; auto. }
+
+    { unfold M_on_decr; split_pair; simpl.
+      pose proof (ind n) as ind; autodimp ind hyp.
+      pose proof (ind cn b t i (decr_n_procs subs)) as ind.
+      repeat (autodimp ind hyp); eauto 3 with comp;
+        try (apply (are_procs_n_procs_decr_n_procs subs); auto);
+        try (apply (wf_procs_decr_n_procs subs); auto);[].
+      remember (fst (M_on_sm b (fun p => sm_update p (sm_state p) t i) (decr_n_procs subs))) as subs'.
+      simpl in *.
+      rewrite <- Heqsubs' in ind; rewrite <- Heqsubs'.
+      clear Heqsubs'.
+
+      introv lvl j.
+      applydup @level_zero_implies_in_decr_n_procs in j;
+        try (complete (simpl; destruct p; simpl in *; tcsp));[].
+      repndors.
+
+      { subst.
+        pose proof (n_procs_0 subs'); subst.
+        unfold update_subs; simpl.
+        unfold remove_subs; simpl.
+        simpl in *; destruct p; simpl in *; tcsp; GC. }
+
+      exrepnd.
+      simpl in *.
+      destruct p; simpl in *; tcsp; ginv; GC.
+
+      inversion j0; subst; simpl in *; GC; clear j0.
+      apply ind in j1; exrepnd; auto;[].
+      exists l.
+      apply in_app_iff; right.
+      pose proof (snd_run_sm_on_inputs_incr_n_proc_eq
+                    l b0 subs) as z.
+      unfold incr_n_proc in z; simpl in *.
+      fold (M_StateMachine n) in *; fold (n_proc n) in *.
+      rewrite z; clear z.
+      simpl.
+      apply in_map_iff; eexists; dands;[|eauto]; simpl; auto. }
+  Qed.
+*)
+
+  Lemma almost_M_run_ls_on_input_preserves_subs :
+    forall cn t i {n} (ls1 ls2 : n_procs n) o,
+      wf_procs ls1
+      -> almost_procs ls1 cn
+      -> highest_component cn ls1
+      -> M_run_ls_on_input ls1 cn t i = (ls2, o)
+      -> (wf_procs ls2
+          /\ almost_procs ls2 cn
+          /\ similar_subs ls1 ls2
+          (*/\ run_subs_leaves ls1 ls2*)) \/ ls2 = [].
+  Proof.
+    introv wf aps hc run.
+    unfold M_run_ls_on_input, on_comp, M_break in run.
+    dest_cases w; rev_Some;[|ginv; left; dands; eauto 3 with comp];[].
+    dest_cases z; symmetry in Heqz; repnd; simpl in *;[].
+
+    assert (is_hproc_n_proc w) as ishpw.
+    { pose proof (aps (MkPProc cn w)) as q; simpl in *; dest_cases w; apply q.
+      apply find_name_implies_in; auto. }
+
+    pose proof (almost_procs_implies_preserves_sub_M_run_sm_on_input w t i ls1) as h.
+    repeat (autodimp h hyp); eauto 3 with comp;[].
+    unfold M_break in h.
+    rewrite Heqz in h; repnd.
+
+    assert (is_hproc_n_proc w) as ish.
+    { pose proof (aps (MkPProc cn w)) as aps; simpl in aps; dest_cases w. }
+
+    applydup @is_hproc_n_proc_run_on_input_implies_some_or_halt in Heqz; auto;[].
+    repndors; exrepnd; subst; simpl in *; ginv; simpl in *.
+
+(**)
+
+    left.
+    dands.
+
+    { dup h0 as sim; eapply similar_subs_preserves_find_name in sim; try exact Heqw; exrepnd.
+      eapply wf_procs_replace_name; eauto.
+      applydup similar_sms_implies_eq_sm2levels in sim0.
+      autorewrite with comp; auto. }
+
+    { dup h0 as sim; eapply @similar_subs_preserves_almost_procs in sim; eauto.
+      apply almost_procs_replace_name; eauto 3 with comp. }
+
+    { eapply similar_subs_trans;[|apply implies_similar_subs_replace_name;eauto].
+      apply similar_subs_sym.
+      apply similar_subs_replace_name_update_state_m_find_name; auto. }
+  Qed.
 
 End ComponentSM2.
 
@@ -7441,6 +8510,9 @@ Hint Resolve are_procs_n_procs_find_name : comp.
 Hint Resolve procs_non_trusted_replace_name : comp.
 Hint Resolve similar_subs_preserves_non_trusted : comp.
 Hint Resolve similar_subs_preserves_find_name_none : comp.
+Hint Resolve no_dup_find_name_implies_no_in_names_select : comp.
+Hint Resolve wf_procs_implies_ordered : comp.
+Hint Resolve wf_procs_implies_no_dup : comp.
 
 
 Hint Rewrite @interp_s_proc_as : comp.
@@ -7474,9 +8546,14 @@ Hint Rewrite @get_names_replace_name : comp.
 (*Hint Rewrite @sm_halted_update_state : comp.*)
 Hint Rewrite @decr_n_procs_0 : comp.
 Hint Rewrite @M_byz_run_ls_on_one_event_empty_ls : comp.
+Hint Rewrite @decr_n_procs_1 : comp.
 
 
 Notation "a [>>=] f" := (PROC_BIND a f) (at level 80).
 Notation "[R] a" := (PROC_RET a) (at level 80).
-Notation "a [C] b" := (PROC_CALL a b) (at level 80).
+Notation "a [C] b @ t" := (PROC_CALL a t b) (at level 80).
 Notation "a [>>>=] f" := (proc_bind_pair a f) (at level 80).
+
+Notation "{R} s {->} o" := (HPROC_RET s o) (at level 80).
+Notation "{H} o" := (HPROC_HALT o) (at level 80).
+Notation "c {C} i @ t {>>=} f" := (HPROC_CALL c t i f) (at level 80).

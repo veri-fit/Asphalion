@@ -265,6 +265,7 @@ Section PISTIS_header.
   Context { m_initial_keys : PISTIS_initial_keys }.
 
 
+(*
   (* ===============================================================
      Signatures
      =============================================================== *)
@@ -313,5 +314,6 @@ Section PISTIS_header.
         hb_b :> Bare_HB;
         hb_a : Signs;
       }.
+*)
 
 End PISTIS_header.

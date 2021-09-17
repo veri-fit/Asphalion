@@ -163,6 +163,8 @@ Section DTime.
         pos_dt_le : dt_le dt_0 pos_dt_t
       }.
 
+  Definition pdt0 : PosDTime := MkPosDTime dt_0 (dt_le_refl dt_0).
+
   Lemma dt_le_0_ntimes :
     forall n,
       dt_le dt_0 (ntimes n dt_0 dt_1 dt_add).
@@ -177,6 +179,7 @@ Section DTime.
   Qed.
 
   Definition pdt_lt (q1 q2 : PosDTime) := dt_lt q1 q2.
+  Definition pdt_le (q1 q2 : PosDTime) := dt_le q1 q2.
 
   Definition pdt_mult (q1 q2 : PosDTime) : PosDTime.
   Proof.

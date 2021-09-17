@@ -91,8 +91,9 @@ Section RunSM.
   Definition M_run_ls_on_this_one_msg
              {L S}
              (ls : LocalSystem L S)
+             (t  : PosDTime)
              (m  : msg) : LocalSystem L S * DirectedMsgs :=
-    match M_run_ls_on_input ls (msg_comp_name S) m with
+    match M_run_ls_on_input ls (msg_comp_name S) t m with
     | (ls,Some msgs) => (ls, msgs)
     | (ls,None) => (ls,[])
     end.
@@ -102,7 +103,7 @@ Section RunSM.
              (m  : msg)
              (t  : PosDTime) : LocalSystem L S * DirectedMsgs * Time_type :=
     let t1 := Time_get_time tt in
-    let (ls',msgs) := M_run_ls_on_this_one_msg ls m in
+    let (ls',msgs) := M_run_ls_on_this_one_msg ls t m in
     let t2 := Time_get_time tt in
     (ls', msgs, t2).
 

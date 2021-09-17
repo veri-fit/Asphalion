@@ -48,13 +48,13 @@ Section ComponentSM8.
 
     { apply isCorrect_first_implies_has_correct_trace_before; auto.
       unfold M_output_ls_on_this_one_event in *.
-      unfold isCorrect.
+      unfold time_trigger_op, isCorrect in *.
       remember (trigger_op e) as trig; destruct trig; tcsp. }
 
     apply M_run_ls_before_event_implies_has_correct_trace_before in out1; auto.
     apply has_correct_trace_before_local_pred_implies; auto.
     unfold M_output_ls_on_this_one_event in *.
-    unfold isCorrect.
+    unfold time_trigger_op, isCorrect in *.
     remember (trigger_op e) as trig; destruct trig; tcsp.
   Qed.
   Hint Resolve M_output_sys_on_event_implies_has_correct_trace_before : comp.

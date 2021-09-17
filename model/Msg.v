@@ -35,7 +35,7 @@ Section Node.
   Context { n : @Node }.
   Context { dtc : @DTimeContext }.
 
-  Class Msg := MkMsg { msg : Type }.
+  Class Msg := MkMsg { msg : Type ; default_msg : msg }.
 
   Context { m : Msg }.
 

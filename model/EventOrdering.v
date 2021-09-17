@@ -99,10 +99,10 @@ Section EventOrdering.
     end.
 
   Definition if_trigger_info_data
-             {D A}
+             {D E}
              (ti : trigger_info D)
-             (F  : D -> A)
-             (G  : A) :=
+             (F  : D -> E)
+             (G  : E) :=
     match ti with
     | trigger_info_data d => F d
     | _ => G
@@ -188,6 +188,9 @@ Section EventOrdering.
 
   Definition trigger_op {eo : EventOrdering} (e : Event) : option msg :=
     ti2op (trigger e).
+
+  Definition time_trigger_op {eo : EventOrdering} (e : Event) : option (PosDTime * msg) :=
+    option_map (fun m => (time e, m)) (trigger_op e).
 
   (* returns e' if e has a direct predecessor, and otherwise returns e *)
   Definition local_pred (e : Event) : Event :=

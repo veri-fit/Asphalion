@@ -2122,6 +2122,8 @@ Section Process.
 	sign_token : list Token;
       }.
 
+  Definition Signs := list Sign.
+
   Definition sign2name (s : Sign) : name := node2name (sign_name s).
 
 End Process.

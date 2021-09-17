@@ -33,12 +33,12 @@ Section MicroBFTbreak.
   Hint Rewrite decr_n_procs_MicroBFTlocalSys_new : microbft.
 
   Lemma M_break_MicroBFT_state_update :
-    forall {O} r s m subs (F : n_procs 1 -> option MAIN_state * DirectedMsgs -> O),
-      M_break (MAIN_update r s m) subs F
+    forall {O} r s t m subs (F : n_procs 1 -> hoption MAIN_state * DirectedMsgs -> O),
+      M_break (MAIN_update r s t m) subs F
       = match m with
-        | MicroBFT_request _ => M_break (interp_s_proc (handle_request r s m)) subs F
-        | MicroBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) subs F
-        | MicroBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) subs F
+        | MicroBFT_request _ => M_break (interp_s_proc (handle_request r s t m)) subs F
+        | MicroBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s t m)) subs F
+        | MicroBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s t m)) subs F
         end.
   Proof.
     destruct m; introv; simpl; auto.
@@ -46,8 +46,8 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_MicroBFT_state_update : microbft.
 
   Lemma M_break_USIG_update :
-    forall {O} s i subs (F : n_procs 0 -> option USIG_state * USIG_output_interface  -> O),
-      M_break (USIG_update s i) subs F
+    forall {O} s t i subs (F : n_procs 0 -> hoption USIG_state * USIG_output_interface  -> O),
+      M_break (USIG_update s t i) subs F
       = match i with
         | create_ui_in r => M_break (interp_s_proc (let (s',ui) := create_UI r s in [R](s',create_ui_out ui))) subs F
         | verify_ui_in (r,ui) => M_break (interp_s_proc (let b := verify_UI r ui s in [R](s,verify_ui_out b))) subs F
@@ -58,8 +58,8 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_USIG_update : microbft.
 
   Lemma M_break_LOG_update :
-    forall {O} l i subs (F : n_procs 0 -> option LOG_state * LOG_output_interface  -> O),
-      M_break (LOG_update l i) subs F
+    forall {O} l t i subs (F : n_procs 0 -> hoption LOG_state * LOG_output_interface  -> O),
+      M_break (LOG_update l t i) subs F
       = match i with
         | log_new r => M_break (interp_s_proc (let l' :=  r :: l in [R](l',log_out true))) subs F
         end.
@@ -69,18 +69,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_LOG_update : microbft.
 
   Lemma M_break_call_proc_USIGname_MicroBFTsubs_new :
-    forall {O} i u l (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i u l (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MicroBFTsubs_new u l)
         F
       = M_break
-          (USIG_update u i)
+          (USIG_update u t i)
           (decr_n_procs (MicroBFTsubs_new u l))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new u l)
-                        (fun s => MicroBFTsubs_new s l)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new u l)
+                         (fun s => MicroBFTsubs_new s l)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -90,18 +90,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_USIGname_MicroBFTsubs_new : microbft2.
 
   Lemma M_break_call_proc_LOGname_MicroBFTsubs_new :
-    forall {O} i u l (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i u l (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MicroBFTsubs_new u l)
         F
       = M_break
-          (LOG_update l i)
+          (LOG_update l t i)
           (decr_n_procs (MicroBFTsubs_new u l))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new u l)
-                        (fun s => MicroBFTsubs_new u s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new u l)
+                         (fun s => MicroBFTsubs_new u s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -111,18 +111,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_LOGname_MicroBFTsubs_new : microbft2.
 
   Lemma M_break_call_proc_USIGname_MicroBFTsubs :
-    forall {O} i n (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i n (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MicroBFTsubs n)
         F
       = M_break
-          (USIG_update (USIG_initial n) i)
+          (USIG_update (USIG_initial n) t i)
           (decr_n_procs (MicroBFTsubs n))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs n)
-                        (fun s => MicroBFTsubs_new_u s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs n)
+                         (fun s => MicroBFTsubs_new_u s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -132,18 +132,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_USIGname_MicroBFTsubs : microbft2.
 
   Lemma M_break_call_proc_LOGname_MicroBFTsubs :
-    forall {O} i n (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i n (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MicroBFTsubs n)
         F
       = M_break
-          (LOG_update LOG_initial i)
+          (LOG_update LOG_initial t i)
           (decr_n_procs (MicroBFTsubs n))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs n)
-                        (fun s => MicroBFTsubs_new_l n s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs n)
+                         (fun s => MicroBFTsubs_new_l n s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -153,18 +153,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_LOGname_MicroBFTsubs : microbft2.
 
   Lemma M_break_call_proc_USIGname_MicroBFTsubs_new_u :
-    forall {O} i u (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i u (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MicroBFTsubs_new_u u)
         F
       = M_break
-          (USIG_update u i)
+          (USIG_update u t i)
           (decr_n_procs (MicroBFTsubs_new_u u))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new_u u)
-                        (fun s => MicroBFTsubs_new_u s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new_u u)
+                         (fun s => MicroBFTsubs_new_u s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -174,18 +174,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_USIGname_MicroBFTsubs_new_u : microbft2.
 
   Lemma M_break_call_proc_LOGname_MicroBFTsubs_new_u :
-    forall {O} i u (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i u (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MicroBFTsubs_new_u u)
         F
       = M_break
-          (LOG_update LOG_initial i)
+          (LOG_update LOG_initial t i)
           (decr_n_procs (MicroBFTsubs_new_u u))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new_u u)
-                        (fun s => MicroBFTsubs_new u s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new_u u)
+                         (fun s => MicroBFTsubs_new u s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -195,18 +195,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_LOGname_MicroBFTsubs_new_u : microbft2.
 
   Lemma M_break_call_proc_USIGname_MicroBFTsubs_new_l :
-    forall {O} i n l (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i n l (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MicroBFTsubs_new_l n l)
         F
       = M_break
-          (USIG_update (USIG_initial n) i)
+          (USIG_update (USIG_initial n) t i)
           (decr_n_procs (MicroBFTsubs_new_l n l))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new_l n l)
-                        (fun s => MicroBFTsubs_new s l)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new_l n l)
+                         (fun s => MicroBFTsubs_new s l)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -216,18 +216,18 @@ Section MicroBFTbreak.
   Hint Rewrite @M_break_call_proc_USIGname_MicroBFTsubs_new_l : microbft2.
 
   Lemma M_break_call_proc_LOGname_MicroBFTsubs_new_l :
-    forall {O} i n l (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i n l (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MicroBFTsubs_new_l n l)
         F
       = M_break
-          (LOG_update l i)
+          (LOG_update l t i)
           (decr_n_procs (MicroBFTsubs_new_l n l))
           (fun subs out =>
-             F (bind_op (MicroBFTsubs_new_l n l)
-                        (fun s => MicroBFTsubs_new_l n s)
-                        (fst out))
+             F (bind_hop (MicroBFTsubs_new_l n l)
+                         (fun s => MicroBFTsubs_new_l n s)
+                         (fst out))
                (snd out)).
   Proof.
     introv.
@@ -238,13 +238,14 @@ Section MicroBFTbreak.
 
   Lemma M_break_call_create_ui :
     forall {A n} {O}
+           (t    : PosDTime)
            (m    : nat)
            (d    : unit -> Proc A)
            (f    : UI -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_create_ui m d f)) subs F
-      = M_break (call_proc USIGname (create_ui_in m))
+      M_break (interp_proc (call_create_ui t m d f)) subs F
+      = M_break (call_proc USIGname t (create_ui_in m))
                 subs
                 (fun subs out =>
                    on_create_ui_out
@@ -262,13 +263,14 @@ Section MicroBFTbreak.
 
   Lemma M_break_call_verify_ui :
     forall {A n} {O}
+           (t    : PosDTime)
            (mui  : nat * UI)
            (d    : unit -> Proc A)
            (f    : unit -> Proc A)
            (subs : n_procs n)
            (F    : n_procs n -> A -> O),
-      M_break (interp_proc (call_verify_ui mui d f)) subs F
-      = M_break (call_proc USIGname (verify_ui_in mui))
+      M_break (interp_proc (call_verify_ui t mui d f)) subs F
+      = M_break (call_proc USIGname t (verify_ui_in mui))
                 subs
                 (fun subs out =>
                    if_true_verify_ui_out
@@ -287,15 +289,15 @@ Section MicroBFTbreak.
   Definition lower_out_break {n} {A} {B}
              (l : n_procs (S n))
              (F : n_procs (S n) -> A -> B) : n_procs n -> A -> B :=
-    fun k a => F (update_subs l k) a.
+    fun k a => F (update_subs_decr l k) a.
 
   Lemma M_break_M_run_sm_on_input_MicroBFT_replicaSM_new :
-    forall {O} r s m subs (F : n_procs 2 -> option MAIN_state * DirectedMsgs -> O),
-      M_break (M_run_sm_on_input (MicroBFT_replicaSM_new r s) m) subs F
+    forall {O} r s t m subs (F : n_procs 2 -> hoption MAIN_state * DirectedMsgs -> O),
+      M_break (M_run_sm_on_input (MicroBFT_replicaSM_new r s) t m) subs F
       = match m with
-        | MicroBFT_request _ => M_break (interp_s_proc (handle_request r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MicroBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s m)) (decr_n_procs subs) (lower_out_break subs F)
-        | MicroBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MicroBFT_request _ => M_break (interp_s_proc (handle_request r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MicroBFT_commit  _ => M_break (interp_s_proc (handle_commit  r s t m)) (decr_n_procs subs) (lower_out_break subs F)
+        | MicroBFT_accept  _ => M_break (interp_s_proc (handle_accept  r s t m)) (decr_n_procs subs) (lower_out_break subs F)
         end.
   Proof.
     introv.

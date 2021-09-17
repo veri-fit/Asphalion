@@ -36,8 +36,8 @@ Section MinBFTbreak0.
   Hint Rewrite decr_n_procs_MinBFTlocalSys_new : minbft.
 
   Lemma M_break_USIG_update :
-    forall {O} s i subs (F : n_procs 0 -> option USIG_state * USIG_output_interface  -> O),
-      M_break (USIG_update s i) subs F
+    forall {O} s t i subs (F : n_procs 0 -> hoption USIG_state * USIG_output_interface  -> O),
+      M_break (USIG_update s t i) subs F
       = match i with
         | create_ui_in (v,r,_,_) => M_break (interp_s_proc (let (s',ui) := create_UI v r s in [R](s',create_ui_out (Some ui)))) subs F
         | verify_ui_in (v,r,ui) => M_break (interp_s_proc (let b := verify_UI v r ui s in [R](s,verify_ui_out b))) subs F
@@ -48,16 +48,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_USIG_update : minbft.
 
   Lemma M_break_call_proc_USIGname_MinBFTsubs_new :
-    forall {O} i u l (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i u l (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MinBFTsubs_new u l)
         F
       = M_break
-          (USIG_update u i)
+          (USIG_update u t i)
           (decr_n_procs (MinBFTsubs_new u l))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new u l)
+             F (bind_hop (MinBFTsubs_new u l)
                         (fun s => MinBFTsubs_new s l)
                         (fst out))
                (snd out)).
@@ -69,16 +69,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new : minbft2.
 
   Lemma M_break_call_proc_LOGname_MinBFTsubs_new :
-    forall {O} i u l (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i u l (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MinBFTsubs_new u l)
         F
       = M_break
-          (LOG_update l i)
+          (LOG_update l t i)
           (decr_n_procs (MinBFTsubs_new u l))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new u l)
+             F (bind_hop (MinBFTsubs_new u l)
                         (fun s => MinBFTsubs_new u s)
                         (fst out))
                (snd out)).
@@ -90,16 +90,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs_new : minbft2.
 
   Lemma M_break_call_proc_USIGname_MinBFTsubs :
-    forall {O} i n (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i n (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MinBFTsubs n)
         F
       = M_break
-          (USIG_update (USIG_initial n) i)
+          (USIG_update (USIG_initial n) t i)
           (decr_n_procs (MinBFTsubs n))
           (fun subs out =>
-             F (bind_op (MinBFTsubs n)
+             F (bind_hop (MinBFTsubs n)
                         (fun s => MinBFTsubs_new_u s)
                         (fst out))
                (snd out)).
@@ -111,16 +111,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs : minbft2.
 
   Lemma M_break_call_proc_LOGname_MinBFTsubs :
-    forall {O} i n (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i n (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MinBFTsubs n)
         F
       = M_break
-          (LOG_update LOG_initial i)
+          (LOG_update LOG_initial t i)
           (decr_n_procs (MinBFTsubs n))
           (fun subs out =>
-             F (bind_op (MinBFTsubs n)
+             F (bind_hop (MinBFTsubs n)
                         (fun s => MinBFTsubs_new_l n s)
                         (fst out))
                (snd out)).
@@ -132,16 +132,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs : minbft2.
 
   Lemma M_break_call_proc_USIGname_MinBFTsubs_new_u :
-    forall {O} i u (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i u (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MinBFTsubs_new_u u)
         F
       = M_break
-          (USIG_update u i)
+          (USIG_update u t i)
           (decr_n_procs (MinBFTsubs_new_u u))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new_u u)
+             F (bind_hop (MinBFTsubs_new_u u)
                         (fun s => MinBFTsubs_new_u s)
                         (fst out))
                (snd out)).
@@ -153,16 +153,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new_u : minbft2.
 
   Lemma M_break_call_proc_LOGname_MinBFTsubs_new_u :
-    forall {O} i u (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i u (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MinBFTsubs_new_u u)
         F
       = M_break
-          (LOG_update LOG_initial i)
+          (LOG_update LOG_initial t i)
           (decr_n_procs (MinBFTsubs_new_u u))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new_u u)
+             F (bind_hop (MinBFTsubs_new_u u)
                         (fun s => MinBFTsubs_new u s)
                         (fst out))
                (snd out)).
@@ -174,16 +174,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_LOGname_MinBFTsubs_new_u : minbft2.
 
   Lemma M_break_call_proc_USIGname_MinBFTsubs_new_l :
-    forall {O} i n l (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i n l (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         (MinBFTsubs_new_l n l)
         F
       = M_break
-          (USIG_update (USIG_initial n) i)
+          (USIG_update (USIG_initial n) t i)
           (decr_n_procs (MinBFTsubs_new_l n l))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new_l n l)
+             F (bind_hop (MinBFTsubs_new_l n l)
                         (fun s => MinBFTsubs_new s l)
                         (fst out))
                (snd out)).
@@ -195,16 +195,16 @@ Section MinBFTbreak0.
   Hint Rewrite @M_break_call_proc_USIGname_MinBFTsubs_new_l : minbft2.
 
   Lemma M_break_call_proc_LOGname_MinBFTsubs_new_l :
-    forall {O} i n l (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i n l (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         (MinBFTsubs_new_l n l)
         F
       = M_break
-          (LOG_update l i)
+          (LOG_update l t i)
           (decr_n_procs (MinBFTsubs_new_l n l))
           (fun subs out =>
-             F (bind_op (MinBFTsubs_new_l n l)
+             F (bind_hop (MinBFTsubs_new_l n l)
                         (fun s => MinBFTsubs_new_l n s)
                         (fst out))
                (snd out)).

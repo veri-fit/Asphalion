@@ -92,9 +92,39 @@ Section ComponentSM.
   Definition M_p (p : CompName -> Type) (PO : Type) :=
     p_procs p -> (p_procs p * PO)%type.
 
+  (* option type with different halting conditions *)
+  Inductive hoption (S : Type) :=
+  | hsome (s : S)
+  | halt_local
+  | halt_global.
+  Global Arguments hsome [S] _.
+  Global Arguments halt_local [S].
+  Global Arguments halt_global [S].
+
+  Definition hoption_map {A B} (f : A -> B) (st : hoption A) : hoption B :=
+    match st with
+    | hsome s => hsome (f s)
+    | halt_local => halt_local
+    | halt_global => halt_global
+    end.
+
+  Definition map_hoption {T U} (f : T -> hoption U) (o : hoption T) : hoption U :=
+    match o with
+    | hsome s => f s
+    | halt_local => halt_local
+    | halt_global => halt_global
+    end.
+
+  Definition bind_hop {A B} (b : B) (F : A -> B) (i : hoption A) : B :=
+    match i with
+    | hsome a => F a
+    | halt_local => b
+    | halt_global => b
+    end.
+
   (* monad update function of the component that can halt *)
   Definition MP_Update (p : CompName -> Type) (I O S : Type) :=
-    S -> I -> M_p p (option S * O).
+    S -> PosDTime -> I -> M_p p (hoption S * O).
 
   (* component interface;
      we need cio_I ans cio_O because USIG does not take messages as input and
@@ -260,13 +290,13 @@ Section ComponentSM.
   (* ====== Lookup table ====== *)
   (* This is used to register state machines when not using the monad
      The Boolean is redundant, it says whether [cn] is trusted, which is already part of [cn] *)
-  Definition lookup_table : ref (list {cn : CompName & {b : bool & cio_I (fio cn) -> (unit * cio_O (fio cn))}}) :=
+  Definition lookup_table : ref (list {cn : CompName & {b : bool & PosDTime -> cio_I (fio cn) -> (unit * cio_O (fio cn))}}) :=
     ref_cons [].
 
   Definition update_lookup
              (level   : nat)
              (name    : CompName)
-             (sm      : cio_I (fio name) -> (unit * cio_O (fio name))) :=
+             (sm      : PosDTime -> cio_I (fio name) -> (unit * cio_O (fio name))) :=
     update_ref
       lookup_table
       ((existT _ name (existT _ (comp_name_trust name) sm)) :: get_ref lookup_table).
@@ -314,10 +344,13 @@ Section ComponentSM.
 
   (* monad update function that can halt *)
   Definition M_Update (n : nat) (nm : CompName) (S : Type) :=
-    S -> cio_I (fio nm) -> M_n n (option S * cio_O (fio nm)).
+    S -> PosDTime -> cio_I (fio nm) -> M_n n (hoption S * cio_O (fio nm)).
 
   (* return state and output ? *)
   Definition ret {A} (n : nat) (a : A) : M_n n A := fun s => (s, a).
+
+  (* discards all processes *)
+  Definition halt {A} (n : nat) (a : A) : M_n n A := fun s => ([], a).
 
   (* enables combining multiple state machine monads *)
   Definition bind {A B} {n:nat} (m : M_n n A) (f : A -> M_n n B) : M_n n B :=
@@ -367,7 +400,7 @@ Section ComponentSM.
              (n  : nat)
              (d  : sf cn) : n_proc_at n cn :=
     MkMPSM
-      (fun s i p => (p, (None, cio_default_O (fio cn))))
+      (fun t s i p => (p, (halt_local, cio_default_O (fio cn))))
       d.
 
   Definition M_defSM
@@ -376,7 +409,7 @@ Section ComponentSM.
              (d  : sf nm) : n_proc 1 nm :=
     at2sm
       (MkMPSM
-         (fun s i p => (p, (None, cio_default_O (fio nm))))
+         (fun t s i p => (p, (halt_local, cio_default_O (fio nm))))
          d).
 
   (* incr of one level state machine monad *)
@@ -445,14 +478,15 @@ Section ComponentSM.
       (sm_update sm)
       s.
 
-  (* lift form state to state machine; here x is sub-component with state and output*)
+  (* lift from state to state machine; here x is sub-component with state and output*)
   Definition app_n_proc_at {n} {nm}
              (sm : n_proc_at n nm)
+             (t  : PosDTime)
              (i  : cio_I (fio nm))
-    : M_n n (option (n_proc_at n nm) * cio_O (fio nm)) :=
-    (sm_update sm (sm_state sm) i)
+    : M_n n (hoption (n_proc_at n nm) * cio_O (fio nm)) :=
+    (sm_update sm (sm_state sm) t i)
       >>>=
-      fun ops o => ret _ (option_map (update_state sm) ops, o).
+      fun ops o => ret _ (hoption_map (update_state sm) ops, o).
 
   Definition lift_M_O {m} {nm} {O}
              (x : M_n m (n_proc_at m nm * O))
@@ -523,14 +557,18 @@ Section ComponentSM.
 
   (* NOTE: The order is going to be preserved if the components
      are ordered in decreasing order of level *)
-  Definition update_subs {n} (ps : n_procs (S n)) (ps' : n_procs n) : n_procs (S n) :=
-    remove_subs ps ps' ++ incr_n_procs ps'.
+  Definition update_subs {n} (ps : n_procs (S n)) (l : list CompName) (ps' : n_procs n) : n_procs (S n) :=
+(*    remove_subs ps ps' ++ incr_n_procs ps'.*)
+    remove_names ps l ++ incr_n_procs ps'.
+
+  Definition update_subs_decr {n} (ps : n_procs (S n)) (ps' : n_procs n) : n_procs (S n) :=
+    update_subs ps (get_names (decr_n_procs ps)) ps'.
 
   (* Part of the monad *)
   Definition M_on_decr {n} {O} (m : M_n n O) : M_n (S n) O :=
     fun (ps : n_procs (S n)) =>
       let (ps', o') := m (decr_n_procs ps)
-      in (update_subs ps ps', o').
+      in (update_subs_decr ps ps', o').
 
   Fixpoint sm2level {n} {nm} : n_proc n nm -> nat :=
     match n return n_proc n nm -> nat with
@@ -560,26 +598,27 @@ Section ComponentSM.
     x >>>= fun q o => ret _ (at2sm q, o).*)
 
   Definition lift_M_1 {m} {nm} {O}
-             (x : M_n m (option (n_proc_at m nm) * O))
-    : M_n (S m) (option (n_proc (S m) nm) * O) :=
-    M_on_decr x >>>= fun q o => ret _ (option_map at2sm q, o).
+             (x : M_n m (hoption (n_proc_at m nm) * O))
+    : M_n (S m) (hoption (n_proc (S m) nm) * O) :=
+    M_on_decr x >>>= fun q o => ret _ (hoption_map at2sm q, o).
 
-  Definition lift_M_2 {n} {nm} {O} (m : M_n n (option (n_proc n nm) * O))
-    : M_n (S n) (option (n_proc (S n) nm) * O) :=
-    M_on_decr m >>>= fun sm o => ret _ (option_map incr_n_proc sm,o).
+  Definition lift_M_2 {n} {nm} {O} (m : M_n n (hoption (n_proc n nm) * O))
+    : M_n (S n) (hoption (n_proc (S n) nm) * O) :=
+    M_on_decr m >>>= fun sm o => ret _ (hoption_map incr_n_proc sm,o).
 
   Fixpoint app_m_proc {n} {nm}
     : n_proc n nm
+      -> PosDTime
       -> cio_I (fio nm)
-      -> M_n n (option (n_proc n nm) * cio_O (fio nm)) :=
-    match n return n_proc n nm -> cio_I (fio nm) -> M_n n (option (n_proc n nm) * cio_O (fio nm)) with
+      -> M_n n (hoption (n_proc n nm) * cio_O (fio nm)) :=
+    match n return n_proc n nm -> PosDTime -> cio_I (fio nm) -> M_n n (hoption (n_proc n nm) * cio_O (fio nm)) with
     | 0 =>
-      fun pr i => match pr with end
+      fun pr t i => match pr with end
     | S m =>
-      fun pr i =>
+      fun pr t i =>
         match pr with
-        | sm_or_at sm => lift_M_1 (app_n_proc_at sm i)
-        | sm_or_sm pr' => lift_M_2 (app_m_proc pr' i)
+        | sm_or_at sm => lift_M_1 (app_n_proc_at sm t i)
+        | sm_or_sm pr' => lift_M_2 (app_m_proc pr' t i)
         end
     end.
 
@@ -591,17 +630,18 @@ Section ComponentSM.
       else MkPProc m q :: replace_name pr rest
     end.
 
-  Definition replace_name_op {n:nat} {cn : CompName} (o : option (n_proc n cn)) (l : n_procs n) : n_procs n :=
+  Definition replace_name_op {n:nat} {cn : CompName} (o : hoption (n_proc n cn)) (l : n_procs n) : n_procs n :=
     match o with
-    | Some p => replace_name p l
-    | None => remove_name l cn
+    | hsome p => replace_name p l
+    | halt_local => remove_name l cn
+    | halt_global => []
     end.
 
-  Definition call_proc {n:nat} (nm : CompName) (i : cio_I (fio nm)) : M_n n (cio_O (fio nm)) :=
+  Definition call_proc {n:nat} (nm : CompName) (t : PosDTime) (i : cio_I (fio nm)) : M_n n (cio_O (fio nm)) :=
     fun (l : n_procs n) =>
       match find_name nm l with
       | Some pr =>
-        match app_m_proc pr i l with
+        match app_m_proc pr t i l with
         | (l',(pr',o)) => (replace_name_op pr' l',o)
         end
       | None => (l,cio_default_O (fio nm))
@@ -750,18 +790,19 @@ Section ComponentSM.
 
   Definition M_on_some
              {n A B}
-             (f : A -> M_n n (option B))
-             (xop : option A) : M_n n (option B) :=
+             (f : A -> M_n n (hoption B))
+             (xop : hoption A) : M_n n (hoption B) :=
     match xop with
-    | Some a => f a
-    | None => ret _ None
+    | hsome a => f a
+    | halt_local => ret _ halt_local
+    | halt_global => ret _ halt_global
     end.
 
   Notation "a >>o>> f" := (M_on_some f a) (at level 80).
 
   Definition bind_some {A B} {n:nat}
-             (m : M_n n (option A))
-             (f : A -> M_n n (option B)) : M_n n (option B) :=
+             (m : M_n n (hoption A))
+             (f : A -> M_n n (hoption B)) : M_n n (hoption B) :=
     m >>= fun x => x >>o>> f.
 
   Notation "a >>o= f" := (bind_some a f) (at level 80).
@@ -769,16 +810,16 @@ Section ComponentSM.
   Definition M_op_update {S} {n} {nm}
              (upd : M_Update n nm S)
              (s   : S)
-             (o   : option (cio_I (fio nm)))
-    : M_n n (option (option S * cio_O (fio nm))) :=
-    o >>o>> (fun i => (upd s i) >>= fun so => ret _ (Some so)).
+             (o   : hoption (PosDTime * cio_I (fio nm)))
+    : M_n n (hoption (hoption S * cio_O (fio nm))) :=
+    o >>o>> (fun i => (upd s (fst i) (snd i)) >>= fun so => ret _ (hsome so)).
 
   Definition M_op_state {S} {n} {nm}
              (upd : M_Update n nm S)
              (s   : S)
-             (o   : option (cio_I (fio nm)))
-    : M_n n (option S) :=
-    o >>o>> (fun i => (upd s i) >>= fun so => ret _ (fst so)).
+             (o   : hoption (PosDTime * cio_I (fio nm)))
+    : M_n n (hoption S) :=
+    o >>o>> (fun i => (upd s (fst i) (snd i)) >>= fun so => ret _ (fst so)).
 
   (* never used
   Definition M_op_op_update {S} {n} {nm}
@@ -853,10 +894,11 @@ Section ComponentSM.
 
   Definition M_run_sm_on_input {n} {nm}
              (sm : n_proc n nm)
-             (i  : cio_I (fio nm)) : M_n n (option (sf nm) * cio_O (fio nm)) :=
+             (t  : PosDTime)
+             (i  : cio_I (fio nm)) : M_n n (hoption (sf nm) * cio_O (fio nm)) :=
     M_on_sm
       sm
-      (fun p => (sm_update p (sm_state p) i)).
+      (fun p => (sm_update p (sm_state p) t i)).
 
   Definition M_fst {n} {A} {B} (m : M_n n (A * B)) : M_n n A :=
     m >>= fun so => ret _ (fst so).
@@ -997,7 +1039,7 @@ Section ComponentSM.
     end.
 
   (* m <= n *)
-  Fixpoint select_n_proc {n} {cn} m : n_proc n cn -> option (n_proc m cn) :=
+  Fixpoint select_n_proc {n} {cn} m {struct n} : n_proc n cn -> option (n_proc m cn) :=
     match deq_nat n m with
     | left q => fun p => Some (eq_rect _ (fun n => n_proc n cn) p _ q)
     | right q =>
@@ -1330,17 +1372,19 @@ Section ComponentSM.
              {n}
              (ls : n_procs n)
              cn
+             (t  : PosDTime)
              (i  : cio_I (fio cn)) : n_procs n * option (cio_O (fio cn)) :=
     on_comp
       ls
       (fun main =>
          M_break
-           (M_run_sm_on_input main i)
+           (M_run_sm_on_input main t i)
            ls
            (fun subs out =>
               (match fst out with
-               | Some s => replace_name (update_state_m main s) subs
-               | None => remove_name subs cn
+               | hsome s => replace_name (update_state_m main s) subs
+               | halt_local => remove_name subs cn
+               | halt_global => []
                end,
                Some (snd out))))
       (* We simply return the local system if we cannot find the component *)
@@ -1399,57 +1443,66 @@ Section ComponentSM.
 
   Definition nested2state
              {A} {n} {cn} {B}
-             (x : A * (option (n_proc n cn) * B)) : A * (option (sf cn) * B) :=
+             (x : A * (hoption (n_proc n cn) * B)) : A * (hoption (sf cn) * B) :=
     match x with
-    | (a, (pop, b)) => (a,(option_map sm2state pop,b))
+    | (a, (pop, b)) => (a,(hoption_map sm2state pop,b))
     end.
 
   Lemma app_m_proc_as_M_on_sm :
-    forall {n} {cn} (p : n_proc n cn) i (l : n_procs n),
-      nested2state (app_m_proc p i l)
-      = M_on_sm p (fun a => sm_update a (sm_state a) i) l.
+    forall {n} {cn} (p : n_proc n cn) t i (l : n_procs n),
+      nested2state (app_m_proc p t i l)
+      = M_on_sm p (fun a => sm_update a (sm_state a) t i) l.
   Proof.
     induction n; introv; simpl in *; tcsp.
     destruct p; simpl in *; tcsp.
 
     { unfold lift_M_1, app_n_proc_at, bind_pair, bind, M_on_decr; simpl.
-      remember (sm_update a (sm_state a) i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+      remember (sm_update a (sm_state a) t i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
       destruct u1; simpl in *; tcsp. }
 
     unfold lift_M_2, bind_pair, bind, M_on_decr; simpl.
-    pose proof (IHn cn b i (decr_n_procs l)) as IHn.
+    pose proof (IHn cn b t i (decr_n_procs l)) as IHn.
     rewrite <- IHn; clear IHn.
-    remember (app_m_proc b i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+    remember (app_m_proc b t i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
     f_equal.
     f_equal.
     destruct u1; simpl; tcsp.
   Qed.
 
+  Lemma hoption_map_correct :
+    forall {A B} (f : A -> B) (o : hoption A) (b : B),
+      hoption_map f o = hsome b
+      <-> (exists a, o = hsome a /\ b = f a).
+  Proof.
+    introv; destruct o; split; introv h; simpl in *; exrepnd; ginv; auto.
+    eexists; dands; eauto.
+  Qed.
+
   Lemma update_state_if_app_m_proc :
-    forall {n} {cn} (p : n_proc n cn) i l k q o,
-      app_m_proc p i l = (k, (Some q, o))
+    forall {n} {cn} (p : n_proc n cn) t i l k q o,
+      app_m_proc p t i l = (k, (hsome q, o))
       -> update_state_m p (sm2state q) = q.
   Proof.
     induction n; introv h; simpl in *; tcsp.
     destruct p; simpl in *; tcsp.
 
     { unfold lift_M_1, bind_pair, bind, M_on_decr in h.
-      remember (app_n_proc_at a i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+      remember (app_n_proc_at a t i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
       inversion h; subst; simpl in *; clear h.
       rename_hyp_with @at2sm h.
-      apply option_map_Some in h; exrepnd; subst; simpl in *.
+      apply hoption_map_correct in h; exrepnd; subst; simpl in *.
       unfold app_n_proc_at, bind_pair, bind in Hequ.
-      remember (sm_update a (sm_state a) i (decr_n_procs l)) as z; symmetry in Heqz.
+      remember (sm_update a (sm_state a) t i (decr_n_procs l)) as z; symmetry in Heqz.
       repnd; simpl in *; ginv.
       inversion Hequ; subst; simpl in *; tcsp; clear Hequ.
       rename_hyp_with @update_state h.
-      apply option_map_Some in h; exrepnd; subst; simpl in *; tcsp. }
+      apply hoption_map_correct in h; exrepnd; subst; simpl in *; tcsp. }
 
     unfold lift_M_2, bind_pair, bind, M_on_decr in h.
-    remember (app_m_proc b i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
+    remember (app_m_proc b t i (decr_n_procs l)) as u; symmetry in Hequ; repnd; simpl in *.
     inversion h; subst; simpl in *; clear h.
-    rename_hyp_with @option_map h.
-    apply option_map_Some in h; exrepnd; subst; simpl in *.
+    rename_hyp_with @hoption_map h.
+    apply hoption_map_correct in h; exrepnd; subst; simpl in *.
     apply IHn in Hequ; rewrite Hequ; auto.
   Qed.
 
@@ -1460,16 +1513,17 @@ Section ComponentSM.
     forall {n}
            (ls : n_procs n)
            cn
+           (t  : PosDTime)
            (i  : cio_I (fio cn)),
-      to_snd_default (M_run_ls_on_input ls cn i)
-      = call_proc cn i ls.
+      to_snd_default (M_run_ls_on_input ls cn t i)
+      = call_proc cn t i ls.
   Proof.
     introv.
     unfold M_run_ls_on_input, call_proc, M_run_sm_on_input, LocalSystem, M_break, on_comp in *; simpl in *.
     dest_cases w; rev_Some.
-    pose proof (app_m_proc_as_M_on_sm w i ls) as q.
+    pose proof (app_m_proc_as_M_on_sm w t i ls) as q.
     simpl in *; rewrite <- q; clear q.
-    remember (app_m_proc w i ls) as u; symmetry in Hequ; repnd; simpl in *.
+    remember (app_m_proc w t i ls) as u; symmetry in Hequ; repnd; simpl in *.
     f_equal.
     destruct u1; simpl in *; tcsp.
     f_equal.
@@ -1486,28 +1540,30 @@ Section ComponentSM.
              {n}
              (ls : n_procs n)
              cn
+             (t  : PosDTime)
              (i  : cio_I (fio cn)) : n_procs n :=
-    fst (M_run_ls_on_input ls cn i).
+    fst (M_run_ls_on_input ls cn t i).
 
   Definition M_run_ls_on_input_out
              {n}
              (ls : n_procs n)
              cn
+             (t  : PosDTime)
              (i  : cio_I (fio cn)) : option (cio_O (fio cn)) :=
-    snd (M_run_ls_on_input ls cn i).
+    snd (M_run_ls_on_input ls cn t i).
 
   Fixpoint M_run_ls_on_op_inputs
            {n}
            (ls : n_procs n)
            cn
-           (l  : oplist (cio_I (fio cn))) : option (n_procs n) :=
+           (l  : oplist (PosDTime * cio_I (fio cn))) : option (n_procs n) :=
     match l with
     | [] => Some ls
     | mop :: l =>
       on_some
         mop
         (fun m =>
-           let ls' := M_run_ls_on_input_ls ls cn m in
+           let ls' := M_run_ls_on_input_ls ls cn (fst m) (snd m) in
            M_run_ls_on_op_inputs ls' cn l)
     end.
 
@@ -1515,11 +1571,11 @@ Section ComponentSM.
            {n}
            (ls : n_procs n)
            cn
-           (l  : list (cio_I (fio cn))) : n_procs n :=
+           (l  : list (PosDTime * cio_I (fio cn))) : n_procs n :=
     match l with
     | [] => ls
     | m :: l =>
-      let ls' := M_run_ls_on_input_ls ls cn m in
+      let ls' := M_run_ls_on_input_ls ls cn (fst m) (snd m) in
       M_run_ls_on_inputs ls' cn l
     end.
 
@@ -1528,7 +1584,10 @@ Section ComponentSM.
              (ls : LocalSystem L S)
              {eo : EventOrdering}
              (e  : Event) : option (LocalSystem L S) :=
-    M_run_ls_on_op_inputs ls (msg_comp_name S) (map trigger_op (@localPreds pn pk pm _ _ eo e)).
+    M_run_ls_on_op_inputs
+      ls
+      (msg_comp_name S)
+      (map time_trigger_op (@localPreds pn pk pm _ _ eo e)).
 
   Definition M_run_ls_on_event
              {L S}
@@ -1539,7 +1598,7 @@ Section ComponentSM.
       (M_run_ls_before_event ls e)
       (fun ls' =>
          option_map
-           (M_run_ls_on_input_ls ls' (msg_comp_name S))
+           (M_run_ls_on_input_ls ls' (msg_comp_name S) (time e))
            (trigger_op e)).
 
 
@@ -1579,7 +1638,7 @@ Section ComponentSM.
   Definition M_comp_ls_on_op_inputs {n}
              (ls : n_procs n)
              cn
-             (l : oplist (cio_I (fio cn))) : option (n_proc n cn) :=
+             (l : oplist (PosDTime * cio_I (fio cn))) : option (n_proc n cn) :=
     on_some
       (M_run_ls_on_op_inputs ls cn l)
       (find_name cn).
@@ -1587,13 +1646,13 @@ Section ComponentSM.
   Definition M_comp_ls_on_inputs {n}
              (ls : n_procs n)
              cn
-             (l : list (cio_I (fio cn))) : option (n_proc n cn) :=
+             (l : list (PosDTime * cio_I (fio cn))) : option (n_proc n cn) :=
     find_name cn (M_run_ls_on_inputs ls cn l).
 
   Definition M_state_ls_on_op_inputs {n}
              (ls : n_procs n)
              cn
-             (l : oplist (cio_I (fio cn))) : option (sf cn) :=
+             (l : oplist (PosDTime * cio_I (fio cn))) : option (sf cn) :=
     on_some
       (M_run_ls_on_op_inputs ls cn l)
       (state_of_component cn).
@@ -1601,14 +1660,14 @@ Section ComponentSM.
   Definition M_state_ls_on_inputs {n}
              (ls : n_procs n)
              cn
-             (l : list (cio_I (fio cn))) : option (sf cn) :=
+             (l : list (PosDTime * cio_I (fio cn))) : option (sf cn) :=
     state_of_component cn (M_run_ls_on_inputs ls cn l).
 
   Lemma M_state_ls_on_op_inputs_as_comp :
     forall {n}
            (ls : n_procs n)
            cn
-           (l : oplist (cio_I (fio cn))),
+           (l : oplist (PosDTime * cio_I (fio cn))),
       M_state_ls_on_op_inputs ls cn l
       = option_map
           sm2state
@@ -1622,7 +1681,7 @@ Section ComponentSM.
     forall {n}
            (ls : n_procs n)
            cn
-           (l : list (cio_I (fio cn))),
+           (l : list (PosDTime * cio_I (fio cn))),
       M_state_ls_on_inputs ls cn l
       = option_map
           sm2state
@@ -1692,16 +1751,16 @@ Section ComponentSM.
              {eo : EventOrdering}
              (e  : Event) : option (LocalSystem L S) :=
     option_map
-      (M_run_ls_on_input_ls ls (msg_comp_name S))
+      (M_run_ls_on_input_ls ls (msg_comp_name S) (time e))
       (trigger_op e).
 
   Lemma crazy_bind_option1 :
-    forall {n A O} (F : A -> M_n n (option A ## O)),
-      (fun a : option A =>
+    forall {n A O} (F : A -> M_n n (hoption A ## O)),
+      (fun a : hoption A =>
          (a >>o>>
-            (fun s : A => (F s) >>= (fun so : option A ## O => ret _ (Some so))))
-           >>o= fun p : option A ## O => ret _ (fst p))
-      = fun (a : option A) =>
+            (fun s : A => (F s) >>= (fun so : hoption A ## O => ret _ (hsome so))))
+           >>o= fun p : hoption A ## O => ret _ (fst p))
+      = fun (a : hoption A) =>
           a >>o>> fun s => F s >>= fun x => ret _ (fst x).
   Proof.
     introv.
@@ -1709,7 +1768,7 @@ Section ComponentSM.
     apply functional_extensionality; introv; simpl.
     unfold bind_some, bind, M_on_some; simpl.
     destruct x; simpl; auto.
-    destruct (F a x0); simpl; auto.
+    destruct (F s x0); simpl; auto.
   Qed.
   Hint Rewrite @crazy_bind_option1 : comp.
 
@@ -1734,16 +1793,16 @@ Section ComponentSM.
   Hint Rewrite @bind_ret_fun : comp.
 
   Lemma M_on_some_some :
-    forall {n A B} a (f : A -> M_n n (option B)),
-      ((Some a) >>o>> f) = f a.
+    forall {n A B} a (f : A -> M_n n (hoption B)),
+      ((hsome a) >>o>> f) = f a.
   Proof.
     tcsp.
   Qed.
   Hint Rewrite @M_on_some_some : comp.
 
   Lemma M_on_some_some_fun :
-    forall {n A B X} (x : X) (F : X -> A) (f : A -> M_n n (option B)),
-      (fun x => (Some (F x)) >>o>> f) = (fun x => f (F x)).
+    forall {n A B X} (x : X) (F : X -> A) (f : A -> M_n n (hoption B)),
+      (fun x => (hsome (F x)) >>o>> f) = (fun x => f (F x)).
   Proof.
     tcsp.
   Qed.
@@ -1837,17 +1896,17 @@ Section ComponentSM.
   Hint Rewrite @M_break_bind_ret : comp.
 
   Lemma crazy_bind_option2 :
-    forall {n nm A} a (upd : M_Update n nm A) (o : option (cio_I (fio nm))),
+    forall {n nm A} a (upd : M_Update n nm A) (o : hoption (PosDTime * cio_I (fio nm))),
       ((a >>o= fun s : A => M_op_update upd s o)
-         >>o= fun p : option A ## cio_O (fio nm) => ret n (fst p))
+         >>o= fun p : hoption A ## cio_O (fio nm) => ret n (fst p))
       = (a >>o= fun s => M_op_state upd s o).
   Proof.
     introv; apply functional_extensionality; introv; simpl.
     unfold M_op_update, M_op_state, bind_some, bind, M_on_some, ret; simpl.
     destruct (a x); simpl.
-    destruct o0; auto.
-    destruct o; auto.
-    destruct (upd a0 c n0); auto.
+    destruct h; auto.
+    destruct o; auto; repnd; simpl in *.
+    destruct (upd s s1 s0 n0); auto.
   Qed.
   Hint Rewrite @crazy_bind_option2 : comp.
 
@@ -1887,21 +1946,22 @@ Section ComponentSM.
 
   Lemma M_break_M_on_some_option_map :
     forall {A n S O}
-           (a    : option A)
-           (sm   : A -> M_n n (option S))
+           (a    : hoption A)
+           (sm   : A -> M_n n (hoption S))
            (subs : n_procs n)
-           (F    : n_procs n -> option S -> option O),
-      (forall subs', F subs' None = None)
+           (F    : n_procs n -> hoption S -> hoption O),
+      (forall subs', F subs' halt_local = halt_local)
+      -> (forall subs', F subs' halt_global = halt_global)
       -> M_break
            (a >>o>> sm)
            subs
            F
-         = map_option
+         = map_hoption
              (fun a => M_break (sm a) subs F)
              a.
   Proof.
-    introv imp.
-    unfold option_map, map_option, M_break, M_on_some, ret.
+    introv impl impg.
+    unfold hoption_map, map_hoption, M_break, M_on_some, ret.
     destruct a; auto.
   Qed.
 
@@ -1921,8 +1981,8 @@ Section ComponentSM.
   Hint Rewrite @M_break_ret : comp.
 
   Definition bind_some_ret_some :
-    forall {n} {A B} (a : A) (f : A -> M_n n (option B)),
-      ((ret n (Some a)) >>o= f) = f a.
+    forall {n} {A B} (a : A) (f : A -> M_n n (hoption B)),
+      ((ret n (hsome a)) >>o= f) = f a.
   Proof.
     introv.
     apply functional_extensionality; introv; simpl.
@@ -1932,8 +1992,8 @@ Section ComponentSM.
   Hint Rewrite @bind_some_ret_some : comp.
 
   Definition bind_some_ret_some_fun :
-    forall {n} {T A B} (f : A -> M_n n (option B)) (F : T -> A),
-      (fun a => ((ret n (Some (F a))) >>o= f)) = fun x => f (F x).
+    forall {n} {T A B} (f : A -> M_n n (hoption B)) (F : T -> A),
+      (fun a => ((ret n (hsome (F a))) >>o= f)) = fun x => f (F x).
   Proof.
     introv.
     apply functional_extensionality; introv; simpl; autorewrite with comp; auto.
@@ -1941,7 +2001,7 @@ Section ComponentSM.
   Hint Rewrite @bind_some_ret_some_fun : comp.
 
   Lemma bind_bind_some :
-    forall {n} {A B C} (m : M_n n A) (f : A -> M_n n (option B)) (g : B -> M_n n (option C)),
+    forall {n} {A B C} (m : M_n n A) (f : A -> M_n n (hoption B)) (g : B -> M_n n (hoption C)),
       ((m >>= f) >>o= g)
       = (m >>= (fun a => ((f a) >>o= g))).
   Proof.
@@ -1949,17 +2009,18 @@ Section ComponentSM.
     unfold bind_some, bind, M_on_some; simpl.
     destruct (m x).
     destruct (f a n0).
-    destruct o; simpl; auto.
-    destruct (g b n1); auto.
+    destruct h; simpl; auto.
+    destruct (g s n1); auto.
   Qed.
 
   Lemma M_break_bind_some :
     forall {n A B O}
-           (a    : M_n n (option A))
-           (G    : A -> M_n n (option B))
+           (a    : M_n n (hoption A))
+           (G    : A -> M_n n (hoption B))
            (subs : n_procs n)
-           (F    : n_procs n -> option B -> option O),
-      (forall subs, F subs None = None)
+           (F    : n_procs n -> hoption B -> hoption O),
+      (forall subs, F subs halt_local = halt_local)
+      -> (forall subs, F subs halt_global = halt_global)
       -> M_break
            (a >>o= G)
            subs
@@ -1967,25 +2028,26 @@ Section ComponentSM.
          = M_break
              a
              subs
-             (fun subs' (aop : option A) =>
-                map_option
+             (fun subs' (aop : hoption A) =>
+                map_hoption
                   (fun (a : A) => M_break (G a) subs' F)
                   aop).
   Proof.
-    introv imp.
+    introv impl impg.
     unfold M_break, bind_some, bind, M_on_some; simpl.
     destruct (a subs); auto.
-    destruct o; simpl; auto.
-    destruct (G a0 n0); auto.
+    destruct h; simpl; auto.
+    destruct (G s n0); auto.
   Qed.
 
   Lemma M_break_bind_some_ret :
     forall {n A B O}
-           (a    : M_n n (option A))
-           (G    : A -> option B)
+           (a    : M_n n (hoption A))
+           (G    : A -> hoption B)
            (subs : n_procs n)
-           (F    : n_procs n -> option B -> option O),
-      (forall subs, F subs None = None)
+           (F    : n_procs n -> hoption B -> hoption O),
+      (forall subs, F subs halt_local = halt_local)
+      -> (forall subs, F subs halt_global = halt_global)
       -> M_break
            (a >>o= fun p => ret _ (G p))
            subs
@@ -1993,9 +2055,9 @@ Section ComponentSM.
          = M_break
              a
              subs
-             (fun subs' aop => map_option (fun a => F subs' (G a)) aop).
+             (fun subs' aop => map_hoption (fun a => F subs' (G a)) aop).
   Proof.
-    introv imp.
+    introv impl impg.
     rewrite M_break_bind_some; auto.
   Qed.
 
@@ -2013,8 +2075,8 @@ Section ComponentSM.
             auto).
 
   Definition bind_some_ret_some_fun2 :
-    forall {n} {T A B} (f : T -> A -> M_n n (option B)) (F : T -> A),
-      (fun a => ((ret n (Some (F a))) >>o= f a)) = fun x => (f x) (F x).
+    forall {n} {T A B} (f : T -> A -> M_n n (hoption B)) (F : T -> A),
+      (fun a => ((ret n (hsome (F a))) >>o= f a)) = fun x => (f x) (F x).
   Proof.
     introv.
     apply functional_extensionality; introv; simpl; autorewrite with comp; auto.
@@ -2080,8 +2142,8 @@ Section ComponentSM.
   Qed.
 
   Lemma M_on_some_ret_some :
-    forall {n A} (a : option A),
-      (a >>o>> fun a => ret n (Some a))
+    forall {n A} (a : hoption A),
+      (a >>o>> fun a => ret n (hsome a))
       = ret _ a.
   Proof.
     destruct a; simpl; auto.
@@ -2089,8 +2151,8 @@ Section ComponentSM.
   Hint Rewrite @M_on_some_ret_some : comp.
 
   Lemma M_on_some_ret_some_fun :
-    forall {n A B} (F : B -> option A),
-      (fun x => F x >>o>> fun a => ret n (Some a))
+    forall {n A B} (F : B -> hoption A),
+      (fun x => F x >>o>> fun a => ret n (hsome a))
       = fun x => ret _ (F x).
   Proof.
     introv; apply functional_extensionality; introv; autorewrite with comp; auto.
@@ -2108,7 +2170,7 @@ Section ComponentSM.
   Qed.
 
   Lemma eq_M_on_some :
-    forall {A B} {n:nat} (m : option A) (f g : A -> M_n n (option B)),
+    forall {A B} {n:nat} (m : hoption A) (f g : A -> M_n n (hoption B)),
       (forall a, f a = g a)
       -> (m >>o>> f) = (m >>o>> g).
   Proof.
@@ -2119,9 +2181,9 @@ Section ComponentSM.
 
   Lemma M_on_some_bind_M_on_some :
     forall {n A B C}
-           (xop : option A)
-           (f : A -> M_n n (option B))
-           (g : B -> M_n n (option C)),
+           (xop : hoption A)
+           (f : A -> M_n n (hoption B))
+           (g : B -> M_n n (hoption C)),
       ((xop >>o>> f) >>= fun x => x >>o>> g)
       = (xop >>o>> fun a => f a >>= fun y => y >>o>> g).
   Proof.
@@ -2134,46 +2196,47 @@ Section ComponentSM.
     forall {n} {nm} {S} {O}
            (upd  : M_Update n nm S)
            (s    : S)
-           (i    : option (cio_I (fio nm)))
+           (i    : hoption (PosDTime * cio_I (fio nm)))
            (subs : n_procs n)
-           (F    : n_procs n -> _ -> option O),
-      (forall subs', F subs' None = None)
+           (F    : n_procs n -> _ -> hoption O),
+      (forall subs', F subs' halt_local = halt_local)
+      -> (forall subs', F subs' halt_global = halt_global)
       -> M_break
            (M_op_state upd s i)
            subs
            F
-         = map_option
-             (fun i => M_break (upd s i) subs (fun subs' s => F subs' (fst s)))
+         = map_hoption
+             (fun i => M_break (upd s (fst i) (snd i)) subs (fun subs' s => F subs' (fst s)))
              i.
   Proof.
-    introv imp.
-    unfold M_break; destruct i; simpl; auto.
+    introv impl impg.
+    unfold M_break; destruct i; repnd; simpl; auto.
     unfold bind; simpl.
-    destruct (upd s c subs); auto.
+    destruct (upd s s1 s0 subs); auto.
   Qed.
 
   Lemma bind_some_bind_M_on_some :
     forall {n} {A B C}
-           (m : M_n n (option A))
-           (f : A -> M_n n (option B))
-           (g : B -> M_n n (option C)),
+           (m : M_n n (hoption A))
+           (f : A -> M_n n (hoption B))
+           (g : B -> M_n n (hoption C)),
       ((m >>o= f) >>= (fun b => b >>o>> g))
       = (m >>o= fun a => (f a) >>= fun b => b >>o>> g).
   Proof.
     introv; apply functional_extensionality; introv; simpl.
     unfold bind_some, bind, M_on_some; simpl.
     destruct (m x).
-    destruct o; simpl; auto.
-    destruct (f a n0).
-    destruct o; simpl; auto.
-    destruct (g b n1); auto.
+    destruct h; simpl; auto.
+    destruct (f s n0).
+    destruct h; simpl; auto.
+    destruct (g s0 n1); auto.
   Qed.
 
   Lemma bind_some_bind_some :
     forall {n A B C}
-           (a : M_n n (option A))
-           (f : A -> M_n n (option B))
-           (g : B -> M_n n (option C)),
+           (a : M_n n (hoption A))
+           (f : A -> M_n n (hoption B))
+           (g : B -> M_n n (hoption C)),
       ((a >>o= f) >>o= g)
       = (a >>o= (fun a => (f a) >>o= g)).
   Proof.
@@ -2185,9 +2248,9 @@ Section ComponentSM.
 
   Lemma M_on_some_bind_some :
     forall {n A B C}
-           (a : option A)
-           (f : A -> M_n n (option B))
-           (g : B -> M_n n (option C)),
+           (a : hoption A)
+           (f : A -> M_n n (hoption B))
+           (g : B -> M_n n (hoption C)),
       ((a >>o>> f) >>o= g)
       = (a >>o>> (fun a => (f a) >>o= g)).
   Proof.
@@ -2196,14 +2259,14 @@ Section ComponentSM.
   Qed.
 
   Lemma eq_bind_some :
-    forall {A B} {n:nat} (m : M_n n (option A)) (f g : A -> M_n n (option B)),
+    forall {A B} {n:nat} (m : M_n n (hoption A)) (f g : A -> M_n n (hoption B)),
       (forall a, f a = g a)
       -> (m >>o= f) = (m >>o= g).
   Proof.
     introv imp; apply functional_extensionality; introv.
     unfold bind_some, bind, M_on_some; simpl; auto.
     destruct (m x); auto.
-    destruct o; simpl; auto.
+    destruct h; simpl; auto.
     rewrite imp; auto.
   Qed.
 
@@ -2235,12 +2298,12 @@ Section ComponentSM.
     forall {L S}
            (ls : LocalSystem L S)
            {cn}
-           (i  : option (cio_I (fio cn)))
-           (l  : oplist (cio_I (fio cn))),
+           (i  : option (PosDTime * cio_I (fio cn)))
+           (l  : oplist (PosDTime * cio_I (fio cn))),
       M_run_ls_on_op_inputs ls cn (snoc l i)
       = on_some
           (M_run_ls_on_op_inputs ls cn l)
-          (fun ls' => option_map (M_run_ls_on_input_ls ls' cn) i).
+          (fun ls' => option_map (fun x => M_run_ls_on_input_ls ls' cn (fst x) (snd x)) i).
   Proof.
     introv; revert ls; induction l; introv; simpl; auto.
     unfold on_some.
@@ -2253,13 +2316,25 @@ Section ComponentSM.
     forall {L S}
            (ls : LocalSystem L S)
            {cn}
+           (t  : PosDTime)
            (i  : cio_I (fio cn))
-           (l  : list (cio_I (fio cn))),
-      M_run_ls_on_inputs ls cn (snoc l i)
+           (l  : list (PosDTime * cio_I (fio cn))),
+      M_run_ls_on_inputs ls cn (snoc l (t,i))
       = let ls' := M_run_ls_on_inputs ls cn l
-        in M_run_ls_on_input_ls ls' cn i.
+        in M_run_ls_on_input_ls ls' cn t i.
   Proof.
     introv; revert ls; induction l; introv; simpl; auto.
+  Qed.
+
+  Lemma option_map_time_trigger_op :
+    forall {S B} {eo : EventOrdering} (e : Event)
+           (F : (PosDTime * cio_I (fio (msg_comp_name S))) -> B),
+      option_map F (time_trigger_op e)
+      = option_map (fun i => F (time e, i)) (trigger_op e).
+  Proof.
+    introv.
+    unfold time_trigger_op, trigger_op; auto.
+    destruct (trigger e); simpl; auto.
   Qed.
 
   Lemma M_run_ls_before_event_unroll :
@@ -2285,6 +2360,7 @@ Section ComponentSM.
     rewrite M_run_ls_on_op_inputs_snoc.
 
     unfold on_some, map_option; dest_cases w.
+    rewrite option_map_time_trigger_op; auto.
   Qed.
 
   Lemma M_run_ls_before_event_as_M_run_ls_on_event_pred :
@@ -2473,39 +2549,39 @@ Section ComponentSM.
   (* ====== A ====== *)
   Definition Aname : CompName := MkCN "NAT" 2 false.
   Definition A_update : M_Update 0 Aname _ :=
-    fun (s : nat) (i : nat) =>
-        (ret _ (Some (s + i), s + i)).
+    fun (s : nat) (t : PosDTime) (i : nat) =>
+        (ret _ (hsome (s + i), s + i)).
   Definition A : n_proc 1 _ := build_m_sm A_update 0.
 
   (* ====== B ====== *)
   Definition Bname : CompName := MkCN "NAT" 3 false.
   Definition B_update : M_Update 1 Bname _ :=
-    fun s i =>
+    fun s t i =>
       spawn_proc_once
         (MkPProc _ A)
         (*remove_proc Aname*)
-        ((call_proc Aname i)
+        ((call_proc Aname t i)
            >>= fun out =>
-                 ret _ (Some (s + out + 1), s + out + 1)).
+                 ret _ (hsome (s + out + 1), s + out + 1)).
   Definition B : n_proc _ _ := build_m_sm B_update 0.
 
   (* ====== C ====== *)
   Definition Cname : CompName := MkCN "NAT" 4 false.
   Definition C_update : M_Update 2 Cname _ :=
-    fun s i =>
-      (call_proc Bname i)
+    fun s t i =>
+      (call_proc Bname t i)
         >>= fun out1 =>
-              (call_proc Bname i)
+              (call_proc Bname t i)
                 >>= fun out2 =>
-                      ret _ (Some (s + out1 + out2 + 2), s + out1 + out2 + 2).
+                      ret _ (hsome (s + out1 + out2 + 2), s + out1 + out2 + 2).
   Definition C : n_proc _ _ := build_m_sm C_update 0.
 
   (* ====== Main ====== *)
   Definition Mname : CompName := MkCN "NAT" 5 false.
   Definition M_update : M_Update 3 Mname nat :=
-    fun s i =>
-      (call_proc Cname i)
-        >>= (fun out => ret _ (Some s, out)).
+    fun s t i =>
+      (call_proc Cname t i)
+        >>= (fun out => ret _ (hsome s, out)).
   Definition M : n_proc _ _ := build_m_sm M_update 0.
 
 
@@ -2520,11 +2596,11 @@ Section ComponentSM.
     ].
 
 
-  Definition ex_test1 := M_run_ls_on_input_out ex_ls Mname 17.
+  Definition ex_test1 := M_run_ls_on_input_out ex_ls Mname pdt0 17.
   Eval compute in (ex_test1 = Some 73).
 
-  Definition ex_test2 := let ls := M_run_ls_on_input_ls ex_ls Mname 17 in
-                         M_run_ls_on_input_out ls Mname 17.
+  Definition ex_test2 := let ls := M_run_ls_on_input_ls ex_ls Mname pdt0 17 in
+                         M_run_ls_on_input_out ls Mname pdt0 17.
   Eval compute in (ex_test2 = Some 354).
   (******************************************)
 
@@ -3274,17 +3350,17 @@ Section ComponentSM.
 
   (* TODO: why is that just for the main component? *)
   Definition ls_preserves_subs {n} (ls : n_procs n) :=
-    forall (cn : CompName) (i : cio_I (fio cn)) (ls0 : n_procs n),
+    forall (cn : CompName) (t : PosDTime) (i : cio_I (fio cn)) (ls0 : n_procs n),
       similar_subs ls ls0
-      -> similar_subs ls0 (M_run_ls_on_input_ls ls0 cn i).
+      -> similar_subs ls0 (M_run_ls_on_input_ls ls0 cn t i).
 
   Definition sys_preserves_subs {F} (sys : M_USystem F) :=
     forall cn, ls_preserves_subs (sys cn).
 
   Lemma M_run_ls_on_input_preserves_ls_preserves_subs :
-    forall {n} (ls : n_procs n) cn i,
+    forall {n} (ls : n_procs n) cn t i,
       ls_preserves_subs ls
-      -> ls_preserves_subs (M_run_ls_on_input_ls ls cn i).
+      -> ls_preserves_subs (M_run_ls_on_input_ls ls cn t i).
   Proof.
     introv pres sim.
     apply pres; eauto 3 with comp.
@@ -3337,7 +3413,7 @@ Section ComponentSM.
     forall {n}
            (ls : n_procs n)
            {cn}
-           (l k : oplist (cio_I (fio cn))),
+           (l k : oplist (PosDTime * cio_I (fio cn))),
       M_run_ls_on_op_inputs ls cn (l ++ k)
       = on_some
           (M_run_ls_on_op_inputs ls cn l)
@@ -3355,12 +3431,30 @@ Section ComponentSM.
     forall {n}
            (ls : n_procs n)
            {cn}
-           (l k : list (cio_I (fio cn))),
+           (l k : list (PosDTime * cio_I (fio cn))),
       M_run_ls_on_inputs ls cn (l ++ k)
       = let ls' := M_run_ls_on_inputs ls cn l in
         M_run_ls_on_inputs ls' cn k.
   Proof.
     introv; revert ls k; induction l; introv; simpl; auto.
+  Qed.
+
+  Lemma time_trigger_op_some_implies_time :
+    forall {eo : EventOrdering} (e : Event) t i,
+      time_trigger_op e = Some (t, i)
+      -> time e = t.
+  Proof.
+    introv h; unfold time_trigger_op, trigger_op in h.
+    destruct (trigger e); simpl in *; ginv; auto.
+  Qed.
+
+  Lemma time_trigger_op_some_implies_time_trigger_op :
+    forall {eo : EventOrdering} (e : Event) t i,
+      time_trigger_op e = Some (t, i)
+      -> trigger_op e = Some i.
+  Proof.
+    introv h; unfold time_trigger_op, trigger_op in *.
+    destruct (trigger e); simpl in *; ginv; auto.
   Qed.
 
   Lemma M_state_sys_on_event_some_between :
@@ -3411,15 +3505,22 @@ Section ComponentSM.
     allrw; simpl in *.
 
     applydup @M_run_ls_on_inputs_preserves_ls_preserves_subs in eqs1 as pres1; auto;[].
-    pose proof (M_run_ls_on_input_preserves_ls_preserves_subs a2 (msg_comp_name (fls_space F (loc e1))) a3) as pres2; autodimp pres2 hyp.
+    pose proof (M_run_ls_on_input_preserves_ls_preserves_subs
+                  a2
+                  (msg_comp_name (fls_space F (loc e1)))
+                  (time e1)
+                  a3) as pres2;
+      autodimp pres2 hyp.
+    assert (a4 = time e1) as eqt1 by (apply time_trigger_op_some_implies_time in eqs4; auto); subst.
     applydup @M_run_ls_on_inputs_preserves_ls_preserves_subs in eqs3 as pres3; auto;[].
 
     applydup @ls_preserves_subs_implies_M_run_update_on_list in eqs3 as sim1; auto;[].
-    pose proof (pres3 (msg_comp_name (fls_space F(loc e1))) a1 a0) as sim2; autodimp sim2 hyp; eauto 3 with comp.
+    pose proof (pres3 (msg_comp_name (fls_space F(loc e1))) (time e2) a1 a0) as sim2; autodimp sim2 hyp; eauto 3 with comp.
 
     eapply similar_subs_trans in sim2;[|exact sim1].
     apply similar_subs_sym in sim2.
     eapply state_of_component_if_similar in eqs0; try exact sim2; auto.
+    erewrite time_trigger_op_some_implies_time_trigger_op; eauto; simpl; auto.
   Qed.
 
   Definition M_output_ls_on_this_one_event
@@ -3429,8 +3530,8 @@ Section ComponentSM.
              (e  : Event) : DirectedMsgs :=
     olist2list
       (on_some
-         (trigger_op e)
-         (M_run_ls_on_input_out ls (msg_comp_name Sp))).
+         (time_trigger_op e)
+         (fun x => M_run_ls_on_input_out ls (msg_comp_name Sp) (fst x) (snd x))).
 
   Definition M_output_ls_on_event
              {Lv Sp}
@@ -3862,19 +3963,21 @@ Section ComponentSM.
   Definition M_run_ls_on_trusted
              {n}
              (ls : n_procs n)
+             (t  : PosDTime)
              (i  : ITrusted) : n_procs n * option (cio_O (fio (pre2trusted (it_name i)))) :=
-    M_run_ls_on_input ls (pre2trusted (it_name i)) (it_input i).
+    M_run_ls_on_input ls (pre2trusted (it_name i)) t (it_input i).
 
   Definition M_byz_run_ls_on_input
              {n}
              (ls : n_procs n)
              cn
+             (t  : PosDTime)
              (i  : trigger_info (cio_I (fio cn)))
     : n_procs n * option (trigger_info2out cn i) :=
     match i with
-    | trigger_info_data d => M_run_ls_on_input ls cn d
+    | trigger_info_data d => M_run_ls_on_input ls cn t d
     | trigger_info_arbitrary => (procs2byz ls, None)
-    | trigger_info_trusted j => M_run_ls_on_trusted (procs2byz ls) j
+    | trigger_info_trusted j => M_run_ls_on_trusted (procs2byz ls) t j
     end.
 
   Definition to_snd_byz_msg
@@ -3924,7 +4027,7 @@ Section ComponentSM.
              {eo : EventOrdering}
              (e  : Event)
     : LocalSystem Lv Sp * option (event2out Sp e) :=
-    M_byz_run_ls_on_input ls (msg_comp_name Sp) (trigger e).
+    M_byz_run_ls_on_input ls (msg_comp_name Sp) (time e) (trigger e).
 
   (*Definition M_byz_run_ls_on_one_event_B
              {Lv Sp}
@@ -3938,12 +4041,12 @@ Section ComponentSM.
            {n}
            (ls : n_procs n)
            cn
-           (l  : list (trigger_info (cio_I (fio cn))))
+           (l  : list (PosDTime * trigger_info (cio_I (fio cn))))
     : n_procs n :=
     match l with
     | [] => ls
-    | i :: rest =>
-      let ls' := fst (M_byz_run_ls_on_input ls cn i) in
+    | (t, i) :: rest =>
+      let ls' := fst (M_byz_run_ls_on_input ls cn t i) in
       M_byz_run_ls_on_inputs ls' cn rest
     end.
 
@@ -3955,7 +4058,7 @@ Section ComponentSM.
     M_byz_run_ls_on_inputs
       ls
       (msg_comp_name Sp)
-      (map trigger (@localPreds pn pk pm _ _ eo e)).
+      (map (fun e => (time e, trigger e)) (@localPreds pn pk pm _ _ eo e)).
 
   Definition M_byz_output_ls_on_event
              {L S}
@@ -4368,9 +4471,9 @@ Section ComponentSM.
   Qed.
 
   Lemma on_M_some_ret_Some :
-    forall {T} {U} {n} (a : option T) (F : T -> U),
-      (a >>o>> (fun s => ret n (Some (F s))))
-      = ret n (option_map F a).
+    forall {T} {U} {n} (a : hoption T) (F : T -> U),
+      (a >>o>> (fun s => ret n (hsome (F s))))
+      = ret n (hoption_map F a).
   Proof.
     introv; destruct a; simpl; auto.
   Qed.
@@ -4379,9 +4482,9 @@ Section ComponentSM.
   Lemma bind_some_if_trigger_info_data :
     forall {n} {S} {O} {D}
            (a    : trigger_info D)
-           (f    : D -> M_n n (option S))
-           (g    : M_n n (option S))
-           (F    : S -> M_n n (option O)),
+           (f    : D -> M_n n (hoption S))
+           (g    : M_n n (hoption S))
+           (F    : S -> M_n n (hoption O)),
       ((if_trigger_info_data a f g) >>o= F)
       = if_trigger_info_data
           a
@@ -4454,11 +4557,12 @@ Section ComponentSM.
     forall {Lv Sp}
            (ls : LocalSystem Lv Sp)
            cn
+           (t  : PosDTime)
            (i  : trigger_info (cio_I (fio cn)))
-           (l  : list (trigger_info (cio_I (fio cn)))),
-      M_byz_run_ls_on_inputs ls cn (snoc l i)
+           (l  : list (PosDTime * trigger_info (cio_I (fio cn)))),
+      M_byz_run_ls_on_inputs ls cn (snoc l (t,i))
       = let ls' := M_byz_run_ls_on_inputs ls cn l in
-        fst (M_byz_run_ls_on_input ls' cn i).
+        fst (M_byz_run_ls_on_input ls' cn t i).
   Proof.
     introv; revert ls; induction l; introv; simpl; tcsp.
   Qed.
@@ -4542,15 +4646,15 @@ Section ComponentSM.
            (e  : Event),
       M_byz_run_ls_on_this_one_event ls e
       = match trigger e with
-        | trigger_info_data d => fst (M_run_ls_on_input ls (msg_comp_name Sp) d)
+        | trigger_info_data d => fst (M_run_ls_on_input ls (msg_comp_name Sp) (time e) d)
         | trigger_info_arbitrary => procs2byz ls
-        | trigger_info_trusted j => fst (M_run_ls_on_trusted (procs2byz ls) j)
+        | trigger_info_trusted j => fst (M_run_ls_on_trusted (procs2byz ls) (time e) j)
         end.
   Proof.
     introv.
     unfold M_byz_run_ls_on_this_one_event.
     unfold M_byz_run_ls_on_one_event.
-    remember (M_byz_run_ls_on_input ls (msg_comp_name Sp) (trigger e)) as h; repnd; simpl in *.
+    remember (M_byz_run_ls_on_input ls (msg_comp_name Sp) (time e) (trigger e)) as h; repnd; simpl in *.
     unfold M_byz_run_ls_on_input in *.
     destruct (trigger e); simpl in *; ginv; auto.
   Qed.
@@ -4847,12 +4951,13 @@ Section ComponentSM.
         trigger_op e = Some m
         /\ find_name (msg_comp_name Sp) ls = Some comp
         /\ In out (M_break
-                     (M_run_sm_on_input comp m)
+                     (M_run_sm_on_input comp (time e) m)
                      ls
                      (fun subs out => snd out)).
   Proof.
     introv i.
     unfold M_output_ls_on_this_one_event in *.
+    unfold time_trigger_op in *.
     remember (trigger_op e) as trig; symmetry in Heqtrig; destruct trig; simpl in *; ginv; tcsp; eauto.
     unfold M_run_ls_on_input_out in i.
     unfold M_run_ls_on_input in i.
@@ -4903,7 +5008,7 @@ Section ComponentSM.
     unfold M_byz_run_ls_on_one_event.
     applydup has_correct_trace_before_implies_trigger_eq in cor; exrepnd.
     unfold trigger_op.
-    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (trigger e)) as run; repnd; simpl in *.
+    remember (M_byz_run_ls_on_input ls1 (msg_comp_name S) (time e) (trigger e)) as run; repnd; simpl in *.
     revert dependent run.
     rewrite cor1; simpl; introv h.
     unfold M_run_ls_on_input_ls; rewrite <- h; simpl; auto.
@@ -5050,7 +5155,7 @@ Section ComponentSM.
     unfold M_output_ls_on_this_one_event in i0.
     unfold M_run_ls_on_input_out in i0.
     unfold M_byz_run_ls_on_one_event.
-    unfold trigger_op, event2out, dmsg_is_in_out in *; simpl in *.
+    unfold time_trigger_op, trigger_op, event2out, dmsg_is_in_out in *; simpl in *.
     remember (trigger e) as trig; clear Heqtrig.
     destruct trig; simpl in *; tcsp.
     apply in_olist2list in i0; exrepnd; simpl in *.
@@ -5147,7 +5252,7 @@ Section ComponentSM.
     exists d o; dands; auto.
     rewrite M_byz_run_ls_before_event_as_M_run_ls_before_event; auto; simpl.
     unfold M_output_ls_on_this_one_event.
-    unfold trigger_op; allrw <-; simpl.
+    unfold time_trigger_op, trigger_op; allrw <-; simpl.
     unfold M_run_ls_on_input_out; simpl in *.
     unfold LocalSystem in *; rewrite out; simpl; auto.
     eauto 3 with eo comp.
@@ -5162,15 +5267,17 @@ Section ComponentSM.
     introv out.
     unfold M_output_ls_on_this_one_event in out.
     apply in_olist2list in out; exrepnd.
-    apply map_option_Some in out1; exrepnd; rev_Some.
+    apply map_option_Some in out1; exrepnd; rev_Some; simpl in *.
     unfold M_run_ls_on_input_out in out2.
 
     unfold M_byz_output_ls_on_this_one_event.
     unfold M_byz_run_ls_on_one_event.
-    apply trigger_op_Some_implies_trigger_message in out1.
-    remember (M_byz_run_ls_on_input ls (msg_comp_name s) (trigger e)) as z; symmetry in Heqz; repnd; simpl in *.
-    revert z Heqz.
-    unfold event2out, dmsg_is_in_out in *; rewrite out1; simpl; introv run.
+    applydup time_trigger_op_some_implies_time in out1; subst.
+    applydup time_trigger_op_some_implies_time_trigger_op in out1 as trig.
+    apply trigger_op_Some_implies_trigger_message in trig.
+    remember (M_byz_run_ls_on_input ls (msg_comp_name s) (time e) (trigger e)) as z; symmetry in Heqz; repnd; simpl in *.
+    revert z Heqz; clear out1.
+    unfold event2out, dmsg_is_in_out in *; rewrite trig; simpl; introv run.
     rewrite run in out2; simpl in *; subst; simpl in *.
     exists l; dands; auto.
   Qed.

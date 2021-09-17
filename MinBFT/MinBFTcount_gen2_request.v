@@ -49,7 +49,7 @@ Section MinBFTcount_gen2_request.
     unfold M_output_ls_on_this_one_event, M_run_ls_on_input_out.
     unfold trigger_op in *; rewrite trig in *; simpl in *; ginv; simpl in *.
     unfold M_run_ls_on_input_ls in h0.
-    remember (M_run_ls_on_input (MinBFTlocalSys_newP s s1 subs1) (msg_comp_name 0) (MinBFT_request r)) as run.
+    remember (M_run_ls_on_input (MinBFTlocalSys_newP s s1 subs1) (msg_comp_name 0) pdt0 (MinBFT_request r)) as run.
     symmetry in Heqrun; repnd; simpl in *; subst.
 
     unfold M_run_ls_on_input in Heqrun; simpl in *.

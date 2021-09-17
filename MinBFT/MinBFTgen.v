@@ -22,17 +22,17 @@ Section MinBFTgen.
 
 
   Lemma M_break_call_proc_USIGname :
-    forall {O} i subs (F : n_procs 1 -> USIG_output_interface -> O),
+    forall {O} t i subs (F : n_procs 1 -> USIG_output_interface -> O),
       M_break
-        (call_proc USIGname i)
+        (call_proc USIGname t i)
         subs
         F
       = match find_name USIGname subs with
         | Some a =>
           match a with
           | sm_or_at a =>
-            let subs' := M_break_mon (lift_M_1 (app_n_proc_at (sm2p0 a) i)) subs in
-            let out := M_break_out (lift_M_1 (app_n_proc_at (sm2p0 a) i)) subs in
+            let subs' := M_break_mon (lift_M_1 (app_n_proc_at (sm2p0 a) t i)) subs in
+            let out := M_break_out (lift_M_1 (app_n_proc_at (sm2p0 a) t i)) subs in
             F (replace_name_op (fst out) subs') (snd out)
           | sm_or_sm x => match x with end
           end
@@ -50,17 +50,17 @@ Section MinBFTgen.
   Hint Rewrite @M_break_call_proc_USIGname : minbft2.
 
   Lemma M_break_call_proc_LOGname :
-    forall {O} i subs (F : n_procs 1 -> LOG_output_interface -> O),
+    forall {O} t i subs (F : n_procs 1 -> LOG_output_interface -> O),
       M_break
-        (call_proc LOGname i)
+        (call_proc LOGname t i)
         subs
         F
       = match find_name LOGname subs with
         | Some a =>
           match a with
           | sm_or_at a =>
-            let subs' := M_break_mon (lift_M_1 (app_n_proc_at (sm2p0 a) i)) subs in
-            let out := M_break_out (lift_M_1 (app_n_proc_at (sm2p0 a) i)) subs in
+            let subs' := M_break_mon (lift_M_1 (app_n_proc_at (sm2p0 a) t i)) subs in
+            let out := M_break_out (lift_M_1 (app_n_proc_at (sm2p0 a) t i)) subs in
             F (replace_name_op (fst out) subs') (snd out)
           | sm_or_sm x => match x with end
           end
@@ -154,9 +154,9 @@ Section MinBFTgen.
   Qed.*)
 
   Lemma is_M_break_mon_0_implies_eq :
-    forall {cn} (p : n_proc_at 0 cn) (i : cio_I (fio cn)) (l k : n_procs 1),
+    forall {cn} (p : n_proc_at 0 cn) t (i : cio_I (fio cn)) (l k : n_procs 1),
       is_proc_n_proc_at p
-      -> is_M_break_mon (lift_M_1 (app_n_proc_at p i)) l k
+      -> is_M_break_mon (lift_M_1 (app_n_proc_at p t i)) l k
       -> k = l.
   Proof.
     introv isp h.
@@ -164,21 +164,25 @@ Section MinBFTgen.
       simpl in *; subst.
     rewrite (n_procs_0 (decr_n_procs l)).
 
-    pose proof (are_procs_implies_preserves_sub p (sm_state p) i []) as q.
+    pose proof (are_procs_implies_preserves_sub p (sm_state p) t i []) as q.
     repeat (autodimp q hyp); eauto 3 with comp;[].
     unfold M_break in q.
 
-    remember (sm_update p (sm_state p) i []) as w; symmetry in Heqw; simpl in *.
+    remember (sm_update p (sm_state p) t i []) as w; symmetry in Heqw; simpl in *.
     unfold n_nproc in *; simpl in *; rewrite Heqw; rewrite Heqw in q.
     repnd; simpl in *.
-    inversion q0; subst; rewrite update_subs_nil_r; auto.
+    unfold update_subs_decr.
+    inversion q0; subst.
+    autorewrite with comp; simpl.
+    rewrite update_subs_nil_r; auto.
   Qed.
 
   (* Move to some ComponentSM file*)
-  Definition is_proc_n_proc_op {n} {cn} (o : option (n_proc n cn)) :=
+  Definition is_proc_n_proc_op {n} {cn} (o : hoption (n_proc n cn)) :=
     match o with
-    | Some p => is_proc_n_proc p
-    | None => True
+    | hsome p => is_proc_n_proc p
+    | halt_local => True
+    | halt_global => True
     end.
 
   (* Move to some ComponentSM file*)
@@ -193,13 +197,13 @@ Section MinBFTgen.
 
   (* Move to some ComponentSM file*)
   Lemma are_procs_n_procs_replace_name_op :
-    forall {n} {cn} (o : option (n_proc n cn)) l,
+    forall {n} {cn} (o : hoption (n_proc n cn)) l,
       is_proc_n_proc_op o
       -> are_procs_n_procs l
       -> are_procs_n_procs (replace_name_op o l).
   Proof.
     introv ips aps i.
-    destruct o; simpl in *.
+    destruct o; simpl in *;tcsp.
     { apply in_replace_name_implies in i; repndors; subst; tcsp. }
     { apply in_remove_name_implies_in in i; tcsp. }
   Qed.
@@ -207,9 +211,9 @@ Section MinBFTgen.
 
   (* Move to some ComponentSM file*)
   Lemma is_M_break_out_preserves_is_proc_n_proc_op :
-    forall {n} {cn} (p : n_proc_at n cn) l i o b,
+    forall {n} {cn} (p : n_proc_at n cn) l t i o b,
       is_proc_n_proc_at p
-      -> is_M_break_out (lift_M_1 (app_n_proc_at p i)) l (o, b)
+      -> is_M_break_out (lift_M_1 (app_n_proc_at p t i)) l (o, b)
       -> is_proc_n_proc_op o.
   Proof.
     introv isp brk.
@@ -221,10 +225,10 @@ Section MinBFTgen.
   Hint Resolve is_M_break_out_preserves_is_proc_n_proc_op : comp.
 
   Lemma is_M_break_out_preserves_subs_sm2p0 :
-    forall {cn} (p : n_proc_at 0 cn) l i o b,
+    forall {cn} (p : n_proc_at 0 cn) l t i o b,
       is_proc_n_proc_at p
-      -> is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) i)) l (o, b)
-      -> exists q, o = Some (at2sm q) /\ similar_sms_at p q.
+      -> is_M_break_out (lift_M_1 (app_n_proc_at (sm2p0 p) t i)) l (o, b)
+      -> exists q, o = hsome (at2sm q) /\ similar_sms_at p q.
   Proof.
     introv j h.
     apply is_M_break_out_preserves_subs in h; auto; exrepnd; simpl in *.

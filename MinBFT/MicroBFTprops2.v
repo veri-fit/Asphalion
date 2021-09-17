@@ -151,7 +151,7 @@ Admitted.
   Proof.
     unfold trusted_run_sm_on_inputs.
     induction l; introv eqid run; simpl in *; tcsp; subst; tcsp.
-    destruct a; repnd; simpl in *; simpl in *; tcsp.
+    repnd; destruct a; repnd; simpl in *; simpl in *; tcsp.
 
     { unfold update_state in *; simpl in *.
       autorewrite with comp.

@@ -28,6 +28,7 @@
 
 Require Export Quorum.
 Require Export Process.
+Require Export String.
 
 
 Section PBFTheader.
@@ -1312,7 +1313,7 @@ Section PBFTheader.
   | PBFTnew_view             (v : NewView)
   | PBFTdebug                (d : Debug).
 
-  Global Instance PBFT_I_Msg : Msg := MkMsg PBFTmsg.
+  Global Instance PBFT_I_Msg : Msg := MkMsg PBFTmsg (PBFTdebug (debug replica0 "")).
 
   Definition PBFTmsg2status (m : PBFTmsg) : msg_status :=
     match m with

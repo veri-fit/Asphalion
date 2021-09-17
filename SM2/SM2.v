@@ -228,7 +228,7 @@ Section SM2.
   | sm_msg_signed (v : sm_signed_msg)
   | sm_msg_result (v : sm_value).
 
-  Global Instance SM_I_Msg : Msg := MkMsg SMmsg.
+  Global Instance SM_I_Msg : Msg := MkMsg SMmsg sm_msg_init.
 
   (* FIX : Is this correct? *)
   Definition SMmsg2status (m : SMmsg) : msg_status :=

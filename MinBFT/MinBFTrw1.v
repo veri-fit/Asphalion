@@ -98,12 +98,12 @@ Section MinBFTrw1.
   Lemma update_subs_MinBFTlocalSys_newP_same :
     forall r s subs,
       ~ In MAINname (get_names subs)
-      -> update_subs
+      -> update_subs_decr
            (MinBFTlocalSys_newP r s subs)
            (decr_n_procs (MinBFTlocalSys_newP r s subs))
          = MinBFTlocalSys_newP r s subs.
   Proof.
-    introv ni; unfold update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
+    introv ni; unfold update_subs_decr, update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
     autorewrite with comp; simpl.
     rewrite (remove_names_cons
                (get_names subs)
@@ -117,10 +117,10 @@ Section MinBFTrw1.
   Lemma update_subs_MinBFTlocalSys_newP_same2 :
     forall r s (subs : n_procs 1),
       ~ In MAINname (get_names subs)
-      -> update_subs (MinBFTlocalSys_newP r s subs) subs
+      -> update_subs_decr (MinBFTlocalSys_newP r s subs) subs
          = MinBFTlocalSys_newP r s subs.
   Proof.
-    introv ni; unfold update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
+    introv ni; unfold update_subs_decr, update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
     autorewrite with comp; simpl.
     rewrite (remove_names_cons
                (get_names subs)
@@ -186,19 +186,17 @@ Section MinBFTrw1.
     forall r s subs subs',
       ~ In MAINname (get_names subs)
       -> similar_subs subs subs'
-      -> update_subs
+      -> update_subs_decr
            (MinBFTlocalSys_newP r s subs)
            subs'
          = MinBFTlocalSys_newP r s subs'.
   Proof.
-    introv ni sim; unfold update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
+    introv ni sim; unfold update_subs_decr, update_subs, remove_subs, MinBFTlocalSys_newP; simpl.
     autorewrite with comp; simpl.
-    applydup similar_subs_preserves_get_names in sim as eqn.
     rewrite (remove_names_cons
-               (get_names subs')
+               (get_names subs)
                (MkPProc MAINname (MinBFT_replicaSM_new r s))
                (incr_n_procs subs)); simpl.
-    rewrite <- eqn.
     dest_cases w;[].
     rewrite remove_names_incr_n_procs.
     autorewrite with comp; simpl; tcsp.
@@ -208,7 +206,7 @@ Section MinBFTrw1.
     forall r s r' s' subs subs',
       ~ In MAINname (get_names subs)
       -> similar_subs subs subs'
-      -> replace_name (MinBFT_replicaSM_new r s) (update_subs (MinBFTlocalSys_newP r' s' subs) subs')
+      -> replace_name (MinBFT_replicaSM_new r s) (update_subs_decr (MinBFTlocalSys_newP r' s' subs) subs')
          = MinBFTlocalSys_newP r s subs'.
   Proof.
     introv ni sim.

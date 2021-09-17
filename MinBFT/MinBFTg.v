@@ -192,7 +192,7 @@ Section MinBFTg.
   | MinBFT_accept  (a : Accept)
   | MinBFT_debug   (s : String.string).
 
-  Global Instance MinBFT_I_Msg : Msg := MkMsg MinBFT_msg.
+  Global Instance MinBFT_I_Msg : Msg := MkMsg MinBFT_msg (MinBFT_debug "").
 
   Definition MinBFTmsg2status (m : MinBFT_msg) : msg_status :=
     match m with
@@ -797,7 +797,7 @@ Section MinBFTg.
   Definition LOGname : CompName := MkCN "LOG" 0 false.
 
   Definition LOG_update : M_Update 0 LOGname _ :=
-    fun (l : LOG_state) (m : LOG_input_interface) =>
+    fun (l : LOG_state) t (m : LOG_input_interface) =>
       interp_s_proc
         (match m with
          | log_new_prepare_log_in p =>
@@ -828,11 +828,11 @@ Section MinBFTg.
     | _ => d tt
     end.
 
-  Definition call_create_ui {A} (m : View * Request * nat * nat) (d : unit -> Proc A) (f : UI -> Proc A) :=
-    (USIGname [C] (create_ui_in m))
+  Definition call_create_ui {A} t (m : View * Request * nat * nat) (d : unit -> Proc A) (f : UI -> Proc A) :=
+    (USIGname [C] (create_ui_in m) @ t)
       [>>=] on_create_ui_out f d.
 
-  Notation "a >>cui>>=( d ) f" := (call_create_ui a d f) (at level 80, right associativity).
+  Notation "a >>cui>>=( t , d ) f" := (call_create_ui t a d f) (at level 80, right associativity).
 
   Definition if_true_verify_ui_out {A} (f d : unit -> A) (out : USIG_output_interface) : A :=
     match out with
@@ -840,11 +840,11 @@ Section MinBFTg.
     | _ => d tt
     end.
 
-  Definition call_verify_ui {A} (mui : View * Request * UI) (d f : unit -> Proc A) :=
-    (USIGname [C] (verify_ui_in mui))
+  Definition call_verify_ui {A} t (mui : View * Request * UI) (d f : unit -> Proc A) :=
+    (USIGname [C] (verify_ui_in mui) @ t)
       [>>=] if_true_verify_ui_out f d.
 
-  Notation " a >>vui>>=( d ) f" := (call_verify_ui a d f) (at level 80, right associativity).
+  Notation " a >>vui>>=( t , d ) f" := (call_verify_ui t a d f) (at level 80, right associativity).
 
   Definition on_log_out {A} (d f : unit -> A) (out : LOG_output_interface) : A :=
     match out with
@@ -852,11 +852,11 @@ Section MinBFTg.
     | log_out false => f tt
     end.
 
-  Definition call_prepare_already_in_log {A} (p : Prepare) (d f : unit -> Proc A) : Proc A :=
-    (LOGname [C] (prepare_already_in_log_in p))
+  Definition call_prepare_already_in_log {A} t (p : Prepare) (d f : unit -> Proc A) : Proc A :=
+    (LOGname [C] (prepare_already_in_log_in p) @ t)
       [>>=] on_log_out d f.
 
-  Notation " a >>pil>>=( d ) f" := (call_prepare_already_in_log a d f) (at level 80, right associativity).
+  Notation " a >>pil>>=( t , d ) f" := (call_prepare_already_in_log t a d f) (at level 80, right associativity).
 
 
   Definition on_log_out_bool {A} (f : bool -> A) (out : LOG_output_interface) : A :=
@@ -864,31 +864,31 @@ Section MinBFTg.
     | log_out b  => f b
     end.
 
-  Definition call_prepare_already_in_log_bool {A} (p : Prepare) (f : bool -> Proc A) : Proc A :=
-    (LOGname [C] (prepare_already_in_log_in p))
+  Definition call_prepare_already_in_log_bool {A} t (p : Prepare) (f : bool -> Proc A) : Proc A :=
+    (LOGname [C] (prepare_already_in_log_in p) @ t)
       [>>=] on_log_out_bool f.
 
-  Notation " a >>bpil>>= f" := (call_prepare_already_in_log_bool a f) (at level 80, right associativity).
+  Notation " a >>bpil>>=( t ) f" := (call_prepare_already_in_log_bool t a f) (at level 80, right associativity).
 
 
-  Definition call_is_committed {A} (c : Commit) (d f : unit -> Proc A) : Proc A :=
-    (LOGname [C] (is_committed_in c))
+  Definition call_is_committed {A} t (c : Commit) (d f : unit -> Proc A) : Proc A :=
+    (LOGname [C] (is_committed_in c) @ t)
       [>>=] on_log_out f d.
 
-  Notation " a >>ic>>=( d ) f" := (call_is_committed a d f) (at level 80, right associativity).
+  Notation " a >>ic>>=( t , d ) f" := (call_is_committed t a d f) (at level 80, right associativity).
 
 
-  Definition call_log_prepare {A} (p : Prepare) (f : unit -> Proc A) : Proc A :=
-    (LOGname [C] (log_new_prepare_log_in p))
+  Definition call_log_prepare {A} t (p : Prepare) (f : unit -> Proc A) : Proc A :=
+    (LOGname [C] (log_new_prepare_log_in p) @ t)
       [>>=] fun _ => f tt.
 
-  Notation " a >>lp>>= f" := (call_log_prepare a f) (at level 80, right associativity).
+  Notation " a >>lp>>=( t ) f" := (call_log_prepare t a f) (at level 80, right associativity).
 
-  Definition call_log_commit {A} (c : Commit) (f : unit -> Proc A) : Proc A :=
-    (LOGname [C] (log_new_commit_log_in c))
+  Definition call_log_commit {A} t (c : Commit) (f : unit -> Proc A) : Proc A :=
+    (LOGname [C] (log_new_commit_log_in c) @ t)
       [>>=] fun _ => f tt.
 
-  Notation " a >>lc>>= f" := (call_log_commit a f) (at level 80, right associativity).
+  Notation " a >>lc>>=( t ) f" := (call_log_commit t a f) (at level 80, right associativity).
 
   Definition on_data_message {A} (m : MinBFT_msg) (d : unit -> Proc A) (f : Request -> Proc A) : Proc A :=
     match m with
@@ -1184,7 +1184,7 @@ Section MinBFTg.
   (* handle Request *)
   Definition handle_request (slf : Rep) : UProc MAINname _ :=
     (* in case M_Update 0 _ := is output type it complains that "The term "m" has type "cio_I" while it is expected to have type "data_message"." *)
-    fun state m =>
+    fun state t m =>
       let keys  := local_keys state in
       let cview := current_view state in
       let cc    := current_counter state in
@@ -1196,13 +1196,13 @@ Section MinBFTg.
       let state1 := start_processing m state in
 
       (* create_UI and update of the current state *)
-      (cview,m,cid0,S cc) >>cui>>=(fun _ => [R](state1, send_debugs "could not create UI" slf)) fun ui =>
+      (cview,m,cid0,S cc) >>cui>>=(t , fun _ => [R](state1, send_debugs "could not create UI" slf)) fun ui =>
 
       (* create prepare *)
       let p := mk_auth_prepare cview m ui in
 
       (* we log this prepare *)
-      (LOGname [C] (log_new_prepare_log_in p)) [>>=] fun _ =>
+      (LOGname [C] (log_new_prepare_log_in p) @ t) [>>=] fun _ =>
 
       (* increment local copy of counter *)
       let state2 := increment_current_counter state1 in
@@ -1215,7 +1215,7 @@ Section MinBFTg.
 
   Definition handle_prepare (slf : Rep) : UProc MAINname _ :=
     (* this one compiles Update MAIN_state Prepare DirectedMsgs := *)
-    fun state m =>
+    fun state t m =>
       let keys  := local_keys state in
       let cview := current_view state in
       let cc    := current_counter state in
@@ -1229,28 +1229,28 @@ Section MinBFTg.
       let v  := prepare2view p in
       let r  := prepare2request p in
       let ui := prepare2ui p in
-      (v,r,ui) >>vui>>=(fun _ => [R] (state2, send_debugs "could not verify UI" slf)) fun _ =>
+      (v,r,ui) >>vui>>=(t , fun _ => [R] (state2, send_debugs "could not verify UI" slf)) fun _ =>
 
       (* we check if we already received this prepare *)
-      p >>pil>>=(fun _ => [R] (state2, send_debugs "already received this prepare" slf)) fun _ =>
+      p >>pil>>=(t , fun _ => [R] (state2, send_debugs "already received this prepare" slf)) fun _ =>
 
       (* we log this prepare *)
-      p >>lp>>= fun _ =>
+      p >>lp>>=(t) fun _ =>
 
       (* create_UI and update of the current state *)
-      (v,r,cid0,S cc) >>cui>>=(fun _ => [R] (state2, send_debugs "could not create UI" slf)) fun ui =>
+      (v,r,cid0,S cc) >>cui>>=(t , fun _ => [R] (state2, send_debugs "could not create UI" slf)) fun ui =>
 
       (* increment local copy of counter *)
       let state3 := increment_current_counter state2 in
 
       (* store the commit we created in the log and update replica's state *)
       let comm := mk_auth_commit cview (prepare2request p) (prepare2ui p) ui in
-      comm >>lc>>= fun _ =>
+      comm >>lc>>=(t) fun _ =>
 
       let out := [broadcast2others slf (send_commit comm)] in
 
       (* is committed *)
-      comm>>ic>>=(fun _ => [R] (state3, send_debugs "not committed" slf ++ out)) fun _ =>
+      comm>>ic>>=(t , fun _ => [R] (state3, send_debugs "not committed" slf ++ out)) fun _ =>
 
       let acc := accept (commit2request comm) (commit2counter_i comm) in
       let state4 := update_latest_executed (commit2request comm) state3 in
@@ -1305,14 +1305,14 @@ Section MinBFTg.
       slf.
 
   Definition handle_commit (slf : Rep) : UProc MAINname _ :=
-    fun state m =>
+    fun state t m =>
       let keys  := local_keys state in
       let cview := current_view state in
       let cc    := current_counter state in
 
       m >>oc>>=(fun _ => [R] (state,[])) fun c =>
       let p := commit2prepare c in
-      p >>bpil>>= fun pil =>
+      p >>bpil>>=(t) fun pil =>
       if invalid_commit slf keys cview c pil state then [R] (state, send_debug_valid_commit slf keys cview c pil state) else
 
       let v  := commit2view c in
@@ -1321,10 +1321,10 @@ Section MinBFTg.
       let uj := commit2ui_j c in
 
       (* we verify ui_i *)
-      (v,r,ui) >>vui>>=(fun _ => [R] (state, send_debugs "bad primary ui" slf)) fun _ =>
+      (v,r,ui) >>vui>>=(t , fun _ => [R] (state, send_debugs "bad primary ui" slf)) fun _ =>
 
       (* we verify ui_j *)
-      (v,r,uj) >>vui>>=(fun _ => [R] (state, send_debugs "bad self ui" slf)) fun _ =>
+      (v,r,uj) >>vui>>=(t , fun _ => [R] (state, send_debugs "bad self ui" slf)) fun _ =>
 
       let state1 := update_highest_received_counter (commit2ui_j c) state in
 
@@ -1334,27 +1334,27 @@ Section MinBFTg.
       let state3 := update_highest_received_counter (commit2ui_i c) state2 in
 
       (* if the received commit doesn't match an entry in the log we have to send our commit *)
-      (p >>pil>>=(fun _ => [R] (state3, [(*send_debug "prepare corresponding to commit already in log" slf*)]))
+      (p >>pil>>=(t , fun _ => [R] (state3, [(*send_debug "prepare corresponding to commit already in log" slf*)]))
       (fun _ =>
         (* create_UI and update of the current state *)
-        (v,r,cid0,S cc) >>cui>>=(fun _ => [R] (state3, send_debugs "couldn't generate commit ui" slf)) fun ui =>
+        (v,r,cid0,S cc) >>cui>>=(t , fun _ => [R] (state3, send_debugs "couldn't generate commit ui" slf)) fun ui =>
 
         (* increment local copy of counter *)
         let state4 := increment_current_counter state3 in
 
         (* store the commit we created in the log and update replica's state *)
         let comm := mk_my_commit c ui in
-        comm >>lc>>= fun _ =>
+        comm >>lc>>=(t) fun _ =>
 
         (* we broadcast the commit message to all replicas *)
         [R] (state4, [broadcast2others slf (send_commit comm)])
       )) [>>>=] fun state4 out =>
 
       (* we log this commit *)
-      c >>lc>>= fun _ =>
+      c >>lc>>=(t) fun _ =>
 
       (* is committed *)
-      c>>ic>>=(fun _ => [R] (state4, send_debugs "not committed" slf ++ out)) fun _ =>
+      c>>ic>>=(t , fun _ => [R] (state4, send_debugs "not committed" slf ++ out)) fun _ =>
 
       let acc := accept (commit2request c) (commit2counter_i c) in
       let state5 := update_latest_executed (commit2request c) state4 in
@@ -1366,7 +1366,7 @@ Section MinBFTg.
 
 
   Definition handle_accept (slf : Rep) : UProc MAINname MAIN_state :=
-    fun state m =>
+    fun state t m =>
       let keys  := local_keys state in
       let cview := current_view state in
       m >>oacc>>=(fun _ => [R] (state,[]))  fun a =>
@@ -1375,24 +1375,24 @@ Section MinBFTg.
 
 
   Definition handle_reply (slf : Rep) : UProc MAINname MAIN_state :=
-    fun state m =>
+    fun state t m =>
       [R] (state, []).
 
   Definition handle_debug (slf : Rep) : UProc MAINname MAIN_state :=
-    fun state m =>
+    fun state t m =>
       [R] (state, []).
 
 
   Definition MAIN_update (slf : Rep) : M_Update 1 MAINname _ :=
-    fun (s : MAIN_state) m =>
+    fun (s : MAIN_state) t m =>
       interp_s_proc
         (match m with
-         | MinBFT_request _ => handle_request slf s m
-         | MinBFT_prepare _ => handle_prepare slf s m
-         | MinBFT_commit  _ => handle_commit  slf s m
-         | MinBFT_accept  _ => handle_accept  slf s m
-         | MinBFT_reply   _ => handle_reply   slf s m
-         | MinBFT_debug   _ => handle_debug   slf s m
+         | MinBFT_request _ => handle_request slf s t m
+         | MinBFT_prepare _ => handle_prepare slf s t m
+         | MinBFT_commit  _ => handle_commit  slf s t m
+         | MinBFT_accept  _ => handle_accept  slf s t m
+         | MinBFT_reply   _ => handle_reply   slf s t m
+         | MinBFT_debug   _ => handle_debug   slf s t m
          end).
 
   Definition MAIN_comp (r : Rep) : n_proc 2 MAINname :=

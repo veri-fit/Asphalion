@@ -10,7 +10,7 @@ Inductive exmsg :=
 
 Global Instance EX1Node : Node := MkNode nat deq_nat.
 Global Instance EX1Key : Key := MkKey nat nat.
-Global Instance EX1Msg : Msg := MkMsg exmsg.
+Global Instance EX1Msg : Msg := MkMsg exmsg (TOT 0).
 
 Definition bstatefun (cn : CompName) : Type :=
   if String.string_dec (comp_name_kind cn) "STATE" then nat else unit.
@@ -26,7 +26,7 @@ Global Instance EX1trustedStateFun : trustedStateFun := MkTrustedStateFun (fun _
 Definition STATEname : CompName := MkCN "STATE" 0 true.
 
 Definition STATEupdate : M_Update 0 STATEname _ :=
-  fun (s : nat) i =>
+  fun (s : nat) t i =>
     interp_s_proc
       ([R] (s + i, s + i)).
 
@@ -39,9 +39,9 @@ Definition STATE : n_proc _ _ :=
 Definition OP1name : CompName := MkCN "OP" 1 false.
 
 Definition OP1update : M_Update 1 OP1name _ :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
-      ((STATEname [C] i)
+      ((STATEname [C] i @ t)
        [>>=] fun out =>
        [R] (tt, out)).
 
@@ -54,11 +54,11 @@ Definition OP1 : n_proc _ _ :=
 Definition OP2name : CompName := MkCN "OP" 2 false.
 
 Definition OP2update : M_Update 1 OP2name _ :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
-      ((STATEname [C] i)
+      ((STATEname [C] i @ t)
        [>>=] fun _ =>
-       (STATEname [C] i)
+       (STATEname [C] i @ t)
        [>>=] fun out =>
        [R] (tt, out)).
 
@@ -71,11 +71,11 @@ Definition OP2 : n_proc _ _ :=
 Definition MAINname := msg_comp_name 0.
 
 Definition MAINupdate : M_Update 2 MAINname _ :=
-  fun s i =>
+  fun s t i =>
     interp_s_proc
       ((match i with
-        | ADD1 n => (OP1name [C] n)
-        | ADD2 n => (OP2name [C] n)
+        | ADD1 n => (OP1name [C] n @ t)
+        | ADD2 n => (OP2name [C] n @ t)
         | TOT  n => [R] n
         end) [>>=] (fun out => [R] (tt, [MkDMsg (TOT out) [] ('0)]))).
 
@@ -96,5 +96,5 @@ Definition progs : n_procs _ :=
 Definition ls : LocalSystem 3 0 := progs.
 
 
-Definition test1 := call_procs_out ls MAINname [ADD1 2, ADD2 3] (ADD1 1).
+Definition test1 := call_procs_out ls MAINname [(pdt0,ADD1 2), (pdt0,ADD2 3)] pdt0 (ADD1 1).
 Eval compute in test1.

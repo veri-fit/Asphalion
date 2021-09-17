@@ -112,25 +112,25 @@ Section PBFTlearns_or_knows_pl.
   Definition knows0
              {eo : EventOrdering}
              (e : Event)
-             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
-    @knows PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
+             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
+    @knows PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
 
   Definition knew0
              {eo : EventOrdering}
              (e : Event)
-             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
-    @knew PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
+             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
+    @knew PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
 
   Definition learns0
              {eo : EventOrdering}
              (e : Event)
-             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
-    @learns PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok PBFT_I_ContainedAuthData DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
+             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
+    @learns PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok PBFT_I_ContainedAuthData DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
 
   Definition learned0
              {eo : EventOrdering}
              (e : Event)
-             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
-    @learned PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok PBFT_I_ContainedAuthData DTimeContextQ PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
+             (d : @lak_data PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl) :=
+    @learned PBFT_I_Data PBFT_I_Node PBFT_I_Key PBFT_I_Msg PBFT_I_Quorum PBFT_I_AuthTok PBFT_I_ContainedAuthData DTimeContextN PBFT_I_IOTrustedFun PBFT_I_SysOutput 0 PBFT_I_LearnAndKnow_pl eo e d.
 
 End PBFTlearns_or_knows_pl.

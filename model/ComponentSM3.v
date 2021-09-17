@@ -40,7 +40,7 @@ Section ComponentSM3.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (s : tsf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+      exists (s : tsf (pre2trusted cn)) (l : list (PosDTime * cio_I (fio (pre2trusted cn)))),
         M_state_ls_on_inputs (sm2ls sm) (pre2trusted cn) l = Some s
         /\ M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s.
   Proof.
@@ -161,7 +161,7 @@ Section ComponentSM3.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (s : sf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+      exists (s : sf (pre2trusted cn)) (l : list (PosDTime * cio_I (fio (pre2trusted cn)))),
         M_state_ls_on_inputs (sm2ls sm) (pre2trusted cn) l = Some s
         /\ M_byz_state_ls_on_this_one_event ls e (pre2trusted cn) = Some s.
   Proof.
@@ -169,7 +169,7 @@ Section ComponentSM3.
     unfold M_byz_state_ls_on_this_one_event.
     unfold M_byz_run_ls_on_this_one_event.
     unfold M_byz_run_ls_on_one_event.
-    pose proof (M_byz_compose_gen (msg_comp_name S) [trigger e] ls sm) as q.
+    pose proof (M_byz_compose_gen (msg_comp_name S) [(time e, trigger e)] ls sm) as q.
     repeat (autodimp q hyp); exrepnd.
     simpl in *.
     unfold event2out, LocalSystem in *; simpl in *; rewrite <- q0.
@@ -223,10 +223,10 @@ Section ComponentSM3.
   Hint Resolve sub_procs_trans : comp.
 
   Lemma M_byz_run_ls_on_input_preserves_subs2 :
-    forall cn i {n} (ls1 ls2 : n_procs n) o,
+    forall cn t i {n} (ls1 ls2 : n_procs n) o,
       wf_procs ls1
       -> are_procs_n_procs ls1
-      -> M_byz_run_ls_on_input ls1 cn i = (ls2, o)
+      -> M_byz_run_ls_on_input ls1 cn t i = (ls2, o)
       -> (wf_procs ls2
           /\ are_procs_n_procs ls2
           /\ sub_procs ls2 ls1).
@@ -247,6 +247,7 @@ Section ComponentSM3.
       unfold M_run_ls_on_trusted in run.
       pose proof (M_run_ls_on_input_preserves_subs
                     (pre2trusted (it_name i))
+                    t
                     (it_input i)
                     (procs2byz ls1) ls2 o) as q.
       repeat (autodimp q hyp); eauto 3 with comp; repnd; dands; tcsp;
@@ -265,12 +266,12 @@ Section ComponentSM3.
           /\ are_procs_n_procs ls2
           /\ sub_procs ls2 ls1).
   Proof.
-    induction l; introv wf aps run; simpl in *; ginv; tcsp.
+    induction l; introv wf aps run; repnd; simpl in *; ginv; tcsp.
 
     { subst; dands; eauto 3 with comp. }
 
-    remember (M_byz_run_ls_on_input ls1 cn a) as z; symmetry in Heqz; repnd; simpl in *.
-    pose proof (M_byz_run_ls_on_input_preserves_subs2 cn a ls1 z0 z) as w.
+    remember (M_byz_run_ls_on_input ls1 cn a0 a) as z; symmetry in Heqz; repnd; simpl in *.
+    pose proof (M_byz_run_ls_on_input_preserves_subs2 cn a0 a ls1 z0 z) as w.
     repeat (autodimp w hyp); repnd.
     apply IHl in run; auto; repnd; dands; eauto 3 with comp.
   Qed.
@@ -323,7 +324,7 @@ Section ComponentSM3.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (s1 s2 : sf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+      exists (s1 s2 : sf (pre2trusted cn)) (l : list (PosDTime * cio_I (fio (pre2trusted cn)))),
         M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s1
         /\ M_byz_state_ls_on_event ls e (pre2trusted cn) = Some s2
         /\ sm2state (snd (run_sm_on_inputs (update_state_m sm s1) l [])) = s2.
@@ -382,7 +383,7 @@ Section ComponentSM3.
              {n} {pcn}
              (s  : tsf pcn)
              (sm : n_proc n (pre2trusted pcn))
-             (l  : list (cio_I (fio (pre2trusted pcn))))
+             (l  : list (PosDTime * cio_I (fio (pre2trusted pcn))))
     : tsf pcn :=
     sm2state (snd (run_sm_on_inputs (update_state_m sm s) l [])).
 
@@ -767,11 +768,11 @@ Section ComponentSM3.
   Qed.*)
 
   Lemma is_proc_n_proc_at_implies_update_some :
-    forall (tsm : trustedSM) i subs1 subs2 sop out,
+    forall (tsm : trustedSM) t i subs1 subs2 sop out,
       is_proc_n_proc_at (tsm_sm tsm)
-      -> sm_update (tsm_sm tsm) (state_of_trusted tsm) i subs1
+      -> sm_update (tsm_sm tsm) (state_of_trusted tsm) t i subs1
          = (subs2, (sop, out))
-      -> exists s, sop = Some s.
+      -> exists s, sop = hsome s.
   Proof.
     introv isp upd.
     unfold state_of_trusted in upd; simpl in upd.
@@ -781,7 +782,7 @@ Section ComponentSM3.
     unfold proc2upd in *; simpl in *.
     unfold interp_s_proc, to_M_n_some_state in *; simpl in *.
     unfold bind_pair, bind in *; simpl in *.
-    remember (interp_proc (p (sm_state (tsm_sm tsm)) i) subs1) as w; repnd; simpl in *.
+    remember (interp_proc (p (sm_state (tsm_sm tsm)) t i) subs1) as w; repnd; simpl in *.
     inversion upd; subst; eauto.
   Qed.
 
@@ -901,7 +902,7 @@ Section ComponentSM3.
       (* Regarding [sm2level sm = 0], see comments above [run_subs] *)
       -> sm2level sm = 0
       ->
-      exists (s1 s2 : tsf (pre2trusted cn)) (l : list (cio_I (fio (pre2trusted cn)))),
+      exists (s1 s2 : tsf (pre2trusted cn)) (l : list (PosDTime * cio_I (fio (pre2trusted cn)))),
         M_byz_state_ls_before_event ls e (pre2trusted cn) = Some s1
         /\ M_byz_state_ls_on_event ls e (pre2trusted cn) = Some s2
         /\ trusted_run_sm_on_inputs s1 sm l = s2.
